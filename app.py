@@ -28,7 +28,7 @@ def _strip_parentheses(text: str) -> str:
 def create_app() -> Flask:
     app = Flask(__name__)
 
-    @app.route("/", methods=["GET"])  # 메인 페이지: 폼 + 결과
+    @app.route("/", methods=["GET"])
     def index():
         settings = load_settings()
         days_param = request.args.get("days", "").strip()
@@ -36,7 +36,7 @@ def create_app() -> Flask:
         filter_mode = request.args.get("filter_mode", "agency").strip().lower()  # 'agency' | 'internal'
         did_fetch = request.args.get("submit", "") == "1"
 
-        # 기준일 처리 (기본: 오늘)
+        # 기준일(없으면 오늘)
         if base_date_str:
             try:
                 base_dt = date.fromisoformat(base_date_str)
@@ -56,7 +56,7 @@ def create_app() -> Flask:
             selected_days = _parse_days(days_param)
             ordered_days = sorted(selected_days)
 
-            # 날짜 매핑 생성 (YYYY-MM-DD 및 요일 포함 라벨)
+            # 날짜 매핑 (YYYY-MM-DD 및 요일)
             weekday_kr = ["월", "화", "수", "목", "금", "토", "일"]
             for d in ordered_days:
                 cur = base_dt + timedelta(days=d)
@@ -64,7 +64,6 @@ def create_app() -> Flask:
                 day_to_date_label[d] = f"{cur.isoformat()}({weekday_kr[cur.weekday()]})"
 
             try:
-                # 날짜별 그룹핑 (필터 모드 적용)
                 grouped_by_date = fetch_grouped_messages_by_date(
                     selected_days=selected_days, settings=settings, filter_mode=filter_mode
                 )
@@ -74,14 +73,22 @@ def create_app() -> Flask:
             else:
                 error = None
 
-            # 복붙 포맷: 날짜(요일) 한 줄 → <작업명> → 상호들
-            # 작업 블록 사이 1줄, 날짜 블록 사이 2줄
+            # 복붙 포맷:
+            # 날짜(요일)
+            # <작업명>
+            # 상호1
+            # 상호2
+            #
+            # <작업명2>
+            # ...
+            #
+            #
+            # 날짜(요일)
+            # ...
             for agency, by_day in grouped_by_date.items():
                 parts: List[str] = []
                 for d in sorted(by_day.keys()):
-                    # 날짜 헤더
                     parts.append(day_to_date_label.get(d, f"+{d}"))
-                    # 작업명과 상호들
                     for task, names in by_day[d].items():
                         if not names:
                             continue
@@ -89,9 +96,9 @@ def create_app() -> Flask:
                         parts.append(f"<{display_task}>")
                         for name in names:
                             parts.append(str(name).strip())
-                        # 작업 블록 사이: 1줄 공백
+                        # 작업 블록 사이 1줄 공백
                         parts.append("")
-                    # 날짜 블록 사이: 추가로 1줄 더 공백(= 총 2줄)
+                    # 날짜 블록 사이 추가 1줄 공백(= 총 2줄)
                     parts.append("")
                 agency_to_message[agency] = "\n".join(parts).rstrip()
 
