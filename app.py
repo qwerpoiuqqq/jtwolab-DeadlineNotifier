@@ -122,7 +122,7 @@ def create_app() -> Flask:
 		return jsonify(report)
 
 	return app
-
+app = create_app()
 
 def _parse_days(days_param: str) -> List[int]:
 	if not days_param:
