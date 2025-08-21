@@ -6,84 +6,52 @@
     <title>마감 안내 생성기</title>
     <style>
       :root{
-        --bg:#0f172a;        /* slate-900 */
-        --panel:#111827;     /* gray-900 */
-        --muted:#94a3b8;     /* slate-400 */
-        --text:#e5e7eb;      /* gray-200 */
-        --accent:#22d3ee;    /* cyan-400 */
-        --accent-2:#06b6d4;  /* cyan-500 */
-        --border:#1f2937;    /* gray-800 */
-        --success:#16a34a;   /* green-600 */
+        --bg:#0b1220; --panel:#0f172a; --muted:#9aa6b2; --text:#e7ecef;
+        --line:#1e293b; --accent:#0ea5e9; --btn:#111827;
       }
       html,body{height:100%}
-      body{
-        margin:0; background:linear-gradient(180deg,#0b1224, #0f172a 30%);
-        color:var(--text); font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Noto Sans KR", Arial, "Apple SD Gothic Neo";
-      }
-      .container{ max-width:1100px; margin:0 auto; padding:24px; }
-      .header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
-      .brand{ display:flex; align-items:center; gap:10px; }
-      .brand-badge{ width:28px; height:28px; border-radius:8px; background:linear-gradient(135deg,#06b6d4,#22d3ee); box-shadow:0 0 24px rgba(6,182,212,.35); }
-      .brand-title{ font-weight:800; letter-spacing:.2px; font-size:18px; }
-      .panel{ background:rgba(17,24,39,.75); backdrop-filter: blur(8px); border:1px solid var(--border); border-radius:14px; padding:16px; }
-      .row{ display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
-      .row + .row{ margin-top:12px; }
-      label{ font-size:12px; color:var(--muted); display:block; margin-bottom:6px; }
-      input[type="text"],input[type="date"],select{
-        background:#0b1020; color:var(--text); border:1px solid var(--border); border-radius:10px;
-        padding:10px 12px; min-width:220px; outline:none;
-      }
-      input::placeholder{ color:#64748b; }
-      .btn{
-        border:none; padding:10px 14px; border-radius:10px; cursor:pointer; font-weight:600;
-        color:#001017; background:linear-gradient(135deg,var(--accent),var(--accent-2));
-        box-shadow:0 8px 22px rgba(34,211,238,.18); transition:.2s;
-      }
-      .btn:hover{ transform:translateY(-1px); box-shadow:0 12px 26px rgba(34,211,238,.25); }
-      .chips{ display:flex; gap:8px; flex-wrap:wrap; }
-      .chip{ font-size:12px; color:var(--text); border:1px solid var(--border); background:#0b1020; padding:6px 10px; border-radius:999px; cursor:pointer; }
-      .muted{ color:var(--muted); }
-      .summary{ display:flex; gap:10px; flex-wrap:wrap; }
-      .pill{ background:#0b1020; border:1px solid var(--border); color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
-      .agency{ border:1px solid var(--border); border-radius:14px; padding:14px; background:rgba(9,12,24,.7); }
-      .agency-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-      .agency-name{ font-weight:700; font-size:15px; letter-spacing:.3px; }
-      .copy-area{ background:#0b1020; border:1px dashed #1b2543; padding:12px; border-radius:10px; white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New"; color:#dbeafe; }
-      .grid{ display:grid; gap:12px; }
-      @media(min-width:900px){ .grid{ grid-template-columns:1fr 1fr; } }
-
+      body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,"Noto Sans KR",Arial}
+      .container{max-width:980px;margin:0 auto;padding:20px}
+      .hstack{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+      .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+      label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+      input[type="text"],input[type="date"],select{background:#0a1222;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:220px}
+      .btn{border:1px solid var(--line);background:var(--btn);color:var(--text);padding:10px 14px;border-radius:10px;cursor:pointer}
+      .btn-primary{background:#0c2238;border-color:#14324f;color:#dff3ff}
+      .chips{display:flex;gap:8px;flex-wrap:wrap}
+      .chip{border:1px solid var(--line);background:#0a1222;color:var(--text);padding:6px 10px;border-radius:999px;cursor:pointer;font-size:12px}
+      .muted{color:var(--muted)}
+      .pill{border:1px solid var(--line);background:#0a1222;color:var(--text);padding:6px 10px;border-radius:999px;font-size:12px}
+      .grid{display:grid;gap:12px}
+      @media(min-width:900px){.grid{grid-template-columns:1fr 1fr}}
+      .card{background:#0a1222;border:1px solid var(--line);border-radius:12px;padding:12px}
+      .card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+      .name{font-weight:700}
+      .copy{white-space:pre-wrap;background:#07101e;border:1px dashed #132039;border-radius:10px;padding:10px;font-family:ui-monospace,Menlo,Consolas,"Courier New";color:#e9f2ff}
       /* overlay spinner */
-      .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(2,6,23,.6); backdrop-filter: blur(3px); z-index:50; }
-      .spinner{ width:42px; height:42px; border:3px solid rgba(34,211,238,.25); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; margin-bottom:12px; }
-      @keyframes spin{ to{ transform:rotate(360deg); } }
-      .toast{ position:fixed; right:16px; bottom:16px; background:#07201e; color:#bff1e8; border:1px solid #0d362f; border-radius:10px; padding:10px 12px; display:none; z-index:60; }
-      .toolbar{ display:flex; gap:8px; align-items:center; }
-      .btn-secondary{ background:#0b1020; color:var(--text); border:1px solid var(--border); }
-      .btn-secondary:hover{ background:#0e162e; }
+      .overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(1,6,20,.55);backdrop-filter:blur(2px);z-index:50}
+      .spin{width:36px;height:36px;border:3px solid rgba(14,165,233,.25);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin-bottom:10px}
+      @keyframes spin{to{transform:rotate(360deg)}}
+      .center{text-align:center}
+      .toast{position:fixed;right:16px;bottom:16px;background:#06201a;border:1px solid #0d3a2f;color:#bff4e8;padding:10px 12px;border-radius:10px;display:none;z-index:60}
+      hr{border:none;border-top:1px solid var(--line);margin:12px 0}
     </style>
   </head>
   <body>
     <div class="container">
-      <div class="header">
-        <div class="brand">
-          <div class="brand-badge"></div>
-          <div class="brand-title">마감 안내 생성기</div>
-        </div>
-        <div class="muted">Render 배포 · 외부 공유용</div>
-      </div>
 
-      <!-- 컨트롤 패널 -->
-      <div class="panel" style="margin-bottom:14px;">
-        <form id="query-form" method="get" action="/">
+      <!-- 컨트롤 -->
+      <div class="panel" style="margin-bottom:12px">
+        <form id="q" method="get" action="/">
           <input type="hidden" name="submit" value="1" />
-          <div class="row">
+          <div class="hstack">
             <div>
               <label>기준일</label>
               <input type="date" name="base_date" value="{{ base_date_str }}" />
             </div>
             <div>
-              <label>만료일(쉼표로 복수)</label>
-              <input type="text" name="days" value="{{ days_param }}" placeholder="예: 0,1,2,3" />
+              <label>만료일(쉼표)</label>
+              <input type="text" name="days" value="{{ days_param }}" placeholder="예: 0,1,2" />
             </div>
             <div>
               <label>보기</label>
@@ -92,32 +60,30 @@
                 <option value="internal" {% if filter_mode=='internal' %}selected{% endif %}>내부 진행건</option>
               </select>
             </div>
-            <div class="toolbar" style="margin-left:auto;">
-              <button class="btn" type="submit">조회</button>
-              <button class="btn btn-secondary" type="button" id="expand-all">전체 펼치기</button>
-              <button class="btn btn-secondary" type="button" id="collapse-all">전체 접기</button>
+            <div style="margin-left:auto" class="hstack">
+              <button class="btn btn-primary" type="submit">조회</button>
+              <button class="btn" type="button" id="expand">전체 펼치기</button>
+              <button class="btn" type="button" id="collapse">전체 접기</button>
             </div>
           </div>
-          <div class="row chips">
+          <div class="hstack chips" style="margin-top:8px">
             <span class="chip" data-days="0">오늘</span>
             <span class="chip" data-days="1">1일뒤</span>
             <span class="chip" data-days="2">2일뒤</span>
-            <span class="chip" data-days="3">3일뒤</span>
-            <span class="chip" data-days="0,1,2,3">0~3일</span>
+            <span class="chip" data-days="0,1,2">0~2일</span>
           </div>
           {% if not did_fetch %}
-          <div class="row muted">조회 조건을 설정하고 ‘조회’를 누르세요. (처음 로드 시 자동 조회하지 않음)</div>
+            <div class="muted" style="margin-top:6px">조회 조건을 설정하고 ‘조회’를 누르세요. (처음 로드 시 자동 조회하지 않음)</div>
           {% endif %}
         </form>
       </div>
 
       <!-- 요약 -->
       {% if did_fetch and ordered_days %}
-      <div class="panel" style="margin-bottom:14px;">
-        <div class="summary">
-          <span class="muted">기준일</span>
-          <span class="pill">{{ base_date_str }}</span>
-          <span class="muted" style="margin-left:10px;">날짜 매핑</span>
+      <div class="panel" style="margin-bottom:12px">
+        <div class="hstack" style="flex-wrap:wrap">
+          <span class="muted">기준일</span><span class="pill">{{ base_date_str }}</span>
+          <span class="muted" style="margin-left:10px">날짜 매핑</span>
           {% for d in ordered_days %}
             <span class="pill">{{ d }}일 → {{ day_to_date_label[d] }}</span>
           {% endfor %}
@@ -130,17 +96,15 @@
         {% if grouped %}
           <div class="grid" id="results">
             {% for agency, tasks in grouped.items() %}
-              <div class="agency" data-agency-card>
-                <div class="agency-head">
-                  <div class="agency-name">[{{ agency }}]</div>
-                  <div class="toolbar">
-                    <button class="btn btn-secondary" type="button" data-toggle>접기</button>
-                    <button class="btn" type="button" onclick="copyText('copy-{{ loop.index }}')">복사</button>
+              <div class="card" data-card>
+                <div class="card-head">
+                  <div class="name">[{{ agency }}]</div>
+                  <div class="hstack">
+                    <button class="btn" type="button" data-toggle>접기</button>
+                    <button class="btn btn-primary" type="button" onclick="copyText('c{{ loop.index }}')">복사</button>
                   </div>
                 </div>
-                <div id="copy-{{ loop.index }}" class="copy-area" data-body>
-                  {{ agency_to_message[agency] }}
-                </div>
+                <div class="copy" id="c{{ loop.index }}" data-body>{{ agency_to_message[agency] }}</div>
               </div>
             {% endfor %}
           </div>
@@ -148,92 +112,62 @@
           <div class="panel muted">조건에 해당하는 항목이 없습니다.</div>
         {% endif %}
       {% endif %}
-
-      {% if error %}
-        <div class="panel" style="margin-top:14px; border-color:#7f1d1d; color:#fecaca; background:#1b0b0b;">
-          오류: {{ error }}
-        </div>
-      {% endif %}
     </div>
 
     <!-- 로딩 오버레이 -->
     <div class="overlay" id="overlay">
-      <div style="text-align:center;">
-        <div class="spinner"></div>
+      <div class="center">
+        <div class="spin"></div>
         <div class="muted">정보를 찾는 중입니다...</div>
       </div>
     </div>
 
     <!-- 토스트 -->
-    <div class="toast" id="toast">복사되었습니다. 카톡에 붙여넣기 하세요.</div>
+    <div class="toast" id="toast">복사되었습니다.</div>
 
     <script>
-      // 빠른 선택 칩
-      document.querySelectorAll('.chip').forEach(el=>{
-        el.addEventListener('click', ()=>{
-          const v = el.getAttribute('data-days');
-          const input = document.querySelector('input[name="days"]');
-          input.value = v;
-        });
-      });
+      // 칩
+      document.querySelectorAll('.chip').forEach(ch=>ch.addEventListener('click',()=>{
+        const v = ch.getAttribute('data-days');
+        document.querySelector('input[name="days"]').value = v;
+      }));
 
-      // 오버레이 스피너
-      const form = document.getElementById('query-form');
-      const overlay = document.getElementById('overlay');
+      // 오버레이
+      const form = document.getElementById('q'); const overlay = document.getElementById('overlay');
       form?.addEventListener('submit', ()=>{ overlay.style.display='flex'; });
+      window.addEventListener('pageshow', ()=>{ overlay.style.display='none'; });
 
       // 접기/펼치기
-      function toggleCard(card, force){
+      function setCard(card, open){
         const body = card.querySelector('[data-body]');
         const btn = card.querySelector('[data-toggle]');
-        const isHidden = body.style.display === 'none';
-        const nextState = (force === undefined) ? isHidden : !force;
-        body.style.display = nextState ? 'block' : 'none';
-        btn.textContent = nextState ? '접기' : '펼치기';
+        body.style.display = open ? 'block' : 'none';
+        btn.textContent = open ? '접기' : '펼치기';
       }
-      document.querySelectorAll('[data-agency-card]').forEach(card=>{
-        card.querySelector('[data-toggle]').addEventListener('click', ()=>toggleCard(card));
-      });
-      document.getElementById('expand-all')?.addEventListener('click', ()=>{
-        document.querySelectorAll('[data-agency-card]').forEach(c=>{
-          c.querySelector('[data-body]').style.display='block';
-          c.querySelector('[data-toggle]').textContent='접기';
+      document.querySelectorAll('[data-card]').forEach(card=>{
+        const btn = card.querySelector('[data-toggle]');
+        btn.addEventListener('click', ()=>{
+          const open = card.querySelector('[data-body]').style.display !== 'none';
+          setCard(card, !open);
         });
       });
-      document.getElementById('collapse-all')?.addEventListener('click', ()=>{
-        document.querySelectorAll('[data-agency-card]').forEach(c=>{
-          c.querySelector('[data-body]').style.display='none';
-          c.querySelector('[data-toggle]').textContent='펼치기';
-        });
+      document.getElementById('expand')?.addEventListener('click', ()=>{
+        document.querySelectorAll('[data-card]').forEach(c=>setCard(c,true));
+      });
+      document.getElementById('collapse')?.addEventListener('click', ()=>{
+        document.querySelectorAll('[data-card]').forEach(c=>setCard(c,false));
       });
 
       // 복사
-      function showToast(){
-        const t = document.getElementById('toast');
-        t.style.display='block';
-        setTimeout(()=>{ t.style.display='none'; }, 1400);
-      }
+      function toast(){ const t=document.getElementById('toast'); t.style.display='block'; setTimeout(()=>t.style.display='none',1200); }
       window.copyText = function(id){
-        const el = document.getElementById(id);
-        if (!el) return;
-        const text = el.innerText;
-        if (navigator.clipboard?.writeText) {
-          navigator.clipboard.writeText(text).then(showToast).catch(()=>{
-            const ta = document.createElement('textarea');
-            ta.value = text; document.body.appendChild(ta); ta.select();
-            document.execCommand('copy'); document.body.removeChild(ta);
-            showToast();
-          });
-        } else {
-          const ta = document.createElement('textarea');
-          ta.value = text; document.body.appendChild(ta); ta.select();
-          document.execCommand('copy'); document.body.removeChild(ta);
-          showToast();
-        }
-      };
-
-      // 페이지 로드 후 로딩 숨김(뒤로가기 등 브라우저 캐시 대비)
-      window.addEventListener('pageshow', ()=>{ overlay.style.display='none'; });
+        const el = document.getElementById(id); if(!el) return;
+        const tx = el.innerText;
+        (navigator.clipboard?.writeText ? navigator.clipboard.writeText(tx) : new Promise((res,rej)=>{
+          const ta=document.createElement('textarea'); ta.value=tx; document.body.appendChild(ta); ta.select();
+          document.execCommand('copy') ? res() : rej(); document.body.removeChild(ta);
+        })).then(toast).catch(toast);
+      }
     </script>
   </body>
 </html>
