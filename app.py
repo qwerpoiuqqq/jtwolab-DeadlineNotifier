@@ -1,198 +1,157 @@
-<!doctype html>
-<html lang="ko">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>마감 안내 생성기</title>
-    <style>
-      :root{
-        --bg:#ffffff;
-        --text:#1f2328;          /* neutral-900 */
-        --muted:#6b778c;         /* neutral-500 */
-        --line:#e5e7eb;          /* neutral-200 */
-        --panel:#ffffff;         /* card bg */
-        --pill:#f6f8fa;          /* subtle chip */
-        --btn:#111827;           /* dark text for primary */
-      }
-      html,body{height:100%}
-      body{
-        margin:0; background:var(--bg); color:var(--text);
-        font-family: ui-sans-serif, system-ui, "Noto Sans KR", Arial;
-        -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
-      }
-      .container{ max-width:980px; margin:0 auto; padding:24px; }
-      .title{ font-weight:800; letter-spacing:.2px; font-size:18px; margin-bottom:16px; }
+import os
+import argparse
+from typing import Dict, List
+from flask import Flask, render_template, request, jsonify
+from dotenv import load_dotenv
+from datetime import date, timedelta
+import re
 
-      /* Panel (Notion-like card) */
-      .panel{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
-      .stack{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-      .stack-right{ margin-left:auto; display:flex; gap:8px; }
+from sheet_client import (
+    fetch_grouped_messages_by_date,
+    load_settings,
+    inspect_sheets,
+    diagnose_matches,
+)
 
-      label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
-      input[type="text"],input[type="date"],select{
-        background:#fff; color:var(--text); border:1px solid var(--line); border-radius:10px;
-        padding:10px 12px; min-width:220px; outline:none;
-      }
-      input::placeholder{ color:#9da7b1; }
+# .env 로드
+load_dotenv()
 
-      .btn{ border:1px solid var(--line); background:#fff; color:var(--text); padding:10px 14px; border-radius:10px; cursor:pointer; }
-      .btn-primary{ background:#111827; color:#fff; border-color:#111827; }
 
-      .chips{ display:flex; gap:8px; flex-wrap:wrap; }
-      .chip{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; cursor:pointer; font-size:12px; }
+def _strip_parentheses(text: str) -> str:
+    """문자열에서 소괄호 내 내용을 제거한다. 예: '작업명(부가)' -> '작업명'"""
+    if not text:
+        return text
+    return re.sub(r"\s*\([^)]*\)", "", text).strip()
 
-      .muted{ color:var(--muted); }
-      .pill{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
 
-      /* Results */
-      .grid{ display:grid; gap:12px; }
-      @media(min-width:900px){ .grid{ grid-template-columns:1fr 1fr; } }
-      .card{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px; }
-      .card-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
-      .name{ font-weight:700; }
-      .copy{ white-space:pre-wrap; background:#fff; border:1px dashed var(--line); border-radius:10px; padding:10px; font-family: ui-monospace, Menlo, Consolas, "Courier New"; color:#0b0f14; }
+def create_app() -> Flask:
+    app = Flask(__name__)
 
-      /* Overlay spinner (neutral) */
-      .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.08); backdrop-filter: blur(2px); z-index:50; }
-      .spinner{ width:34px; height:34px; border:3px solid rgba(17,24,39,.18); border-top-color:#111827; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 10px; }
-      @keyframes spin{ to{ transform:rotate(360deg); } }
-      .center{ text-align:center; }
+    @app.route("/", methods=["GET"])  # 메인 페이지: 폼 + 결과
+    def index():
+        settings = load_settings()
+        days_param = request.args.get("days", "").strip()
+        base_date_str = request.args.get("base_date", "").strip()
+        filter_mode = request.args.get("filter_mode", "agency").strip().lower()  # 'agency' | 'internal'
+        did_fetch = request.args.get("submit", "") == "1"
 
-      /* Toast */
-      .toast{ position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; border:1px solid #111827; padding:10px 12px; border-radius:10px; display:none; z-index:60; }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="title">마감 안내 생성기</div>
+        # 기준일 처리 (기본: 오늘)
+        if base_date_str:
+            try:
+                base_dt = date.fromisoformat(base_date_str)
+            except ValueError:
+                base_dt = date.today()
+        else:
+            base_dt = date.today()
 
-      <!-- Controls -->
-      <div class="panel" style="margin-bottom:12px">
-        <form id="q" method="get" action="/">
-          <input type="hidden" name="submit" value="1" />
-          <div class="stack">
-            <div>
-              <label>기준일</label>
-              <input type="date" name="base_date" value="{{ base_date_str }}" />
-            </div>
-            <div>
-              <label>만료일(쉼표)</label>
-              <input type="text" name="days" value="{{ days_param }}" placeholder="예: 0,1,2" />
-            </div>
-            <div>
-              <label>보기</label>
-              <select name="filter_mode">
-                <option value="agency" {% if filter_mode!='internal' %}selected{% endif %}>대행사 발주건</option>
-                <option value="internal" {% if filter_mode=='internal' %}selected{% endif %}>내부 진행건</option>
-              </select>
-            </div>
-            <div class="stack-right">
-              <button class="btn btn-primary" type="submit">조회</button>
-              <button class="btn" type="button" id="expand">전체 펼치기</button>
-              <button class="btn" type="button" id="collapse">전체 접기</button>
-            </div>
-          </div>
-          <div class="chips" style="margin-top:8px">
-            <span class="chip" data-days="0">오늘</span>
-            <span class="chip" data-days="1">1일뒤</span>
-            <span class="chip" data-days="2">2일뒤</span>
-            <span class="chip" data-days="0,1,2">0~2일</span>
-          </div>
-          {% if not did_fetch %}
-            <div class="muted" style="margin-top:6px">조회 조건을 설정하고 ‘조회’를 누르세요. (처음 로드 시 자동 조회하지 않음)</div>
-          {% endif %}
-        </form>
-      </div>
+        ordered_days: List[int] = []
+        day_to_date: Dict[int, str] = {}
+        day_to_date_label: Dict[int, str] = {}
+        grouped_by_date: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
+        agency_to_message: Dict[str, str] = {}
+        error = None
 
-      <!-- Summary -->
-      {% if did_fetch and ordered_days %}
-      <div class="panel" style="margin-bottom:12px">
-        <div class="stack" style="flex-wrap:wrap">
-          <span class="muted">기준일</span><span class="pill">{{ base_date_str }}</span>
-          <span class="muted" style="margin-left:10px">날짜 매핑</span>
-          {% for d in ordered_days %}
-            <span class="pill">{{ d }}일 → {{ day_to_date_label[d] }}</span>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %}
+        if did_fetch:
+            selected_days = _parse_days(days_param)
+            ordered_days = sorted(selected_days)
 
-      <!-- Results -->
-      {% if did_fetch %}
-        {% if grouped %}
-          <div class="grid" id="results">
-            {% for agency, tasks in grouped.items() %}
-              <div class="card" data-card>
-                <div class="card-head">
-                  <div class="name">[{{ agency }}]</div>
-                  <div class="stack">
-                    <button class="btn" type="button" data-toggle>접기</button>
-                    <button class="btn btn-primary" type="button" onclick="copyText('c{{ loop.index }}')">복사</button>
-                  </div>
-                </div>
-                <div class="copy" id="c{{ loop.index }}" data-body>{{ agency_to_message[agency] }}</div>
-              </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <div class="panel muted">조건에 해당하는 항목이 없습니다.</div>
-        {% endif %}
-      {% endif %}
-    </div>
+            # 날짜 매핑 생성 (YYYY-MM-DD 및 요일 포함 라벨)
+            weekday_kr = ["월", "화", "수", "목", "금", "토", "일"]
+            for d in ordered_days:
+                cur = base_dt + timedelta(days=d)
+                day_to_date[d] = cur.isoformat()
+                day_to_date_label[d] = f"{cur.isoformat()}({weekday_kr[cur.weekday()]})"
 
-    <!-- Overlay spinner -->
-    <div class="overlay" id="overlay">
-      <div class="center">
-        <div class="spinner"></div>
-        <div class="muted">정보를 찾는 중입니다...</div>
-      </div>
-    </div>
+            try:
+                # 날짜별 그룹핑 (필터 모드 적용)
+                grouped_by_date = fetch_grouped_messages_by_date(
+                    selected_days=selected_days, settings=settings, filter_mode=filter_mode
+                )
+            except Exception as e:
+                grouped_by_date = {}
+                error = str(e)
+            else:
+                error = None
 
-    <!-- Toast -->
-    <div class="toast" id="toast">복사되었습니다.</div>
+            # 복붙 포맷: 날짜(요일) 한 줄 → <작업명> → 상호들 (불필요한 빈줄/공백 없음)
+            for agency, by_day in grouped_by_date.items():
+                parts: List[str] = []
+                for d in sorted(by_day.keys()):
+                    parts.append(day_to_date_label.get(d, f"+{d}"))
+                    for task, names in by_day[d].items():
+                        if not names:
+                            continue
+                        display_task = _strip_parentheses(task)
+                        parts.append(f"<{display_task}>")
+                        for name in names:
+                            parts.append(str(name).strip())
+                agency_to_message[agency] = "\n".join(parts).rstrip()
 
-    <script>
-      // 빠른 선택 칩
-      document.querySelectorAll('.chip').forEach(ch=>ch.addEventListener('click',()=>{
-        const v = ch.getAttribute('data-days');
-        document.querySelector('input[name="days"]').value = v;
-      }));
+        return render_template(
+            "index.html",
+            error=error,
+            did_fetch=did_fetch,
+            days_param=days_param,
+            base_date_str=base_date_str or base_dt.isoformat(),
+            day_to_date=day_to_date,
+            day_to_date_label=day_to_date_label,
+            ordered_days=ordered_days,
+            grouped=grouped_by_date,
+            agency_to_message=agency_to_message,
+            settings=settings,
+            filter_mode=filter_mode,
+        )
 
-      // 오버레이 표시
-      const form = document.getElementById('q'); const overlay = document.getElementById('overlay');
-      form?.addEventListener('submit', ()=>{ overlay.style.display='flex'; });
-      window.addEventListener('pageshow', ()=>{ overlay.style.display='none'; });
+    @app.route("/debug/headers")
+    def debug_headers():
+        try:
+            info = inspect_sheets()
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        return jsonify(info)
 
-      // 카드 접기/펼치기
-      function setCard(card, open){
-        const body = card.querySelector('[data-body]');
-        const btn = card.querySelector('[data-toggle]');
-        body.style.display = open ? 'block' : 'none';
-        btn.textContent = open ? '접기' : '펼치기';
-      }
-      document.querySelectorAll('[data-card]').forEach(card=>{
-        const btn = card.querySelector('[data-toggle]');
-        btn.addEventListener('click', ()=>{
-          const isOpen = card.querySelector('[data-body]').style.display !== 'none';
-          setCard(card, !isOpen);
-        });
-      });
-      document.getElementById('expand')?.addEventListener('click', ()=>{
-        document.querySelectorAll('[data-card]').forEach(c=>setCard(c,true));
-      });
-      document.getElementById('collapse')?.addEventListener('click', ()=>{
-        document.querySelectorAll('[data-card]').forEach(c=>setCard(c,false));
-      });
+    @app.route("/debug/matches")
+    def debug_matches():
+        days_param = request.args.get("days", "0").strip()
+        selected_days = _parse_days(days_param)
+        try:
+            report = diagnose_matches(selected_days)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        return jsonify(report)
 
-      // 복사 & 토스트
-      function toast(){ const t=document.getElementById('toast'); t.style.display='block'; setTimeout(()=>t.style.display='none',1200); }
-      window.copyText = function(id){
-        const el = document.getElementById(id); if(!el) return; const tx = el.innerText;
-        (navigator.clipboard?.writeText ? navigator.clipboard.writeText(tx) : new Promise((res,rej)=>{
-          const ta=document.createElement('textarea'); ta.value=tx; document.body.appendChild(ta); ta.select();
-          document.execCommand('copy') ? res() : rej(); document.body.removeChild(ta);
-        })).then(toast).catch(toast);
-      }
-    </script>
-  </body>
-</html>
+    return app
+
+
+def _parse_days(days_param: str) -> List[int]:
+    if not days_param:
+        return []
+    parts = [p.strip() for p in days_param.split(",") if p.strip()]
+    selected: List[int] = []
+    for p in parts:
+        try:
+            selected.append(int(p))
+        except ValueError:
+            continue
+    return selected
+
+
+# Render용 전역 WSGI 객체
+app = create_app()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--prod", action="store_true", help="Run with waitress server")
+    args = parser.parse_args()
+
+    host = os.getenv("FLASK_HOST", "0.0.0.0")
+    port = int(os.getenv("FLASK_PORT", "8080"))
+    debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+
+    if args.prod:
+        from waitress import serve
+
+        serve(app, host=host, port=port)
+    else:
+        app.run(host=host, port=port, debug=debug)
