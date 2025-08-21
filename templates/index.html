@@ -1,3 +1,4 @@
+<!-- templates/index.html -->
 <!doctype html>
 <html lang="ko">
   <head>
@@ -7,12 +8,12 @@
     <style>
       :root{
         --bg:#ffffff;
-        --text:#1f2328;          /* neutral-900 */
-        --muted:#6b778c;         /* neutral-500 */
-        --line:#e5e7eb;          /* neutral-200 */
-        --panel:#ffffff;         /* card bg */
-        --pill:#f6f8fa;          /* subtle chip */
-        --btn:#111827;           /* dark text for primary */
+        --text:#1f2328;
+        --muted:#6b778c;
+        --line:#e5e7eb;
+        --panel:#ffffff;
+        --pill:#f6f8fa;
+        --btn:#111827;
       }
       html,body{height:100%}
       body{
@@ -22,8 +23,9 @@
       }
       .container{ max-width:980px; margin:0 auto; padding:24px; }
       .title{ font-weight:800; letter-spacing:.2px; font-size:18px; margin-bottom:16px; }
+      .home-link{ color:inherit; text-decoration:none; }
+      .home-link:hover{ text-decoration:underline; }
 
-      /* Panel (Notion-like card) */
       .panel{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
       .stack{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
       .stack-right{ margin-left:auto; display:flex; gap:8px; }
@@ -44,7 +46,6 @@
       .muted{ color:var(--muted); }
       .pill{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
 
-      /* Results */
       .grid{ display:grid; gap:12px; }
       @media(min-width:900px){ .grid{ grid-template-columns:1fr 1fr; } }
       .card{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px; }
@@ -52,21 +53,18 @@
       .name{ font-weight:700; }
       .copy{ white-space:pre-wrap; background:#fff; border:1px dashed var(--line); border-radius:10px; padding:10px; font-family: ui-monospace, Menlo, Consolas, "Courier New"; color:#0b0f14; }
 
-      /* Overlay spinner (neutral) */
       .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.08); backdrop-filter: blur(2px); z-index:50; }
       .spinner{ width:34px; height:34px; border:3px solid rgba(17,24,39,.18); border-top-color:#111827; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 10px; }
       @keyframes spin{ to{ transform:rotate(360deg); } }
       .center{ text-align:center; }
 
-      /* Toast */
       .toast{ position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; border:1px solid #111827; padding:10px 12px; border-radius:10px; display:none; z-index:60; }
     </style>
   </head>
   <body>
     <div class="container">
-      <div class="title">마감 안내 생성기</div>
+      <div class="title"><a class="home-link" href="/">마감 안내 생성기</a></div>
 
-      <!-- Controls -->
       <div class="panel" style="margin-bottom:12px">
         <form id="q" method="get" action="/">
           <input type="hidden" name="submit" value="1" />
@@ -98,12 +96,9 @@
             <span class="chip" data-days="2">2일뒤</span>
             <span class="chip" data-days="0,1,2">0~2일</span>
           </div>
-          {% if not did_fetch %}
-          {% endif %}
         </form>
       </div>
 
-      <!-- Summary -->
       {% if did_fetch and ordered_days %}
       <div class="panel" style="margin-bottom:12px">
         <div class="stack" style="flex-wrap:wrap">
@@ -116,7 +111,6 @@
       </div>
       {% endif %}
 
-      <!-- Results -->
       {% if did_fetch %}
         {% if grouped %}
           <div class="grid" id="results">
@@ -139,7 +133,6 @@
       {% endif %}
     </div>
 
-    <!-- Overlay spinner -->
     <div class="overlay" id="overlay">
       <div class="center">
         <div class="spinner"></div>
@@ -147,7 +140,6 @@
       </div>
     </div>
 
-    <!-- Toast -->
     <div class="toast" id="toast">복사되었습니다.</div>
 
     <script>
@@ -162,7 +154,7 @@
       form?.addEventListener('submit', ()=>{ overlay.style.display='flex'; });
       window.addEventListener('pageshow', ()=>{ overlay.style.display='none'; });
 
-      // (신규) URL에 base_date가 없을 때 오늘 날짜 자동 설정
+      // URL에 base_date 없으면 오늘 자동 설정
       (function setTodayIfEmpty(){
         try{
           const url = new URL(window.location.href);
