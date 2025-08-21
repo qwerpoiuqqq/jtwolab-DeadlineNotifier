@@ -1,0 +1,372 @@
+import os
+import json
+import re
+from typing import Dict, List, Set, Any, Tuple
+
+import gspread
+from google.oauth2.service_account import Credentials
+
+# 환경변수 기본 키
+DEFAULT_KEYS = {
+	"AGENCY_COLUMN": "대행사 명",
+	"INTERNAL_COLUMN": "내부 진행건",
+	"REMAINING_DAYS_COLUMN": "마감 잔여일",
+	"CHECKED_COLUMN": "마감 안내 체크",
+	"BIZNAME_COLUMN": "상호명",
+}
+
+# header 동의어(공백 무시, 소문자 비교)
+SYNONYMS: Dict[str, List[str]] = {
+	"AGENCY_COLUMN": ["대행사", "대행사명", "광고대행사", "파트너", "파트너사"],
+	"BIZNAME_COLUMN": ["상호", "업체명", "매장명", "브랜드명", "점포명", "상호명"],
+	"INTERNAL_COLUMN": ["내부", "내부진행", "자체진행", "내부 진행건"],
+	"REMAINING_DAYS_COLUMN": ["잔여일", "마감잔여일", "d-day", "dday", "남은일", "남은 일"],
+	"CHECKED_COLUMN": ["마감안내", "안내체크", "공지여부", "발송완료", "완료체크", "안내 여부"],
+}
+
+TRUTHY_VALUES = {"true", "1", "yes", "y", "o", "ok", "checked", "done", "완료", "예", "y", "yy", "ㅇ", "ㅇㅇ", "o", "O", "✓", "✔"}
+
+
+class Settings:
+	def __init__(self, **kwargs: Any) -> None:
+		self.spreadsheet_id: str = kwargs.get("SPREADSHEET_ID", "").strip()
+		self.agency_col: str = kwargs.get("AGENCY_COLUMN", DEFAULT_KEYS["AGENCY_COLUMN"]).strip()
+		self.internal_col: str = kwargs.get("INTERNAL_COLUMN", DEFAULT_KEYS["INTERNAL_COLUMN"]).strip()
+		self.remaining_days_col: str = kwargs.get("REMAINING_DAYS_COLUMN", DEFAULT_KEYS["REMAINING_DAYS_COLUMN"]).strip()
+		self.checked_col: str = kwargs.get("CHECKED_COLUMN", DEFAULT_KEYS["CHECKED_COLUMN"]).strip()
+		self.bizname_col: str = kwargs.get("BIZNAME_COLUMN", DEFAULT_KEYS["BIZNAME_COLUMN"]).strip()
+
+	def to_dict(self) -> Dict[str, str]:
+		return {
+			"SPREADSHEET_ID": self.spreadsheet_id,
+			"AGENCY_COLUMN": self.agency_col,
+			"INTERNAL_COLUMN": self.internal_col,
+			"REMAINING_DAYS_COLUMN": self.remaining_days_col,
+			"CHECKED_COLUMN": self.checked_col,
+			"BIZNAME_COLUMN": self.bizname_col,
+		}
+
+
+def load_settings() -> Settings:
+	return Settings(
+		SPREADSHEET_ID=os.getenv("SPREADSHEET_ID", ""),
+		AGENCY_COLUMN=os.getenv("AGENCY_COLUMN", DEFAULT_KEYS["AGENCY_COLUMN"]),
+		INTERNAL_COLUMN=os.getenv("INTERNAL_COLUMN", DEFAULT_KEYS["INTERNAL_COLUMN"]),
+		REMAINING_DAYS_COLUMN=os.getenv("REMAINING_DAYS_COLUMN", DEFAULT_KEYS["REMAINING_DAYS_COLUMN"]),
+		CHECKED_COLUMN=os.getenv("CHECKED_COLUMN", DEFAULT_KEYS["CHECKED_COLUMN"]),
+		BIZNAME_COLUMN=os.getenv("BIZNAME_COLUMN", DEFAULT_KEYS["BIZNAME_COLUMN"]),
+	)
+
+
+def _build_credentials() -> Credentials:
+	service_account_json_inline = os.getenv("SERVICE_ACCOUNT_JSON", "").strip()
+	keyfile_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+
+	scopes = [
+		"https://www.googleapis.com/auth/spreadsheets.readonly",
+		"https://www.googleapis.com/auth/drive.readonly",
+	]
+
+	if service_account_json_inline:
+		try:
+			data = json.loads(service_account_json_inline)
+		except json.JSONDecodeError as e:
+			raise RuntimeError("SERVICE_ACCOUNT_JSON 환경변수가 유효한 JSON이 아닙니다.") from e
+		return Credentials.from_service_account_info(data, scopes=scopes)
+
+	if keyfile_path:
+		if not os.path.exists(keyfile_path):
+			raise FileNotFoundError(f"서비스 계정 키 파일을 찾을 수 없습니다: {keyfile_path}")
+		return Credentials.from_service_account_file(keyfile_path, scopes=scopes)
+
+	raise RuntimeError("서비스 계정 인증정보가 없습니다. SERVICE_ACCOUNT_JSON 또는 GOOGLE_APPLICATION_CREDENTIALS를 설정하세요.")
+
+
+def _get_client() -> gspread.Client:
+	creds = _build_credentials()
+	return gspread.authorize(creds)
+
+
+def _normalize_key(key: str) -> str:
+	return (key or "").strip()
+
+
+def _collapse_spaces(s: str) -> str:
+	return re.sub(r"\s+", "", s or "").strip().lower()
+
+
+def _parse_int_maybe(value: Any) -> int | None:
+	if value is None:
+		return None
+	s = str(value).strip()
+	if s == "":
+		return None
+	m = re.search(r"-?\d+", s)
+	if not m:
+		return None
+	try:
+		return int(m.group(0))
+	except ValueError:
+		return None
+
+
+def _is_truthy(value: Any) -> bool:
+	if value is None:
+		return False
+	s = str(value).strip().lower()
+	return s in TRUTHY_VALUES
+
+
+def _matches(header: str, preferred_key: str, key_id: str) -> bool:
+	h = _collapse_spaces(header)
+	p = _collapse_spaces(preferred_key)
+	if h == p:
+		return True
+	for syn in SYNONYMS.get(key_id, []):
+		if h == _collapse_spaces(syn):
+			return True
+	return False
+
+
+def _get_value_flexible(row: Dict[str, Any], preferred_key: str, key_id: str) -> Any:
+	# 직접 키
+	if preferred_key in row:
+		return row.get(preferred_key)
+	# 공백/소문자 동치
+	pref_norm = _collapse_spaces(preferred_key)
+	for k in row.keys():
+		if _collapse_spaces(k) == pref_norm:
+			return row.get(k)
+	# 동의어
+	for syn in SYNONYMS.get(key_id, []):
+		syn_norm = _collapse_spaces(syn)
+		for k in row.keys():
+			if _collapse_spaces(k) == syn_norm:
+				return row.get(k)
+	return None
+
+
+def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, List[str]]:
+	required_map = {
+		"AGENCY_COLUMN": settings.agency_col,
+		"INTERNAL_COLUMN": settings.internal_col,
+		"REMAINING_DAYS_COLUMN": settings.remaining_days_col,
+		"CHECKED_COLUMN": settings.checked_col,
+		"BIZNAME_COLUMN": settings.bizname_col,
+	}
+	try:
+		candidates = ws.get_values('1:50')  # 상단 50행 탐색
+	except Exception:
+		candidates = []
+	best_idx = 1
+	best_headers: List[str] = []
+	best_score = -1
+	for idx, row in enumerate(candidates, start=1):
+		headers = [str(h).strip() for h in row]
+		score = 0
+		for header in headers:
+			for key_id, pref in required_map.items():
+				if _matches(header, pref, key_id):
+					score += 1
+					break
+		if score > best_score:
+			best_idx = idx
+			best_headers = headers
+			best_score = score
+	if best_score <= 0:
+		try:
+			best_headers = [h.strip() for h in ws.row_values(1)]
+		except Exception:
+			best_headers = []
+		best_idx = 1
+	return best_idx, best_headers
+
+
+def _build_records(ws: gspread.Worksheet, header_row: int, headers: List[str]) -> List[Dict[str, Any]]:
+	try:
+		values = ws.get_all_values()
+	except Exception:
+		return []
+	if header_row - 1 >= len(values):
+		return []
+	data_rows = values[header_row:]
+	records: List[Dict[str, Any]] = []
+	for row in data_rows:
+		if all((str(c).strip() == "" for c in row)):
+			continue
+		row_dict: Dict[str, Any] = {}
+		for i, h in enumerate(headers):
+			key = _normalize_key(h)
+			val = row[i] if i < len(row) else ""
+			row_dict[key] = val
+		records.append(row_dict)
+	return records
+
+
+def fetch_grouped_messages(selected_days: List[int], settings: Settings | None = None) -> Dict[str, Dict[str, List[str]]]:
+	if settings is None:
+		settings = load_settings()
+	if not settings.spreadsheet_id:
+		raise RuntimeError("SPREADSHEET_ID 환경변수를 설정하세요.")
+
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+
+	agency_to_task_to_names: Dict[str, Dict[str, List[str]]] = {}
+	selected_set: Set[int] = set(selected_days)
+
+	for ws in ss.worksheets():
+		task_name = ws.title
+		header_row, headers = _find_header_row(ws, settings)
+		records = _build_records(ws, header_row, headers)
+		for row in records:
+			row_norm = { _normalize_key(k): v for k, v in row.items() }
+			agency = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip() or "미지정 대행사"
+			is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
+			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
+			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+
+			if is_checked:
+				continue
+			if is_internal:
+				continue
+			if remain is None or remain not in selected_set:
+				continue
+			if not bizname:
+				continue
+
+			task_map = agency_to_task_to_names.setdefault(agency, {})
+			name_list = task_map.setdefault(task_name, [])
+			if bizname not in name_list:
+				name_list.append(bizname)
+
+	return agency_to_task_to_names
+
+
+def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings | None = None, filter_mode: str = "agency") -> Dict[str, Dict[int, Dict[str, List[str]]]]:
+	"""대행사 -> 남은일수 -> 작업명 -> [상호명] 구조로 반환
+	filter_mode: 'agency' (기본, 내부 제외) | 'internal' (내부만 포함)
+	"""
+	if settings is None:
+		settings = load_settings()
+	if not settings.spreadsheet_id:
+		raise RuntimeError("SPREADSHEET_ID 환경변수를 설정하세요.")
+
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+
+	selected_set: Set[int] = set(selected_days)
+	agency_map: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
+
+	for ws in ss.worksheets():
+		task_name = ws.title
+		header_row, headers = _find_header_row(ws, settings)
+		records = _build_records(ws, header_row, headers)
+		for row in records:
+			row_norm = { _normalize_key(k): v for k, v in row.items() }
+			agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
+			is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
+			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
+			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+
+			# 필터 모드 적용
+			if filter_mode == "agency":
+				if is_internal:
+					continue
+			elif filter_mode == "internal":
+				if not is_internal:
+					continue
+			else:
+				# 알 수 없는 모드는 agency와 동일 처리
+				if is_internal:
+					continue
+
+			# 공통 필터
+			if is_checked or remain is None or remain not in selected_set or not bizname:
+				continue
+
+			agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
+			dict_by_day = agency_map.setdefault(agency_label, {})
+			dict_by_task = dict_by_day.setdefault(remain, {})
+			name_list = dict_by_task.setdefault(task_name, [])
+			if bizname not in name_list:
+				name_list.append(bizname)
+
+	return agency_map
+
+
+def inspect_sheets(settings: Settings | None = None) -> List[Dict[str, Any]]:
+	if settings is None:
+		settings = load_settings()
+	if not settings.spreadsheet_id:
+		raise RuntimeError("SPREADSHEET_ID 환경변수를 설정하세요.")
+
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+
+	results: List[Dict[str, Any]] = []
+	for ws in ss.worksheets():
+		header_row, headers = _find_header_row(ws, settings)
+		results.append({
+			"title": ws.title,
+			"header_row": header_row,
+			"headers": headers,
+			"has_agency": any(_matches(h, settings.agency_col, "AGENCY_COLUMN") for h in headers),
+			"has_internal": any(_matches(h, settings.internal_col, "INTERNAL_COLUMN") for h in headers),
+			"has_remaining": any(_matches(h, settings.remaining_days_col, "REMAINING_DAYS_COLUMN") for h in headers),
+			"has_checked": any(_matches(h, settings.checked_col, "CHECKED_COLUMN") for h in headers),
+			"has_bizname": any(_matches(h, settings.bizname_col, "BIZNAME_COLUMN") for h in headers),
+		})
+	return results
+
+
+def diagnose_matches(selected_days: List[int], settings: Settings | None = None, limit: int = 50) -> Dict[str, Any]:
+	"""탭별 매칭된 항목과 제외 사유 샘플을 반환한다."""
+	if settings is None:
+		settings = load_settings()
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+
+	selected_set: Set[int] = set(selected_days)
+	report: Dict[str, Any] = {}
+	for ws in ss.worksheets():
+		task_name = ws.title
+		header_row, headers = _find_header_row(ws, settings)
+		records = _build_records(ws, header_row, headers)
+		matched: List[Dict[str, Any]] = []
+		excluded: List[Dict[str, Any]] = []
+		for row in records:
+			row_norm = { _normalize_key(k): v for k, v in row.items() }
+			agency = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
+			is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
+			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			remain_val_raw = _get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN")
+			remain = _parse_int_maybe(remain_val_raw)
+			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+
+			reason = None
+			if is_checked:
+				reason = "checked"
+			elif is_internal:
+				reason = "internal"
+			elif remain is None:
+				reason = f"remain_parse_failed:{remain_val_raw}"
+			elif remain not in selected_set:
+				reason = f"remain_not_selected:{remain}"
+			elif not bizname:
+				reason = "no_bizname"
+
+			if reason is None:
+				matched.append({"agency": agency or "", "bizname": bizname, "remain": remain})
+			else:
+				excluded.append({"agency": agency or "", "bizname": bizname, "remain_raw": remain_val_raw, "reason": reason})
+
+		report[task_name] = {
+			"header_row": header_row,
+			"matched_count": len(matched),
+			"matched_sample": matched[:limit],
+			"excluded_sample": excluded[:limit],
+		}
+	return report

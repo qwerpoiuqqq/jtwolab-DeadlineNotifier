@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>마감 안내 생성기</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", Arial, sans-serif; margin: 24px; }
+      .container { max-width: 1000px; margin: 0 auto; }
+      .row { margin: 12px 0; }
+      input[type="text"], input[type="date"], select { padding: 8px 10px; }
+      input[type="text"], input[type="date"] { width: 240px; }
+      button { padding: 8px 12px; cursor: pointer; }
+      .hint { color: #666; font-size: 12px; }
+      .agency { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin: 16px 0; }
+      .copy-area { background: #f8f8f8; padding: 12px; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+      .header { display: flex; align-items: center; justify-content: space-between; }
+      .agency-name { font-weight: 700; font-size: 16px; }
+      .chip { display: inline-block; background: #f0f0f0; padding: 4px 8px; border-radius: 999px; margin-right: 6px; cursor: pointer; }
+      .summary { background:#fafafa; border:1px dashed #ddd; padding:10px; border-radius:8px; }
+      .loading { background: #fff8e1; border: 1px solid #ffe082; color: #8d6e63; padding: 10px; border-radius: 8px; display:none; }
+      .muted { color:#777; font-size:13px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h2>마감 안내 생성기</h2>
+
+      {% if error %}
+      <div class="row" style="color: #b00020;">오류: {{ error }}</div>
+      {% endif %}
+
+      <form id="query-form" class="row" method="get" action="/">
+        <input type="hidden" name="submit" value="1" />
+        <label style="margin-right:12px;">
+          기준일:
+          <input type="date" name="base_date" value="{{ base_date_str }}" />
+        </label>
+        <label style="margin-right:12px;">
+          만료일(쉼표로 복수 선택):
+          <input type="text" name="days" value="{{ days_param }}" placeholder="예: 0,1,2,3" />
+        </label>
+        <label style="margin-right:12px;">
+          보기:
+          <select name="filter_mode">
+            <option value="agency" {% if filter_mode!='internal' %}selected{% endif %}>대행사 발주건</option>
+            <option value="internal" {% if filter_mode=='internal' %}selected{% endif %}>내부 진행건</option>
+          </select>
+        </label>
+        <button type="submit">조회</button>
+      </form>
+      <div id="loading" class="row loading">정보를 찾는 중입니다... 잠시만 기다려 주세요.</div>
+
+      <div class="row hint">예시: 오늘=0, 1일뒤=1, 2일뒤=2 … 필요 값들을 콤마로 입력하세요. 기준일 미입력 시 오늘로 계산합니다.</div>
+      <div class="row">
+        빠른 선택:
+        <span class="chip" onclick="setDays('0')">오늘</span>
+        <span class="chip" onclick="setDays('1')">1일뒤</span>
+        <span class="chip" onclick="setDays('2')">2일뒤</span>
+        <span class="chip" onclick="setDays('3')">3일뒤</span>
+        <span class="chip" onclick="setDays('0,1,2,3')">0~3일</span>
+      </div>
+
+      {% if did_fetch %}
+        {% if ordered_days %}
+        <div class="row summary">
+          <div><b>기준일:</b> {{ base_date_str }}</div>
+          <div>
+            <b>날짜 매핑:</b>
+            {% for d in ordered_days %}
+              <span style="margin-right:8px;">{{ d }}일 → {{ day_to_date_label[d] }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if grouped %}
+          {% for agency, tasks in grouped.items() %}
+            <div class="agency">
+              <div class="header">
+                <div class="agency-name">[{{ agency }}]</div>
+                <div>
+                  <button onclick="copyText('copy-{{ loop.index }}')">복사</button>
+                </div>
+              </div>
+              <div id="copy-{{ loop.index }}" class="copy-area">{{ agency_to_message[agency] }}</div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="row muted">조건에 해당하는 항목이 없습니다.</div>
+        {% endif %}
+      {% else %}
+        <div class="row muted">조회 조건을 설정하고 '조회' 버튼을 눌러주세요. (처음 로드 시에는 자동 조회하지 않습니다)</div>
+      {% endif %}
+    </div>
+
+    <script>
+      const form = document.getElementById('query-form');
+      const loading = document.getElementById('loading');
+      form?.addEventListener('submit', function(){
+        if (loading) loading.style.display = 'block';
+      });
+      function setDays(v) {
+        const input = document.querySelector('input[name="days"]');
+        input.value = v;
+      }
+      function copyText(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const text = el.innerText;
+        navigator.clipboard.writeText(text).then(() => {
+          alert('복사되었습니다. 카톡에 붙여넣기 하세요.');
+        }).catch(() => {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          alert('복사되었습니다. 카톡에 붙여넣기 하세요.');
+        });
+      }
+    </script>
+  </body>
+</html>
