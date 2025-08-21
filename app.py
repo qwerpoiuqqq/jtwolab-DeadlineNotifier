@@ -149,3 +149,5 @@ if __name__ == "__main__":
 		serve(app, host=host, port=port)
 	else:
 		app.run(host=host, port=port, debug=debug)
+
+app = create_app()
