@@ -1,3 +1,4 @@
+# app.py
 import os
 import argparse
 from typing import Dict, List
@@ -73,11 +74,14 @@ def create_app() -> Flask:
             else:
                 error = None
 
-            # 복붙 포맷: 날짜(요일) 한 줄 → <작업명> → 상호들 (불필요한 빈줄/공백 없음)
+            # 복붙 포맷: 날짜(요일) 한 줄 → <작업명> → 상호들
+            # 작업 블록 사이 1줄, 날짜 블록 사이 2줄
             for agency, by_day in grouped_by_date.items():
                 parts: List[str] = []
                 for d in sorted(by_day.keys()):
+                    # 날짜 헤더
                     parts.append(day_to_date_label.get(d, f"+{d}"))
+                    # 작업명과 상호들
                     for task, names in by_day[d].items():
                         if not names:
                             continue
@@ -85,6 +89,10 @@ def create_app() -> Flask:
                         parts.append(f"<{display_task}>")
                         for name in names:
                             parts.append(str(name).strip())
+                        # 작업 블록 사이: 1줄 공백
+                        parts.append("")
+                    # 날짜 블록 사이: 추가로 1줄 더 공백(= 총 2줄)
+                    parts.append("")
                 agency_to_message[agency] = "\n".join(parts).rstrip()
 
         return render_template(
