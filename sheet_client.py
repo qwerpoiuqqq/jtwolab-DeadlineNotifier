@@ -13,6 +13,8 @@ DEFAULT_KEYS = {
 	"REMAINING_DAYS_COLUMN": "마감 잔여일",
 	"CHECKED_COLUMN": "마감 안내 체크",
 	"BIZNAME_COLUMN": "상호명",
+	"PRODUCT_COLUMN": "상품",
+	"PRODUCT_NAME_COLUMN": "상품 명",
 }
 
 # header 동의어(공백 무시, 소문자 비교)
@@ -22,6 +24,8 @@ SYNONYMS: Dict[str, List[str]] = {
 	"INTERNAL_COLUMN": ["내부", "내부진행", "자체진행", "내부 진행건"],
 	"REMAINING_DAYS_COLUMN": ["잔여일", "마감잔여일", "d-day", "dday", "남은일", "남은 일"],
 	"CHECKED_COLUMN": ["마감안내", "안내체크", "공지여부", "발송완료", "완료체크", "안내 여부"],
+	"PRODUCT_COLUMN": ["상품", "유형", "type", "종류"],
+	"PRODUCT_NAME_COLUMN": ["상품 명", "상품명", "작업명", "작업 명"],
 }
 
 TRUTHY_VALUES = {"true", "1", "yes", "y", "o", "ok", "checked", "done", "완료", "예", "y", "yy", "ㅇ", "ㅇㅇ", "o", "O", "✓", "✔"}
@@ -35,6 +39,8 @@ class Settings:
 		self.remaining_days_col: str = kwargs.get("REMAINING_DAYS_COLUMN", DEFAULT_KEYS["REMAINING_DAYS_COLUMN"]).strip()
 		self.checked_col: str = kwargs.get("CHECKED_COLUMN", DEFAULT_KEYS["CHECKED_COLUMN"]).strip()
 		self.bizname_col: str = kwargs.get("BIZNAME_COLUMN", DEFAULT_KEYS["BIZNAME_COLUMN"]).strip()
+		self.product_col: str = kwargs.get("PRODUCT_COLUMN", DEFAULT_KEYS["PRODUCT_COLUMN"]).strip()
+		self.product_name_col: str = kwargs.get("PRODUCT_NAME_COLUMN", DEFAULT_KEYS["PRODUCT_NAME_COLUMN"]).strip()
 
 	def to_dict(self) -> Dict[str, str]:
 		return {
@@ -44,6 +50,8 @@ class Settings:
 			"REMAINING_DAYS_COLUMN": self.remaining_days_col,
 			"CHECKED_COLUMN": self.checked_col,
 			"BIZNAME_COLUMN": self.bizname_col,
+			"PRODUCT_COLUMN": self.product_col,
+			"PRODUCT_NAME_COLUMN": self.product_name_col,
 		}
 
 
@@ -55,6 +63,8 @@ def load_settings() -> Settings:
 		REMAINING_DAYS_COLUMN=os.getenv("REMAINING_DAYS_COLUMN", DEFAULT_KEYS["REMAINING_DAYS_COLUMN"]),
 		CHECKED_COLUMN=os.getenv("CHECKED_COLUMN", DEFAULT_KEYS["CHECKED_COLUMN"]),
 		BIZNAME_COLUMN=os.getenv("BIZNAME_COLUMN", DEFAULT_KEYS["BIZNAME_COLUMN"]),
+		PRODUCT_COLUMN=os.getenv("PRODUCT_COLUMN", DEFAULT_KEYS["PRODUCT_COLUMN"]),
+		PRODUCT_NAME_COLUMN=os.getenv("PRODUCT_NAME_COLUMN", DEFAULT_KEYS["PRODUCT_NAME_COLUMN"]),
 	)
 
 
@@ -153,6 +163,8 @@ def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, Li
 		"REMAINING_DAYS_COLUMN": settings.remaining_days_col,
 		"CHECKED_COLUMN": settings.checked_col,
 		"BIZNAME_COLUMN": settings.bizname_col,
+		"PRODUCT_COLUMN": settings.product_col,
+		"PRODUCT_NAME_COLUMN": settings.product_name_col,
 	}
 	try:
 		candidates = ws.get_values('1:50')  # 상단 50행 탐색
@@ -245,8 +257,10 @@ def fetch_grouped_messages(selected_days: List[int], settings: Settings | None =
 
 
 def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings | None = None, filter_mode: str = "agency") -> Dict[str, Dict[int, Dict[str, List[str]]]]:
-	"""대행사 -> 남은일수 -> 작업명 -> [상호명] 구조로 반환
-	filter_mode: 'agency' (기본, 내부 제외) | 'internal' (내부만 포함)
+	"""대행사 -> 남은일수 -> 작업명(상품 포함 규칙) -> [상호명]
+	- '기타' 탭: '상품 명' 열 값을 작업명으로 사용
+	- 그 외 탭: 작업명(=탭명) 뒤에 '상품' 열 값이 있으면 공백으로 이어붙여 표시
+	filter_mode: 'agency' | 'internal'
 	"""
 	if settings is None:
 		settings = load_settings()
@@ -260,7 +274,7 @@ def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings 
 	agency_map: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
 
 	for ws in ss.worksheets():
-		task_name = ws.title
+		tab_title = (ws.title or "").strip()
 		header_row, headers = _find_header_row(ws, settings)
 		records = _build_records(ws, header_row, headers)
 		for row in records:
@@ -270,6 +284,8 @@ def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings 
 			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
 			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
 			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+			product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
+			product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
 
 			# 필터 모드 적용
 			if filter_mode == "agency":
@@ -279,7 +295,6 @@ def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings 
 				if not is_internal:
 					continue
 			else:
-				# 알 수 없는 모드는 agency와 동일 처리
 				if is_internal:
 					continue
 
@@ -287,10 +302,18 @@ def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings 
 			if is_checked or remain is None or remain not in selected_set or not bizname:
 				continue
 
+			# 작업명 생성 규칙
+			base_task = tab_title
+			is_misc = _collapse_spaces(tab_title) == _collapse_spaces("기타")
+			if is_misc:
+				display_task = product_name if product_name else base_task
+			else:
+				display_task = f"{base_task} {product}".strip() if product else base_task
+
 			agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
 			dict_by_day = agency_map.setdefault(agency_label, {})
 			dict_by_task = dict_by_day.setdefault(remain, {})
-			name_list = dict_by_task.setdefault(task_name, [])
+			name_list = dict_by_task.setdefault(display_task, [])
 			if bizname not in name_list:
 				name_list.append(bizname)
 
