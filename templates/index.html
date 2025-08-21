@@ -5,121 +5,235 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>마감 안내 생성기</title>
     <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", Arial, sans-serif; margin: 24px; }
-      .container { max-width: 1000px; margin: 0 auto; }
-      .row { margin: 12px 0; }
-      input[type="text"], input[type="date"], select { padding: 8px 10px; }
-      input[type="text"], input[type="date"] { width: 240px; }
-      button { padding: 8px 12px; cursor: pointer; }
-      .hint { color: #666; font-size: 12px; }
-      .agency { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin: 16px 0; }
-      .copy-area { background: #f8f8f8; padding: 12px; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-      .header { display: flex; align-items: center; justify-content: space-between; }
-      .agency-name { font-weight: 700; font-size: 16px; }
-      .chip { display: inline-block; background: #f0f0f0; padding: 4px 8px; border-radius: 999px; margin-right: 6px; cursor: pointer; }
-      .summary { background:#fafafa; border:1px dashed #ddd; padding:10px; border-radius:8px; }
-      .loading { background: #fff8e1; border: 1px solid #ffe082; color: #8d6e63; padding: 10px; border-radius: 8px; display:none; }
-      .muted { color:#777; font-size:13px; }
+      :root{
+        --bg:#0f172a;        /* slate-900 */
+        --panel:#111827;     /* gray-900 */
+        --muted:#94a3b8;     /* slate-400 */
+        --text:#e5e7eb;      /* gray-200 */
+        --accent:#22d3ee;    /* cyan-400 */
+        --accent-2:#06b6d4;  /* cyan-500 */
+        --border:#1f2937;    /* gray-800 */
+        --success:#16a34a;   /* green-600 */
+      }
+      html,body{height:100%}
+      body{
+        margin:0; background:linear-gradient(180deg,#0b1224, #0f172a 30%);
+        color:var(--text); font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Noto Sans KR", Arial, "Apple SD Gothic Neo";
+      }
+      .container{ max-width:1100px; margin:0 auto; padding:24px; }
+      .header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+      .brand{ display:flex; align-items:center; gap:10px; }
+      .brand-badge{ width:28px; height:28px; border-radius:8px; background:linear-gradient(135deg,#06b6d4,#22d3ee); box-shadow:0 0 24px rgba(6,182,212,.35); }
+      .brand-title{ font-weight:800; letter-spacing:.2px; font-size:18px; }
+      .panel{ background:rgba(17,24,39,.75); backdrop-filter: blur(8px); border:1px solid var(--border); border-radius:14px; padding:16px; }
+      .row{ display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+      .row + .row{ margin-top:12px; }
+      label{ font-size:12px; color:var(--muted); display:block; margin-bottom:6px; }
+      input[type="text"],input[type="date"],select{
+        background:#0b1020; color:var(--text); border:1px solid var(--border); border-radius:10px;
+        padding:10px 12px; min-width:220px; outline:none;
+      }
+      input::placeholder{ color:#64748b; }
+      .btn{
+        border:none; padding:10px 14px; border-radius:10px; cursor:pointer; font-weight:600;
+        color:#001017; background:linear-gradient(135deg,var(--accent),var(--accent-2));
+        box-shadow:0 8px 22px rgba(34,211,238,.18); transition:.2s;
+      }
+      .btn:hover{ transform:translateY(-1px); box-shadow:0 12px 26px rgba(34,211,238,.25); }
+      .chips{ display:flex; gap:8px; flex-wrap:wrap; }
+      .chip{ font-size:12px; color:var(--text); border:1px solid var(--border); background:#0b1020; padding:6px 10px; border-radius:999px; cursor:pointer; }
+      .muted{ color:var(--muted); }
+      .summary{ display:flex; gap:10px; flex-wrap:wrap; }
+      .pill{ background:#0b1020; border:1px solid var(--border); color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
+      .agency{ border:1px solid var(--border); border-radius:14px; padding:14px; background:rgba(9,12,24,.7); }
+      .agency-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+      .agency-name{ font-weight:700; font-size:15px; letter-spacing:.3px; }
+      .copy-area{ background:#0b1020; border:1px dashed #1b2543; padding:12px; border-radius:10px; white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New"; color:#dbeafe; }
+      .grid{ display:grid; gap:12px; }
+      @media(min-width:900px){ .grid{ grid-template-columns:1fr 1fr; } }
+
+      /* overlay spinner */
+      .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(2,6,23,.6); backdrop-filter: blur(3px); z-index:50; }
+      .spinner{ width:42px; height:42px; border:3px solid rgba(34,211,238,.25); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; margin-bottom:12px; }
+      @keyframes spin{ to{ transform:rotate(360deg); } }
+      .toast{ position:fixed; right:16px; bottom:16px; background:#07201e; color:#bff1e8; border:1px solid #0d362f; border-radius:10px; padding:10px 12px; display:none; z-index:60; }
+      .toolbar{ display:flex; gap:8px; align-items:center; }
+      .btn-secondary{ background:#0b1020; color:var(--text); border:1px solid var(--border); }
+      .btn-secondary:hover{ background:#0e162e; }
     </style>
   </head>
   <body>
     <div class="container">
-      <h2>마감 안내 생성기</h2>
-
-      {% if error %}
-      <div class="row" style="color: #b00020;">오류: {{ error }}</div>
-      {% endif %}
-
-      <form id="query-form" class="row" method="get" action="/">
-        <input type="hidden" name="submit" value="1" />
-        <label style="margin-right:12px;">
-          기준일:
-          <input type="date" name="base_date" value="{{ base_date_str }}" />
-        </label>
-        <label style="margin-right:12px;">
-          만료일(쉼표로 복수 선택):
-          <input type="text" name="days" value="{{ days_param }}" placeholder="예: 0,1,2,3" />
-        </label>
-        <label style="margin-right:12px;">
-          보기:
-          <select name="filter_mode">
-            <option value="agency" {% if filter_mode!='internal' %}selected{% endif %}>대행사 발주건</option>
-            <option value="internal" {% if filter_mode=='internal' %}selected{% endif %}>내부 진행건</option>
-          </select>
-        </label>
-        <button type="submit">조회</button>
-      </form>
-      <div id="loading" class="row loading">정보를 찾는 중입니다... 잠시만 기다려 주세요.</div>
-
-      <div class="row hint">예시: 오늘=0, 1일뒤=1, 2일뒤=2 … 필요 값들을 콤마로 입력하세요. 기준일 미입력 시 오늘로 계산합니다.</div>
-      <div class="row">
-        빠른 선택:
-        <span class="chip" onclick="setDays('0')">오늘</span>
-        <span class="chip" onclick="setDays('1')">1일뒤</span>
-        <span class="chip" onclick="setDays('2')">2일뒤</span>
-        <span class="chip" onclick="setDays('3')">3일뒤</span>
-        <span class="chip" onclick="setDays('0,1,2,3')">0~3일</span>
+      <div class="header">
+        <div class="brand">
+          <div class="brand-badge"></div>
+          <div class="brand-title">마감 안내 생성기</div>
+        </div>
+        <div class="muted">Render 배포 · 외부 공유용</div>
       </div>
 
-      {% if did_fetch %}
-        {% if ordered_days %}
-        <div class="row summary">
-          <div><b>기준일:</b> {{ base_date_str }}</div>
-          <div>
-            <b>날짜 매핑:</b>
-            {% for d in ordered_days %}
-              <span style="margin-right:8px;">{{ d }}일 → {{ day_to_date_label[d] }}</span>
-            {% endfor %}
+      <!-- 컨트롤 패널 -->
+      <div class="panel" style="margin-bottom:14px;">
+        <form id="query-form" method="get" action="/">
+          <input type="hidden" name="submit" value="1" />
+          <div class="row">
+            <div>
+              <label>기준일</label>
+              <input type="date" name="base_date" value="{{ base_date_str }}" />
+            </div>
+            <div>
+              <label>만료일(쉼표로 복수)</label>
+              <input type="text" name="days" value="{{ days_param }}" placeholder="예: 0,1,2,3" />
+            </div>
+            <div>
+              <label>보기</label>
+              <select name="filter_mode">
+                <option value="agency" {% if filter_mode!='internal' %}selected{% endif %}>대행사 발주건</option>
+                <option value="internal" {% if filter_mode=='internal' %}selected{% endif %}>내부 진행건</option>
+              </select>
+            </div>
+            <div class="toolbar" style="margin-left:auto;">
+              <button class="btn" type="submit">조회</button>
+              <button class="btn btn-secondary" type="button" id="expand-all">전체 펼치기</button>
+              <button class="btn btn-secondary" type="button" id="collapse-all">전체 접기</button>
+            </div>
           </div>
-        </div>
-        {% endif %}
+          <div class="row chips">
+            <span class="chip" data-days="0">오늘</span>
+            <span class="chip" data-days="1">1일뒤</span>
+            <span class="chip" data-days="2">2일뒤</span>
+            <span class="chip" data-days="3">3일뒤</span>
+            <span class="chip" data-days="0,1,2,3">0~3일</span>
+          </div>
+          {% if not did_fetch %}
+          <div class="row muted">조회 조건을 설정하고 ‘조회’를 누르세요. (처음 로드 시 자동 조회하지 않음)</div>
+          {% endif %}
+        </form>
+      </div>
 
+      <!-- 요약 -->
+      {% if did_fetch and ordered_days %}
+      <div class="panel" style="margin-bottom:14px;">
+        <div class="summary">
+          <span class="muted">기준일</span>
+          <span class="pill">{{ base_date_str }}</span>
+          <span class="muted" style="margin-left:10px;">날짜 매핑</span>
+          {% for d in ordered_days %}
+            <span class="pill">{{ d }}일 → {{ day_to_date_label[d] }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- 결과 -->
+      {% if did_fetch %}
         {% if grouped %}
-          {% for agency, tasks in grouped.items() %}
-            <div class="agency">
-              <div class="header">
-                <div class="agency-name">[{{ agency }}]</div>
-                <div>
-                  <button onclick="copyText('copy-{{ loop.index }}')">복사</button>
+          <div class="grid" id="results">
+            {% for agency, tasks in grouped.items() %}
+              <div class="agency" data-agency-card>
+                <div class="agency-head">
+                  <div class="agency-name">[{{ agency }}]</div>
+                  <div class="toolbar">
+                    <button class="btn btn-secondary" type="button" data-toggle>접기</button>
+                    <button class="btn" type="button" onclick="copyText('copy-{{ loop.index }}')">복사</button>
+                  </div>
+                </div>
+                <div id="copy-{{ loop.index }}" class="copy-area" data-body>
+                  {{ agency_to_message[agency] }}
                 </div>
               </div>
-              <div id="copy-{{ loop.index }}" class="copy-area">{{ agency_to_message[agency] }}</div>
-            </div>
-          {% endfor %}
+            {% endfor %}
+          </div>
         {% else %}
-          <div class="row muted">조건에 해당하는 항목이 없습니다.</div>
+          <div class="panel muted">조건에 해당하는 항목이 없습니다.</div>
         {% endif %}
-      {% else %}
-        <div class="row muted">조회 조건을 설정하고 '조회' 버튼을 눌러주세요. (처음 로드 시에는 자동 조회하지 않습니다)</div>
+      {% endif %}
+
+      {% if error %}
+        <div class="panel" style="margin-top:14px; border-color:#7f1d1d; color:#fecaca; background:#1b0b0b;">
+          오류: {{ error }}
+        </div>
       {% endif %}
     </div>
 
+    <!-- 로딩 오버레이 -->
+    <div class="overlay" id="overlay">
+      <div style="text-align:center;">
+        <div class="spinner"></div>
+        <div class="muted">정보를 찾는 중입니다...</div>
+      </div>
+    </div>
+
+    <!-- 토스트 -->
+    <div class="toast" id="toast">복사되었습니다. 카톡에 붙여넣기 하세요.</div>
+
     <script>
-      const form = document.getElementById('query-form');
-      const loading = document.getElementById('loading');
-      form?.addEventListener('submit', function(){
-        if (loading) loading.style.display = 'block';
+      // 빠른 선택 칩
+      document.querySelectorAll('.chip').forEach(el=>{
+        el.addEventListener('click', ()=>{
+          const v = el.getAttribute('data-days');
+          const input = document.querySelector('input[name="days"]');
+          input.value = v;
+        });
       });
-      function setDays(v) {
-        const input = document.querySelector('input[name="days"]');
-        input.value = v;
+
+      // 오버레이 스피너
+      const form = document.getElementById('query-form');
+      const overlay = document.getElementById('overlay');
+      form?.addEventListener('submit', ()=>{ overlay.style.display='flex'; });
+
+      // 접기/펼치기
+      function toggleCard(card, force){
+        const body = card.querySelector('[data-body]');
+        const btn = card.querySelector('[data-toggle]');
+        const isHidden = body.style.display === 'none';
+        const nextState = (force === undefined) ? isHidden : !force;
+        body.style.display = nextState ? 'block' : 'none';
+        btn.textContent = nextState ? '접기' : '펼치기';
       }
-      function copyText(id) {
+      document.querySelectorAll('[data-agency-card]').forEach(card=>{
+        card.querySelector('[data-toggle]').addEventListener('click', ()=>toggleCard(card));
+      });
+      document.getElementById('expand-all')?.addEventListener('click', ()=>{
+        document.querySelectorAll('[data-agency-card]').forEach(c=>{
+          c.querySelector('[data-body]').style.display='block';
+          c.querySelector('[data-toggle]').textContent='접기';
+        });
+      });
+      document.getElementById('collapse-all')?.addEventListener('click', ()=>{
+        document.querySelectorAll('[data-agency-card]').forEach(c=>{
+          c.querySelector('[data-body]').style.display='none';
+          c.querySelector('[data-toggle]').textContent='펼치기';
+        });
+      });
+
+      // 복사
+      function showToast(){
+        const t = document.getElementById('toast');
+        t.style.display='block';
+        setTimeout(()=>{ t.style.display='none'; }, 1400);
+      }
+      window.copyText = function(id){
         const el = document.getElementById(id);
         if (!el) return;
         const text = el.innerText;
-        navigator.clipboard.writeText(text).then(() => {
-          alert('복사되었습니다. 카톡에 붙여넣기 하세요.');
-        }).catch(() => {
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(showToast).catch(()=>{
+            const ta = document.createElement('textarea');
+            ta.value = text; document.body.appendChild(ta); ta.select();
+            document.execCommand('copy'); document.body.removeChild(ta);
+            showToast();
+          });
+        } else {
           const ta = document.createElement('textarea');
-          ta.value = text;
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
-          alert('복사되었습니다. 카톡에 붙여넣기 하세요.');
-        });
-      }
+          ta.value = text; document.body.appendChild(ta); ta.select();
+          document.execCommand('copy'); document.body.removeChild(ta);
+          showToast();
+        }
+      };
+
+      // 페이지 로드 후 로딩 숨김(뒤로가기 등 브라우저 캐시 대비)
+      window.addEventListener('pageshow', ()=>{ overlay.style.display='none'; });
     </script>
   </body>
 </html>
