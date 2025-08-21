@@ -6,45 +6,71 @@
     <title>마감 안내 생성기</title>
     <style>
       :root{
-        --bg:#0b1220; --panel:#0f172a; --muted:#9aa6b2; --text:#e7ecef;
-        --line:#1e293b; --accent:#0ea5e9; --btn:#111827;
+        --bg:#ffffff;
+        --text:#1f2328;          /* neutral-900 */
+        --muted:#6b778c;         /* neutral-500 */
+        --line:#e5e7eb;          /* neutral-200 */
+        --panel:#ffffff;         /* card bg */
+        --pill:#f6f8fa;          /* subtle chip */
+        --btn:#111827;           /* dark text for primary */
       }
       html,body{height:100%}
-      body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,"Noto Sans KR",Arial}
-      .container{max-width:980px;margin:0 auto;padding:20px}
-      .hstack{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-      .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
-      label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
-      input[type="text"],input[type="date"],select{background:#0a1222;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:220px}
-      .btn{border:1px solid var(--line);background:var(--btn);color:var(--text);padding:10px 14px;border-radius:10px;cursor:pointer}
-      .btn-primary{background:#0c2238;border-color:#14324f;color:#dff3ff}
-      .chips{display:flex;gap:8px;flex-wrap:wrap}
-      .chip{border:1px solid var(--line);background:#0a1222;color:var(--text);padding:6px 10px;border-radius:999px;cursor:pointer;font-size:12px}
-      .muted{color:var(--muted)}
-      .pill{border:1px solid var(--line);background:#0a1222;color:var(--text);padding:6px 10px;border-radius:999px;font-size:12px}
-      .grid{display:grid;gap:12px}
-      @media(min-width:900px){.grid{grid-template-columns:1fr 1fr}}
-      .card{background:#0a1222;border:1px solid var(--line);border-radius:12px;padding:12px}
-      .card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-      .name{font-weight:700}
-      .copy{white-space:pre-wrap;background:#07101e;border:1px dashed #132039;border-radius:10px;padding:10px;font-family:ui-monospace,Menlo,Consolas,"Courier New";color:#e9f2ff}
-      /* overlay spinner */
-      .overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(1,6,20,.55);backdrop-filter:blur(2px);z-index:50}
-      .spin{width:36px;height:36px;border:3px solid rgba(14,165,233,.25);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin-bottom:10px}
-      @keyframes spin{to{transform:rotate(360deg)}}
-      .center{text-align:center}
-      .toast{position:fixed;right:16px;bottom:16px;background:#06201a;border:1px solid #0d3a2f;color:#bff4e8;padding:10px 12px;border-radius:10px;display:none;z-index:60}
-      hr{border:none;border-top:1px solid var(--line);margin:12px 0}
+      body{
+        margin:0; background:var(--bg); color:var(--text);
+        font-family: ui-sans-serif, system-ui, "Noto Sans KR", Arial;
+        -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+      }
+      .container{ max-width:980px; margin:0 auto; padding:24px; }
+      .title{ font-weight:800; letter-spacing:.2px; font-size:18px; margin-bottom:16px; }
+
+      /* Panel (Notion-like card) */
+      .panel{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+      .stack{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+      .stack-right{ margin-left:auto; display:flex; gap:8px; }
+
+      label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+      input[type="text"],input[type="date"],select{
+        background:#fff; color:var(--text); border:1px solid var(--line); border-radius:10px;
+        padding:10px 12px; min-width:220px; outline:none;
+      }
+      input::placeholder{ color:#9da7b1; }
+
+      .btn{ border:1px solid var(--line); background:#fff; color:var(--text); padding:10px 14px; border-radius:10px; cursor:pointer; }
+      .btn-primary{ background:#111827; color:#fff; border-color:#111827; }
+
+      .chips{ display:flex; gap:8px; flex-wrap:wrap; }
+      .chip{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; cursor:pointer; font-size:12px; }
+
+      .muted{ color:var(--muted); }
+      .pill{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
+
+      /* Results */
+      .grid{ display:grid; gap:12px; }
+      @media(min-width:900px){ .grid{ grid-template-columns:1fr 1fr; } }
+      .card{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px; }
+      .card-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+      .name{ font-weight:700; }
+      .copy{ white-space:pre-wrap; background:#fff; border:1px dashed var(--line); border-radius:10px; padding:10px; font-family: ui-monospace, Menlo, Consolas, "Courier New"; color:#0b0f14; }
+
+      /* Overlay spinner (neutral) */
+      .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.08); backdrop-filter: blur(2px); z-index:50; }
+      .spinner{ width:34px; height:34px; border:3px solid rgba(17,24,39,.18); border-top-color:#111827; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 10px; }
+      @keyframes spin{ to{ transform:rotate(360deg); } }
+      .center{ text-align:center; }
+
+      /* Toast */
+      .toast{ position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; border:1px solid #111827; padding:10px 12px; border-radius:10px; display:none; z-index:60; }
     </style>
   </head>
   <body>
     <div class="container">
+      <div class="title">마감 안내 생성기</div>
 
-      <!-- 컨트롤 -->
+      <!-- Controls -->
       <div class="panel" style="margin-bottom:12px">
         <form id="q" method="get" action="/">
           <input type="hidden" name="submit" value="1" />
-          <div class="hstack">
+          <div class="stack">
             <div>
               <label>기준일</label>
               <input type="date" name="base_date" value="{{ base_date_str }}" />
@@ -60,13 +86,13 @@
                 <option value="internal" {% if filter_mode=='internal' %}selected{% endif %}>내부 진행건</option>
               </select>
             </div>
-            <div style="margin-left:auto" class="hstack">
+            <div class="stack-right">
               <button class="btn btn-primary" type="submit">조회</button>
               <button class="btn" type="button" id="expand">전체 펼치기</button>
               <button class="btn" type="button" id="collapse">전체 접기</button>
             </div>
           </div>
-          <div class="hstack chips" style="margin-top:8px">
+          <div class="chips" style="margin-top:8px">
             <span class="chip" data-days="0">오늘</span>
             <span class="chip" data-days="1">1일뒤</span>
             <span class="chip" data-days="2">2일뒤</span>
@@ -78,10 +104,10 @@
         </form>
       </div>
 
-      <!-- 요약 -->
+      <!-- Summary -->
       {% if did_fetch and ordered_days %}
       <div class="panel" style="margin-bottom:12px">
-        <div class="hstack" style="flex-wrap:wrap">
+        <div class="stack" style="flex-wrap:wrap">
           <span class="muted">기준일</span><span class="pill">{{ base_date_str }}</span>
           <span class="muted" style="margin-left:10px">날짜 매핑</span>
           {% for d in ordered_days %}
@@ -91,7 +117,7 @@
       </div>
       {% endif %}
 
-      <!-- 결과 -->
+      <!-- Results -->
       {% if did_fetch %}
         {% if grouped %}
           <div class="grid" id="results">
@@ -99,7 +125,7 @@
               <div class="card" data-card>
                 <div class="card-head">
                   <div class="name">[{{ agency }}]</div>
-                  <div class="hstack">
+                  <div class="stack">
                     <button class="btn" type="button" data-toggle>접기</button>
                     <button class="btn btn-primary" type="button" onclick="copyText('c{{ loop.index }}')">복사</button>
                   </div>
@@ -114,30 +140,30 @@
       {% endif %}
     </div>
 
-    <!-- 로딩 오버레이 -->
+    <!-- Overlay spinner -->
     <div class="overlay" id="overlay">
       <div class="center">
-        <div class="spin"></div>
+        <div class="spinner"></div>
         <div class="muted">정보를 찾는 중입니다...</div>
       </div>
     </div>
 
-    <!-- 토스트 -->
+    <!-- Toast -->
     <div class="toast" id="toast">복사되었습니다.</div>
 
     <script>
-      // 칩
+      // 빠른 선택 칩
       document.querySelectorAll('.chip').forEach(ch=>ch.addEventListener('click',()=>{
         const v = ch.getAttribute('data-days');
         document.querySelector('input[name="days"]').value = v;
       }));
 
-      // 오버레이
+      // 오버레이 표시
       const form = document.getElementById('q'); const overlay = document.getElementById('overlay');
       form?.addEventListener('submit', ()=>{ overlay.style.display='flex'; });
       window.addEventListener('pageshow', ()=>{ overlay.style.display='none'; });
 
-      // 접기/펼치기
+      // 카드 접기/펼치기
       function setCard(card, open){
         const body = card.querySelector('[data-body]');
         const btn = card.querySelector('[data-toggle]');
@@ -147,8 +173,8 @@
       document.querySelectorAll('[data-card]').forEach(card=>{
         const btn = card.querySelector('[data-toggle]');
         btn.addEventListener('click', ()=>{
-          const open = card.querySelector('[data-body]').style.display !== 'none';
-          setCard(card, !open);
+          const isOpen = card.querySelector('[data-body]').style.display !== 'none';
+          setCard(card, !isOpen);
         });
       });
       document.getElementById('expand')?.addEventListener('click', ()=>{
@@ -158,11 +184,10 @@
         document.querySelectorAll('[data-card]').forEach(c=>setCard(c,false));
       });
 
-      // 복사
+      // 복사 & 토스트
       function toast(){ const t=document.getElementById('toast'); t.style.display='block'; setTimeout(()=>t.style.display='none',1200); }
       window.copyText = function(id){
-        const el = document.getElementById(id); if(!el) return;
-        const tx = el.innerText;
+        const el = document.getElementById(id); if(!el) return; const tx = el.innerText;
         (navigator.clipboard?.writeText ? navigator.clipboard.writeText(tx) : new Promise((res,rej)=>{
           const ta=document.createElement('textarea'); ta.value=tx; document.body.appendChild(ta); ta.select();
           document.execCommand('copy') ? res() : rej(); document.body.removeChild(ta);
