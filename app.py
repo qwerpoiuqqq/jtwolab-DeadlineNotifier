@@ -122,7 +122,9 @@ def create_app() -> Flask:
 		return jsonify(report)
 
 	return app
+
 app = create_app()
+
 
 def _parse_days(days_param: str) -> List[int]:
 	if not days_param:
@@ -141,8 +143,6 @@ if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--prod", action="store_true", help="Run with waitress server")
 	args = parser.parse_args()
-
-	app = create_app()
 
 	host = os.getenv("FLASK_HOST", "0.0.0.0")
 	port = int(os.getenv("FLASK_PORT", "8080"))
