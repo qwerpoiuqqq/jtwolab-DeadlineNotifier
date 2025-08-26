@@ -124,7 +124,7 @@
           <div style="flex:1; min-width:240px">
             <label>첫 멘트</label>
             <textarea id="autoMsgPrefix" placeholder="예: 대표님 안녕하세요~
-금일 마감건 안내드립니다 :) "></textarea>
+금일 마감건 안내드립니다 :) ">{{ suggested_prefix or '' }}</textarea>
           </div>
           <div style="flex:1; min-width:240px">
             <label>끝 멘트</label>
@@ -132,6 +132,9 @@
           </div>
         </div>
         <div class="muted" style="margin-top:8px; font-size:12px">'대행사 발주건' 보기에서만 자동 멘트가 포함됩니다.</div>
+        {% if suggested_prefix %}
+        <div class="muted" style="margin-top:6px; font-size:12px">추천: {{ suggested_prefix }}</div>
+        {% endif %}
       </div>
 
       {% if did_fetch %}
