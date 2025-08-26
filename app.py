@@ -46,6 +46,7 @@ def create_app() -> Flask:
 		day_to_date_label: Dict[int, str] = {}
 		grouped_by_date: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
 		agency_to_message: Dict[str, str] = {}
+		agency_to_date_line: Dict[str, str] = {}
 		error = None
 		suggested_prefix = ""
 
@@ -90,15 +91,35 @@ def create_app() -> Flask:
 					parts.append("")
 				agency_to_message[agency] = "\n".join(parts).rstrip()
 
-			# 선택된 날짜 범위 기반 추천 첫 멘트 생성
+			# 대행사별 실제 존재하는 마감일 범위를 기준으로 날짜 문구(요일 포함) 생성
+			weekday_kr = ["월", "화", "수", "목", "금", "토", "일"]
+			def fmt_mmdd_w(dt: date) -> str:
+				return f"{dt.month:02d}/{dt.day:02d}({weekday_kr[dt.weekday()]})"
+			for agency, by_day in grouped_by_date.items():
+				present_days = sorted(list(by_day.keys()))
+				if not present_days:
+					continue
+				start_dt = base_dt + timedelta(days=present_days[0])
+				end_dt = base_dt + timedelta(days=present_days[-1])
+				if start_dt == end_dt:
+					line = f"{fmt_mmdd_w(start_dt)} 마감건 안내드립니다."
+				else:
+					line = f"{fmt_mmdd_w(start_dt)} ~ {fmt_mmdd_w(end_dt)} 마감건 안내드립니다."
+				agency_to_date_line[agency] = line
+
+			# 선택된 날짜 범위 기반 추천 첫 멘트 생성 (인사 + 날짜 문구, MM/DD 포맷)
 			if ordered_days:
 				all_dates = [base_dt + timedelta(days=d) for d in ordered_days]
 				start_dt = min(all_dates)
 				end_dt = max(all_dates)
+				greeting = "대표님 안녕하세요~"
+				def mmdd(dt: date) -> str:
+					return f"{dt.month:02d}/{dt.day:02d}"
 				if start_dt == end_dt:
-					suggested_prefix = f"{start_dt.month}월 {start_dt.day}일 만료건 안내드립니다 :)"
+					line = f"{mmdd(start_dt)} 마감건 안내드립니다."
 				else:
-					suggested_prefix = f"{start_dt.month}월 {start_dt.day}일~{end_dt.month}월 {end_dt.day}일 만료건 안내드립니다 :)"
+					line = f"{mmdd(start_dt)} ~ {mmdd(end_dt)} 마감건 안내드립니다."
+				suggested_prefix = greeting + "\n" + line
 
 		return render_template(
 			"index.html",
@@ -111,6 +132,7 @@ def create_app() -> Flask:
 			ordered_days=ordered_days,
 			grouped=grouped_by_date,
 			agency_to_message=agency_to_message,
+			agency_to_date_line=agency_to_date_line,
 			settings=settings,
 			filter_mode=filter_mode,
 			suggested_prefix=suggested_prefix,
