@@ -139,7 +139,11 @@
             <div class="stack" style="flex-wrap:wrap">
               <label style="margin:0">날짜 문구 포함</label>
               <input id="toggleDateLine" type="checkbox" style="width:18px; height:18px" />
-              <span class="muted">켜면 카드 상단에 요일 포함 날짜 안내문이 붙습니다.</span>
+              <label style="margin:0; margin-left:12px">첫 멘트 포함</label>
+              <input id="togglePrefix" type="checkbox" style="width:18px; height:18px" checked />
+              <label style="margin:0; margin-left:12px">끝 멘트 포함</label>
+              <input id="toggleSuffix" type="checkbox" style="width:18px; height:18px" checked />
+              <span class="muted">체크박스를 켜면 카드 본문에 즉시 반영됩니다.</span>
             </div>
           </div>
           <div class="grid" id="results">
@@ -282,20 +286,7 @@
       // 복사 & 토스트
       function toast(){ const t=document.getElementById('toast'); t.style.display='block'; setTimeout(()=>t.style.display='none',1200); }
       window.copyText = function(id){
-        const el = document.getElementById(id); if(!el) return; let tx = el.innerText;
-        try{
-          const filterMode = document.querySelector('select[name="filter_mode"]')?.value || 'agency';
-          const enabled = localStorage.getItem(LS_KEYS.enabled) === '1';
-          if(filterMode === 'agency' && enabled){
-            const pfx = (localStorage.getItem(LS_KEYS.prefix) || '').trim();
-            const sfx = (localStorage.getItem(LS_KEYS.suffix) || '').trim();
-            const parts = [];
-            if(pfx) parts.push(pfx);
-            parts.push(tx);
-            if(sfx) parts.push(sfx);
-            tx = parts.join('\n\n').trim();
-          }
-        }catch(e){}
+        const el = document.getElementById(id); if(!el) return; const tx = el.innerText;
         (navigator.clipboard?.writeText ? navigator.clipboard.writeText(tx) : new Promise((res,rej)=>{
           const ta=document.createElement('textarea'); ta.value=tx; document.body.appendChild(ta); ta.select();
           document.execCommand('copy') ? res() : rej(); document.body.removeChild(ta);
@@ -305,21 +296,44 @@
       // 날짜 문구 토글: 실시간 반영 (서버 계산된 대행사별 날짜 문구 사용)
       const agencyToDateLine = {{ (agency_to_date_line or {}) | tojson | safe }};
       const toggleEl = document.getElementById('toggleDateLine');
-      function applyDateLineToggle(){
-        const enabled = !!toggleEl?.checked;
+      const togglePrefix = document.getElementById('togglePrefix');
+      const toggleSuffix = document.getElementById('toggleSuffix');
+      const agencyToOriginalBody = {};
+
+      function readMentions(){
+        const p = (document.getElementById('autoMsgPrefix')?.value || '').trim();
+        const s = (document.getElementById('autoMsgSuffix')?.value || '').trim();
+        return { p, s };
+      }
+
+      function composeAll(){
+        const useDate = !!toggleEl?.checked;
+        const usePref = !!togglePrefix?.checked;
+        const useSuf = !!toggleSuffix?.checked;
+        const { p, s } = readMentions();
         document.querySelectorAll('[data-card]').forEach(card=>{
           const agency = card.getAttribute('data-agency');
           const body = card.querySelector('[data-body]'); if(!body) return;
           const original = (agency && agencyToOriginalBody[agency]) || body.getAttribute('data-original') || body.innerText;
           if(!agencyToOriginalBody[agency]) agencyToOriginalBody[agency] = original;
+          const parts = [];
+          if(usePref && p) parts.push(p);
           const line = agencyToDateLine[agency] || '';
-          body.innerText = enabled && line ? (line + '\n\n' + original) : original;
+          if(useDate && line) parts.push(line);
+          parts.push(original);
+          if(useSuf && s) parts.push(s);
+          body.innerText = parts.join('\n\n').trim();
         });
       }
-      const agencyToOriginalBody = {};
-      toggleEl?.addEventListener('change', applyDateLineToggle);
-      // 초기 상태: 꺼짐
-      if(toggleEl){ toggleEl.checked = false; applyDateLineToggle(); }
+
+      toggleEl?.addEventListener('change', composeAll);
+      togglePrefix?.addEventListener('change', composeAll);
+      toggleSuffix?.addEventListener('change', composeAll);
+      document.getElementById('autoMsgPrefix')?.addEventListener('input', ()=>{ composeAll(); try{ localStorage.setItem(LS_KEYS.prefix, document.getElementById('autoMsgPrefix').value); }catch(e){} });
+      document.getElementById('autoMsgSuffix')?.addEventListener('input', ()=>{ composeAll(); try{ localStorage.setItem(LS_KEYS.suffix, document.getElementById('autoMsgSuffix').value); }catch(e){} });
+      // 초기 상태: 날짜/멘트 토글 OFF/ON 설정
+      if(toggleEl){ toggleEl.checked = false; }
+      composeAll();
 
       // 자동 멘트 패널: 값 로드 및 저장 바인딩
       (function initAutoMentions(){
