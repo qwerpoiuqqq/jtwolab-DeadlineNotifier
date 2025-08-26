@@ -41,10 +41,6 @@ class Settings:
 		self.bizname_col: str = kwargs.get("BIZNAME_COLUMN", DEFAULT_KEYS["BIZNAME_COLUMN"]).strip()
 		self.product_col: str = kwargs.get("PRODUCT_COLUMN", DEFAULT_KEYS["PRODUCT_COLUMN"]).strip()
 		self.product_name_col: str = kwargs.get("PRODUCT_NAME_COLUMN", DEFAULT_KEYS["PRODUCT_NAME_COLUMN"]).strip()
-		# 확장 옵션
-		self.header_scan_max_rows: int = int(str(kwargs.get("HEADER_SCAN_MAX_ROWS", "150")).strip() or "150")
-		self.enable_batch_get: bool = str(kwargs.get("BATCH_GET_ENABLED", "true")).strip().lower() == "true"
-		self.enable_batch_get_fallback: bool = str(kwargs.get("BATCH_GET_FALLBACK", "true")).strip().lower() == "true"
 
 	def to_dict(self) -> Dict[str, str]:
 		return {
@@ -56,9 +52,6 @@ class Settings:
 			"BIZNAME_COLUMN": self.bizname_col,
 			"PRODUCT_COLUMN": self.product_col,
 			"PRODUCT_NAME_COLUMN": self.product_name_col,
-			"HEADER_SCAN_MAX_ROWS": str(self.header_scan_max_rows),
-			"BATCH_GET_ENABLED": "true" if self.enable_batch_get else "false",
-			"BATCH_GET_FALLBACK": "true" if self.enable_batch_get_fallback else "false",
 		}
 
 
@@ -72,9 +65,6 @@ def load_settings() -> Settings:
 		BIZNAME_COLUMN=os.getenv("BIZNAME_COLUMN", DEFAULT_KEYS["BIZNAME_COLUMN"]),
 		PRODUCT_COLUMN=os.getenv("PRODUCT_COLUMN", DEFAULT_KEYS["PRODUCT_COLUMN"]),
 		PRODUCT_NAME_COLUMN=os.getenv("PRODUCT_NAME_COLUMN", DEFAULT_KEYS["PRODUCT_NAME_COLUMN"]),
-		HEADER_SCAN_MAX_ROWS=os.getenv("HEADER_SCAN_MAX_ROWS", "150"),
-		BATCH_GET_ENABLED=os.getenv("BATCH_GET_ENABLED", "true"),
-		BATCH_GET_FALLBACK=os.getenv("BATCH_GET_FALLBACK", "true"),
 	)
 
 
@@ -177,7 +167,7 @@ def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, Li
 		"PRODUCT_NAME_COLUMN": settings.product_name_col,
 	}
 	try:
-		candidates = ws.get_values(f'1:{settings.header_scan_max_rows}')  # 상단 N행 탐색
+		candidates = ws.get_values('1:50')  # 상단 50행 탐색
 	except Exception:
 		candidates = []
 	best_idx = 1
@@ -201,27 +191,6 @@ def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, Li
 		except Exception:
 			best_headers = []
 		best_idx = 1
-
-	# (보강) 실제 컬럼 인덱스 정합을 위해, 헤더 행을 전체 열 폭으로 재조회하여
-	# 선행 빈 컬럼도 포함된 절대 인덱스 기반 헤더 배열로 교체한다.
-	try:
-		col_count = getattr(ws, 'col_count', None) or 0
-		if col_count > 0:
-			# A{row}:<last>{row} 범위로 고정 폭 조회
-			def _letter(n: int) -> str:
-				letters = []
-				while n > 0:
-					n, rem = divmod(n - 1, 26)
-					letters.append(chr(65 + rem))
-				return "".join(reversed(letters))
-			last_col = _letter(col_count)
-			rect = ws.get(f"A{best_idx}:{last_col}{best_idx}")
-			if rect and len(rect) > 0:
-				row_full = rect[0]
-				best_headers = [str(h).strip() for h in row_full]
-	except Exception:
-		pass
-
 	return best_idx, best_headers
 
 
@@ -304,155 +273,19 @@ def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings 
 	selected_set: Set[int] = set(selected_days)
 	agency_map: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
 
-	# 내부 헬퍼: 헤더에서 필요한 열 인덱스 탐색 (0-based)
-	def _resolve_positions(headers: List[str]) -> Dict[str, int | None]:
-		positions: Dict[str, int | None] = {
-			"AGENCY_COLUMN": None,
-			"INTERNAL_COLUMN": None,
-			"REMAINING_DAYS_COLUMN": None,
-			"CHECKED_COLUMN": None,
-			"BIZNAME_COLUMN": None,
-			"PRODUCT_COLUMN": None,
-			"PRODUCT_NAME_COLUMN": None,
-		}
-		for idx, h in enumerate(headers):
-			if positions["AGENCY_COLUMN"] is None and _matches(h, settings.agency_col, "AGENCY_COLUMN"):
-				positions["AGENCY_COLUMN"] = idx
-			if positions["INTERNAL_COLUMN"] is None and _matches(h, settings.internal_col, "INTERNAL_COLUMN"):
-				positions["INTERNAL_COLUMN"] = idx
-			if positions["REMAINING_DAYS_COLUMN"] is None and _matches(h, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"):
-				positions["REMAINING_DAYS_COLUMN"] = idx
-			if positions["CHECKED_COLUMN"] is None and _matches(h, settings.checked_col, "CHECKED_COLUMN"):
-				positions["CHECKED_COLUMN"] = idx
-			if positions["BIZNAME_COLUMN"] is None and _matches(h, settings.bizname_col, "BIZNAME_COLUMN"):
-				positions["BIZNAME_COLUMN"] = idx
-			if positions["PRODUCT_COLUMN"] is None and _matches(h, settings.product_col, "PRODUCT_COLUMN"):
-				positions["PRODUCT_COLUMN"] = idx
-			if positions["PRODUCT_NAME_COLUMN"] is None and _matches(h, settings.product_name_col, "PRODUCT_NAME_COLUMN"):
-				positions["PRODUCT_NAME_COLUMN"] = idx
-		return positions
-
-	# 내부 헬퍼: 0-based 인덱스를 시트 컬럼명으로 변환
-	def _col_letter(zero_based_index: int) -> str:
-		n = zero_based_index + 1
-		letters = []
-		while n > 0:
-			n, rem = divmod(n - 1, 26)
-			letters.append(chr(65 + rem))
-		return "".join(reversed(letters))
-
 	for ws in ss.worksheets():
 		tab_title = (ws.title or "").strip()
 		header_row, headers = _find_header_row(ws, settings)
-		positions = _resolve_positions(headers)
-
-		# 전체 읽기 폴백 함수
-		def _legacy_full_scan() -> None:
-			records = _build_records(ws, header_row, headers)
-			for row in records:
-				row_norm = { _normalize_key(k): v for k, v in row.items() }
-				agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
-				is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
-				is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
-				remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
-				bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
-				product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
-				product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
-
-				# 필터 모드 적용
-				if filter_mode == "agency":
-					if is_internal:
-						continue
-				elif filter_mode == "internal":
-					if not is_internal:
-						continue
-				else:
-					if is_internal:
-						continue
-
-				# 공통 필터
-				if is_checked or remain is None or remain not in selected_set or not bizname:
-					continue
-
-				# 작업명 생성 규칙
-				base_task = tab_title
-				is_misc = _collapse_spaces(tab_title) == _collapse_spaces("기타")
-				if is_misc:
-					display_task = product_name if product_name else base_task
-				else:
-					display_task = f"{base_task} {product}".strip() if product else base_task
-
-				agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
-				dict_by_day = agency_map.setdefault(agency_label, {})
-				dict_by_task = dict_by_day.setdefault(remain, {})
-				name_list = dict_by_task.setdefault(display_task, [])
-				if bizname not in name_list:
-					name_list.append(bizname)
-
-		# 배치 비활성화면 즉시 폴백 경로로
-		if not settings.enable_batch_get:
-			_legacy_full_scan()
-			continue
-
-		# 필요한 열이 한 개도 추론되지 않으면 폴백
-		if all(positions[k] is None for k in positions.keys()):
-			if settings.enable_batch_get_fallback:
-				_legacy_full_scan()
-			continue
-
-		# 필요한 열 범위만 batch_get으로 가져오기 (헤더 다음 행부터 끝까지)
-		ranges: List[str] = []
-		order_keys = [
-			"AGENCY_COLUMN",
-			"INTERNAL_COLUMN",
-			"REMAINING_DAYS_COLUMN",
-			"CHECKED_COLUMN",
-			"BIZNAME_COLUMN",
-			"PRODUCT_COLUMN",
-			"PRODUCT_NAME_COLUMN",
-		]
-		for key in order_keys:
-			pos = positions[key]
-			if pos is not None:
-				col = _col_letter(pos)
-				start = header_row + 1
-				ranges.append(f"{col}{start}:{col}")
-
-		columns_data = []
-		try:
-			columns_data = ws.batch_get(ranges, major_dimension='COLUMNS') if ranges else []
-		except Exception:
-			# 배치 실패 시 폴백
-			if settings.enable_batch_get_fallback:
-				_legacy_full_scan()
-				continue
-
-		# key별 컬럼 데이터 매핑
-		key_to_values: Dict[str, List[str]] = {}
-		idx_in_result = 0
-		for key in order_keys:
-			pos = positions[key]
-			if pos is not None:
-				col_vals = columns_data[idx_in_result][0] if columns_data and idx_in_result < len(columns_data) and len(columns_data[idx_in_result]) > 0 else []
-				# 문자열로 정규화
-				key_to_values[key] = [str(v).strip() for v in col_vals]
-				idx_in_result += 1
-			else:
-				key_to_values[key] = []
-
-		max_len = 0
-		for vals in key_to_values.values():
-			if len(vals) > max_len:
-				max_len = len(vals)
-
-		for i in range(max_len):
-			agency_raw = (key_to_values["AGENCY_COLUMN"][i] if i < len(key_to_values["AGENCY_COLUMN"]) else "").strip()
-			is_checked = _is_truthy(key_to_values["CHECKED_COLUMN"][i] if i < len(key_to_values["CHECKED_COLUMN"]) else "")
-			is_internal = _is_truthy(key_to_values["INTERNAL_COLUMN"][i] if i < len(key_to_values["INTERNAL_COLUMN"]) else "")
-			remain = _parse_int_maybe(key_to_values["REMAINING_DAYS_COLUMN"][i] if i < len(key_to_values["REMAINING_DAYS_COLUMN"]) else "")
-			bizname = (key_to_values["BIZNAME_COLUMN"][i] if i < len(key_to_values["BIZNAME_COLUMN"]) else "").strip()
-			product = (key_to_values["PRODUCT_COLUMN"][i] if i < len(key_to_values["PRODUCT_COLUMN"]) else "").strip()
-			product_name = (key_to_values["PRODUCT_NAME_COLUMN"][i] if i < len(key_to_values["PRODUCT_NAME_COLUMN"]) else "").strip()
+		records = _build_records(ws, header_row, headers)
+		for row in records:
+			row_norm = { _normalize_key(k): v for k, v in row.items() }
+			agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
+			is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
+			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
+			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+			product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
+			product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
 
 			# 필터 모드 적용
 			if filter_mode == "agency":
