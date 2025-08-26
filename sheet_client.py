@@ -320,6 +320,83 @@ def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings 
 	return agency_map
 
 
+def stream_grouped_messages_by_date(selected_days: List[int], settings: Settings | None = None, filter_mode: str = "agency"):
+	"""워크시트 단위로 진행률을 스트리밍하기 위한 제너레이터.
+	각 워크시트 처리 후 진행 이벤트를 yield 하고, 마지막에 최종 결과를 yield 한다.
+	이 함수는 SSE 라우트에서 사용된다.
+	"""
+	if settings is None:
+		settings = load_settings()
+	if not settings.spreadsheet_id:
+		raise RuntimeError("SPREADSHEET_ID 환경변수를 설정하세요.")
+
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+	worksheets = ss.worksheets()
+	total = len(worksheets)
+	processed = 0
+
+	selected_set: Set[int] = set(selected_days)
+	agency_map: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
+
+	# 시작 이벤트
+	yield {"type": "start", "total": total}
+
+	for ws in worksheets:
+		tab_title = (ws.title or "").strip()
+		try:
+			header_row, headers = _find_header_row(ws, settings)
+			records = _build_records(ws, header_row, headers)
+			for row in records:
+				row_norm = { _normalize_key(k): v for k, v in row.items() }
+				agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
+				is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
+				is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+				remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
+				bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+				product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
+				product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
+
+				# 필터 모드 적용
+				if filter_mode == "agency":
+					if is_internal:
+						continue
+				elif filter_mode == "internal":
+					if not is_internal:
+						continue
+				else:
+					if is_internal:
+						continue
+
+				# 공통 필터
+				if is_checked or remain is None or remain not in selected_set or not bizname:
+					continue
+
+				# 작업명 생성 규칙
+				base_task = tab_title
+				is_misc = _collapse_spaces(tab_title) == _collapse_spaces("기타")
+				if is_misc:
+					display_task = product_name if product_name else base_task
+				else:
+					display_task = f"{base_task} {product}".strip() if product else base_task
+
+				agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
+				dict_by_day = agency_map.setdefault(agency_label, {})
+				dict_by_task = dict_by_day.setdefault(remain, {})
+				name_list = dict_by_task.setdefault(display_task, [])
+				if bizname not in name_list:
+					name_list.append(bizname)
+		except Exception as e:
+			# 워크시트 처리 실패도 진행률로 보고
+			yield {"type": "progress", "processed": processed, "total": total, "tab": tab_title, "error": str(e)}
+		else:
+			processed += 1
+			yield {"type": "progress", "processed": processed, "total": total, "tab": tab_title}
+
+	# 완료 이벤트
+	yield {"type": "result", "total": total, "grouped": agency_map}
+
+
 def inspect_sheets(settings: Settings | None = None) -> List[Dict[str, Any]]:
 	if settings is None:
 		settings = load_settings()
