@@ -47,6 +47,7 @@ def create_app() -> Flask:
 		grouped_by_date: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
 		agency_to_message: Dict[str, str] = {}
 		error = None
+		suggested_prefix = ""
 
 		if did_fetch:
 			selected_days = _parse_days(days_param)
@@ -89,6 +90,16 @@ def create_app() -> Flask:
 					parts.append("")
 				agency_to_message[agency] = "\n".join(parts).rstrip()
 
+			# 선택된 날짜 범위 기반 추천 첫 멘트 생성
+			if ordered_days:
+				all_dates = [base_dt + timedelta(days=d) for d in ordered_days]
+				start_dt = min(all_dates)
+				end_dt = max(all_dates)
+				if start_dt == end_dt:
+					suggested_prefix = f"{start_dt.month}월 {start_dt.day}일 만료건 안내드립니다 :)"
+				else:
+					suggested_prefix = f"{start_dt.month}월 {start_dt.day}일~{end_dt.month}월 {end_dt.day}일 만료건 안내드립니다 :)"
+
 		return render_template(
 			"index.html",
 			error=error,
@@ -102,6 +113,7 @@ def create_app() -> Flask:
 			agency_to_message=agency_to_message,
 			settings=settings,
 			filter_mode=filter_mode,
+			suggested_prefix=suggested_prefix,
 		)
 
 	@app.route("/debug/headers")
@@ -135,7 +147,7 @@ def create_app() -> Flask:
 				for evt in stream_grouped_messages_by_date(selected_days, settings, filter_mode):
 					yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
 			except Exception as e:
-				yield f"data: {json.dumps({'type':'error','message':str(e)}, ensure_ascii=False)}\n\n"
+				yield f"data: {json.dumps({\"type\":\"error\",\"message\":str(e)}, ensure_ascii=False)}\n\n"
 
 		return Response(stream_with_context(event_stream()), mimetype="text/event-stream")
 
