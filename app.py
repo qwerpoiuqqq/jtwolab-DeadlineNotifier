@@ -142,13 +142,14 @@ def create_app() -> Flask:
 		filter_mode = request.args.get("filter_mode", "agency").strip().lower()
 		selected_days = _parse_days(days_param)
 
-		def event_stream():
+	def event_stream():
 			try:
 				for evt in stream_grouped_messages_by_date(selected_days, settings, filter_mode):
 					yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
 			except Exception as e:
-				yield f"data: {json.dumps({\"type\":\"error\",\"message\":str(e)}, ensure_ascii=False)}\n\n"
-
+				payload = {"type": "error", "message": str(e)}
+				yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+				
 		return Response(stream_with_context(event_stream()), mimetype="text/event-stream")
 
 	return app
