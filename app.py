@@ -1,12 +1,12 @@
 import os
 import argparse
 from typing import Dict, List
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from dotenv import load_dotenv
 from datetime import date, timedelta
 import re
 
-from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date
+from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date
 
 
 # .env 로드
@@ -120,6 +120,23 @@ def create_app() -> Flask:
 		except Exception as e:
 			return jsonify({"error": str(e)}), 500
 		return jsonify(report)
+
+	@app.route("/api/fetch-stream")
+	def fetch_stream():
+		"""SSE: 진행률과 최종 결과를 스트리밍한다."""
+		settings = load_settings()
+		days_param = request.args.get("days", "").strip()
+		filter_mode = request.args.get("filter_mode", "agency").strip().lower()
+		selected_days = _parse_days(days_param)
+
+		def event_stream():
+			try:
+				for evt in stream_grouped_messages_by_date(selected_days, settings, filter_mode):
+					yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+			except Exception as e:
+				yield f"data: {json.dumps({'type':'error','message':str(e)}, ensure_ascii=False)}\n\n"
+
+		return Response(stream_with_context(event_stream()), mimetype="text/event-stream")
 
 	return app
 
