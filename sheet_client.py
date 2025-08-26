@@ -273,19 +273,101 @@ def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings 
 	selected_set: Set[int] = set(selected_days)
 	agency_map: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
 
+	# 내부 헬퍼: 헤더에서 필요한 열 인덱스 탐색 (0-based)
+	def _resolve_positions(headers: List[str]) -> Dict[str, int | None]:
+		positions: Dict[str, int | None] = {
+			"AGENCY_COLUMN": None,
+			"INTERNAL_COLUMN": None,
+			"REMAINING_DAYS_COLUMN": None,
+			"CHECKED_COLUMN": None,
+			"BIZNAME_COLUMN": None,
+			"PRODUCT_COLUMN": None,
+			"PRODUCT_NAME_COLUMN": None,
+		}
+		for idx, h in enumerate(headers):
+			if positions["AGENCY_COLUMN"] is None and _matches(h, settings.agency_col, "AGENCY_COLUMN"):
+				positions["AGENCY_COLUMN"] = idx
+			if positions["INTERNAL_COLUMN"] is None and _matches(h, settings.internal_col, "INTERNAL_COLUMN"):
+				positions["INTERNAL_COLUMN"] = idx
+			if positions["REMAINING_DAYS_COLUMN"] is None and _matches(h, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"):
+				positions["REMAINING_DAYS_COLUMN"] = idx
+			if positions["CHECKED_COLUMN"] is None and _matches(h, settings.checked_col, "CHECKED_COLUMN"):
+				positions["CHECKED_COLUMN"] = idx
+			if positions["BIZNAME_COLUMN"] is None and _matches(h, settings.bizname_col, "BIZNAME_COLUMN"):
+				positions["BIZNAME_COLUMN"] = idx
+			if positions["PRODUCT_COLUMN"] is None and _matches(h, settings.product_col, "PRODUCT_COLUMN"):
+				positions["PRODUCT_COLUMN"] = idx
+			if positions["PRODUCT_NAME_COLUMN"] is None and _matches(h, settings.product_name_col, "PRODUCT_NAME_COLUMN"):
+				positions["PRODUCT_NAME_COLUMN"] = idx
+		return positions
+
+	# 내부 헬퍼: 0-based 인덱스를 시트 컬럼명으로 변환
+	def _col_letter(zero_based_index: int) -> str:
+		n = zero_based_index + 1
+		letters = []
+		while n > 0:
+			n, rem = divmod(n - 1, 26)
+			letters.append(chr(65 + rem))
+		return "".join(reversed(letters))
+
 	for ws in ss.worksheets():
 		tab_title = (ws.title or "").strip()
 		header_row, headers = _find_header_row(ws, settings)
-		records = _build_records(ws, header_row, headers)
-		for row in records:
-			row_norm = { _normalize_key(k): v for k, v in row.items() }
-			agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
-			is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
-			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
-			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
-			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
-			product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
-			product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
+		positions = _resolve_positions(headers)
+
+		# 필요한 열이 한 개도 추론되지 않으면 패스
+		if all(positions[k] is None for k in positions.keys()):
+			continue
+
+		# 필요한 열 범위만 batch_get으로 가져오기 (헤더 다음 행부터 끝까지)
+		ranges: List[str] = []
+		order_keys = [
+			"AGENCY_COLUMN",
+			"INTERNAL_COLUMN",
+			"REMAINING_DAYS_COLUMN",
+			"CHECKED_COLUMN",
+			"BIZNAME_COLUMN",
+			"PRODUCT_COLUMN",
+			"PRODUCT_NAME_COLUMN",
+		]
+		for key in order_keys:
+			pos = positions[key]
+			if pos is not None:
+				col = _col_letter(pos)
+				start = header_row + 1
+				ranges.append(f"{col}{start}:{col}")
+
+		try:
+			columns_data = ws.batch_get(ranges, major_dimension='COLUMNS') if ranges else []
+		except Exception:
+			columns_data = []
+
+		# key별 컬럼 데이터 매핑
+		key_to_values: Dict[str, List[str]] = {}
+		idx_in_result = 0
+		for key in order_keys:
+			pos = positions[key]
+			if pos is not None:
+				col_vals = columns_data[idx_in_result][0] if columns_data and len(columns_data[idx_in_result]) > 0 else []
+				# 문자열로 정규화
+				key_to_values[key] = [str(v).strip() for v in col_vals]
+				idx_in_result += 1
+			else:
+				key_to_values[key] = []
+
+		max_len = 0
+		for vals in key_to_values.values():
+			if len(vals) > max_len:
+				max_len = len(vals)
+
+		for i in range(max_len):
+			agency_raw = (key_to_values["AGENCY_COLUMN"][i] if i < len(key_to_values["AGENCY_COLUMN"]) else "").strip()
+			is_checked = _is_truthy(key_to_values["CHECKED_COLUMN"][i] if i < len(key_to_values["CHECKED_COLUMN"]) else "")
+			is_internal = _is_truthy(key_to_values["INTERNAL_COLUMN"][i] if i < len(key_to_values["INTERNAL_COLUMN"]) else "")
+			remain = _parse_int_maybe(key_to_values["REMAINING_DAYS_COLUMN"][i] if i < len(key_to_values["REMAINING_DAYS_COLUMN"]) else "")
+			bizname = (key_to_values["BIZNAME_COLUMN"][i] if i < len(key_to_values["BIZNAME_COLUMN"]) else "").strip()
+			product = (key_to_values["PRODUCT_COLUMN"][i] if i < len(key_to_values["PRODUCT_COLUMN"]) else "").strip()
+			product_name = (key_to_values["PRODUCT_NAME_COLUMN"][i] if i < len(key_to_values["PRODUCT_NAME_COLUMN"]) else "").strip()
 
 			# 필터 모드 적용
 			if filter_mode == "agency":
