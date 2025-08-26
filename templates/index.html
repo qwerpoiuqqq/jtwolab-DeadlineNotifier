@@ -36,7 +36,6 @@
         padding:10px 12px; min-width:220px; outline:none;
       }
       input::placeholder{ color:#9da7b1; }
-      textarea{ background:#fff; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px 12px; outline:none; width:100%; min-height:64px; }
 
       .btn{ border:1px solid var(--line); background:#fff; color:var(--text); padding:10px 14px; border-radius:10px; cursor:pointer; }
       .btn-primary{ background:#111827; color:#fff; border-color:#111827; }
@@ -114,34 +113,18 @@
       </div>
       {% endif %}
 
-      <!-- 자동 멘트 설정 -->
-      <div class="panel" style="margin-bottom:12px">
-        <div class="stack" style="align-items:flex-start; gap:16px">
-          <div style="display:flex; align-items:center; gap:8px; min-width:160px">
-            <input id="autoMsgEnabled" type="checkbox" style="width:18px; height:18px" />
-            <label for="autoMsgEnabled" style="margin:0">자동 멘트 사용</label>
-          </div>
-          <div style="flex:1; min-width:240px">
-            <label>첫 멘트</label>
-            <textarea id="autoMsgPrefix" placeholder="예: 대표님 안녕하세요~
-금일 마감건 안내드립니다 :) ">{{ suggested_prefix or '' }}</textarea>
-          </div>
-          <div style="flex:1; min-width:240px">
-            <label>끝 멘트</label>
-            <textarea id="autoMsgSuffix" placeholder="예: 연장 여부 확인 후 금일 마감시간전까지 접수 요청 부탁드립니다! 감사합니다~"></textarea>
-          </div>
-        </div>
-        <div class="muted" style="margin-top:8px; font-size:12px">'대행사 발주건' 보기에서만 자동 멘트가 포함됩니다.</div>
-        {% if suggested_prefix %}
-        <div class="muted" style="margin-top:6px; font-size:12px">추천: {{ suggested_prefix }}</div>
-        {% endif %}
-      </div>
-
       {% if did_fetch %}
         {% if grouped %}
+          <div class="panel" style="margin-bottom:12px">
+            <div class="stack" style="flex-wrap:wrap">
+              <label style="margin:0">날짜 문구 포함</label>
+              <input id="toggleDateLine" type="checkbox" style="width:18px; height:18px" />
+              <span class="muted">켜면 카드 상단에 요일 포함 날짜 안내문이 붙습니다.</span>
+            </div>
+          </div>
           <div class="grid" id="results">
             {% for agency, tasks in grouped.items() %}
-              <div class="card" data-card>
+              <div class="card" data-card data-agency="{{ agency }}">
                 <div class="card-head">
                   <div class="name">[{{ agency }}]</div>
                   <div class="stack">
@@ -149,7 +132,9 @@
                     <button class="btn btn-primary" type="button" onclick="copyText('c{{ loop.index }}')">복사</button>
                   </div>
                 </div>
-                <div class="copy" id="c{{ loop.index }}" data-body>{{ agency_to_message[agency] }}</div>
+                <div class="copy" id="c{{ loop.index }}" data-body>
+                  {{ agency_to_message[agency] }}
+                </div>
               </div>
             {% endfor %}
           </div>
@@ -170,8 +155,6 @@
     <div class="toast" id="toast">복사되었습니다.</div>
 
     <script>
-      // 자동 멘트 로컬설정 키
-      const LS_KEYS = { enabled: 'pm_auto_msg_enabled', prefix: 'pm_auto_msg_prefix', suffix: 'pm_auto_msg_suffix' };
       // 빠른 선택 칩
       document.querySelectorAll('.chip').forEach(ch=>ch.addEventListener('click',()=>{
         const v = ch.getAttribute('data-days');
@@ -276,47 +259,31 @@
       // 복사 & 토스트
       function toast(){ const t=document.getElementById('toast'); t.style.display='block'; setTimeout(()=>t.style.display='none',1200); }
       window.copyText = function(id){
-        const el = document.getElementById(id); if(!el) return; let tx = el.innerText;
-        try{
-          const filterMode = document.querySelector('select[name="filter_mode"]')?.value || 'agency';
-          const enabled = localStorage.getItem(LS_KEYS.enabled) === '1';
-          if(filterMode === 'agency' && enabled){
-            const pfx = (localStorage.getItem(LS_KEYS.prefix) || '').trim();
-            const sfx = (localStorage.getItem(LS_KEYS.suffix) || '').trim();
-            const parts = [];
-            if(pfx) parts.push(pfx);
-            parts.push(tx);
-            if(sfx) parts.push(sfx);
-            tx = parts.join('\n\n').trim();
-          }
-        }catch(e){}
+        const el = document.getElementById(id); if(!el) return; const tx = el.innerText;
         (navigator.clipboard?.writeText ? navigator.clipboard.writeText(tx) : new Promise((res,rej)=>{
           const ta=document.createElement('textarea'); ta.value=tx; document.body.appendChild(ta); ta.select();
           document.execCommand('copy') ? res() : rej(); document.body.removeChild(ta);
         })).then(toast).catch(toast);
       }
 
-      // 자동 멘트 패널: 값 로드 및 저장 바인딩
-      (function initAutoMentions(){
-        const enabledEl = document.getElementById('autoMsgEnabled');
-        const prefixEl = document.getElementById('autoMsgPrefix');
-        const suffixEl = document.getElementById('autoMsgSuffix');
-        if(!enabledEl || !prefixEl || !suffixEl) return;
-        try{
-          enabledEl.checked = localStorage.getItem(LS_KEYS.enabled) === '1';
-          prefixEl.value = localStorage.getItem(LS_KEYS.prefix) || '';
-          suffixEl.value = localStorage.getItem(LS_KEYS.suffix) || '';
-        }catch(e){}
-        enabledEl.addEventListener('change', ()=>{
-          try{ localStorage.setItem(LS_KEYS.enabled, enabledEl.checked ? '1' : '0'); }catch(e){}
+      // 날짜 문구 토글: 실시간 반영 (서버 계산된 대행사별 날짜 문구 사용)
+      const agencyToDateLine = {{ (agency_to_date_line or {}) | tojson | safe }};
+      const toggleEl = document.getElementById('toggleDateLine');
+      function applyDateLineToggle(){
+        const enabled = !!toggleEl?.checked;
+        document.querySelectorAll('[data-card]').forEach(card=>{
+          const agency = card.getAttribute('data-agency');
+          const body = card.querySelector('[data-body]'); if(!body) return;
+          const original = (agency && agencyToOriginalBody[agency]) || body.getAttribute('data-original') || body.innerText;
+          if(!agencyToOriginalBody[agency]) agencyToOriginalBody[agency] = original;
+          const line = agencyToDateLine[agency] || '';
+          body.innerText = enabled && line ? (line + '\n\n' + original) : original;
         });
-        prefixEl.addEventListener('input', ()=>{
-          try{ localStorage.setItem(LS_KEYS.prefix, prefixEl.value); }catch(e){}
-        });
-        suffixEl.addEventListener('input', ()=>{
-          try{ localStorage.setItem(LS_KEYS.suffix, suffixEl.value); }catch(e){}
-        });
-      })();
+      }
+      const agencyToOriginalBody = {};
+      toggleEl?.addEventListener('change', applyDateLineToggle);
+      // 초기 상태: 꺼짐
+      if(toggleEl){ toggleEl.checked = false; applyDateLineToggle(); }
     </script>
   </body>
 </html>
