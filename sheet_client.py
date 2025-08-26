@@ -201,6 +201,27 @@ def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, Li
 		except Exception:
 			best_headers = []
 		best_idx = 1
+
+	# (보강) 실제 컬럼 인덱스 정합을 위해, 헤더 행을 전체 열 폭으로 재조회하여
+	# 선행 빈 컬럼도 포함된 절대 인덱스 기반 헤더 배열로 교체한다.
+	try:
+		col_count = getattr(ws, 'col_count', None) or 0
+		if col_count > 0:
+			# A{row}:<last>{row} 범위로 고정 폭 조회
+			def _letter(n: int) -> str:
+				letters = []
+				while n > 0:
+					n, rem = divmod(n - 1, 26)
+					letters.append(chr(65 + rem))
+				return "".join(reversed(letters))
+			last_col = _letter(col_count)
+			rect = ws.get(f"A{best_idx}:{last_col}{best_idx}")
+			if rect and len(rect) > 0:
+				row_full = rect[0]
+				best_headers = [str(h).strip() for h in row_full]
+	except Exception:
+		pass
+
 	return best_idx, best_headers
 
 
