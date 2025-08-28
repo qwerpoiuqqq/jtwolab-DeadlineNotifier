@@ -167,25 +167,33 @@ def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, Li
 		"PRODUCT_NAME_COLUMN": settings.product_name_col,
 	}
 	try:
-		candidates = ws.get_values('1:50')  # 상단 50행 탐색
+		candidates = ws.get_values('1:100')  # 상단 100행 탐색
 	except Exception:
 		candidates = []
-	best_idx = 1
-	best_headers: List[str] = []
-	best_score = -1
-	for idx, row in enumerate(candidates, start=1):
-		headers = [str(h).strip() for h in row]
-		score = 0
+
+	def score_headers(headers: List[str]) -> tuple[int, int]:
+		has_remaining = any(_matches(h, settings.remaining_days_col, "REMAINING_DAYS_COLUMN") for h in headers)
+		has_bizname = any(_matches(h, settings.bizname_col, "BIZNAME_COLUMN") for h in headers)
+		enessentials = int(has_remaining) + int(has_bizname)
+		total = 0
 		for header in headers:
 			for key_id, pref in required_map.items():
 				if _matches(header, pref, key_id):
-					score += 1
+					total += 1
 					break
-		if score > best_score:
+		return essentials, total
+
+	best_idx = 1
+	best_headers: List[str] = []
+	best_tuple = (-1, -1)
+	for idx, row in enumerate(candidates, start=1):
+		headers = [str(h).strip() for h in row]
+		s = score_headers(headers)
+		if s > best_tuple:
+			best_tuple = s
 			best_idx = idx
 			best_headers = headers
-			best_score = score
-	if best_score <= 0:
+	if best_tuple == (-1, -1):
 		try:
 			best_headers = [h.strip() for h in ws.row_values(1)]
 		except Exception:
@@ -423,7 +431,7 @@ def inspect_sheets(settings: Settings | None = None) -> List[Dict[str, Any]]:
 
 
 def diagnose_matches(selected_days: List[int], settings: Settings | None = None, limit: int = 50) -> Dict[str, Any]:
-	"""탭별 매칭된 항목과 제외 사유 샘플을 반환한다."""
+	"""탭별 매칭된 항목과 제외 사유 샘플, 사유별 카운트를 반환한다."""
 	if settings is None:
 		settings = load_settings()
 	client = _get_client()
@@ -437,6 +445,7 @@ def diagnose_matches(selected_days: List[int], settings: Settings | None = None,
 		records = _build_records(ws, header_row, headers)
 		matched: List[Dict[str, Any]] = []
 		excluded: List[Dict[str, Any]] = []
+		reason_counts: Dict[str, int] = {}
 		for row in records:
 			row_norm = { _normalize_key(k): v for k, v in row.items() }
 			agency = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
@@ -462,11 +471,13 @@ def diagnose_matches(selected_days: List[int], settings: Settings | None = None,
 				matched.append({"agency": agency or "", "bizname": bizname, "remain": remain})
 			else:
 				excluded.append({"agency": agency or "", "bizname": bizname, "remain_raw": remain_val_raw, "reason": reason})
+				reason_counts[reason] = reason_counts.get(reason, 0) + 1
 
 		report[task_name] = {
 			"header_row": header_row,
 			"matched_count": len(matched),
 			"matched_sample": matched[:limit],
 			"excluded_sample": excluded[:limit],
+			"excluded_reason_counts": reason_counts,
 		}
 	return report
