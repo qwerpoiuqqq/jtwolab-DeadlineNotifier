@@ -316,8 +316,10 @@
         document.querySelectorAll('[data-card]').forEach(card=>{
           const agency = card.getAttribute('data-agency');
           const body = card.querySelector('[data-body]'); if(!body) return;
-          const original = (agency && agencyToOriginalBody[agency]) || body.getAttribute('data-original') || body.innerText;
-          if(!agencyToOriginalBody[agency]) agencyToOriginalBody[agency] = original;
+          const originalStored = (agency && agencyToOriginalBody[agency]) || body.getAttribute('data-original') || body.innerText;
+          if(!agencyToOriginalBody[agency]) agencyToOriginalBody[agency] = originalStored;
+          // 첫 줄 왼쪽 여백 제거
+          const original = originalStored.replace(/^\s+/, '');
           const line = agencyToDateLine[agency] || '';
           // 헤더(첫 멘트 + 날짜 문구)를 줄바꿈 1번으로 연결
           let header = '';
