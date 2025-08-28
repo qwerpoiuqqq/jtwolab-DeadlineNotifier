@@ -316,10 +316,10 @@
           const original = (agency && agencyToOriginalBody[agency]) || body.getAttribute('data-original') || body.innerText;
           if(!agencyToOriginalBody[agency]) agencyToOriginalBody[agency] = original;
           const line = agencyToDateLine[agency] || '';
-          // 헤더(첫 멘트 + 날짜 문구)를 한 줄로 연결
+          // 헤더(첫 멘트 + 날짜 문구)를 줄바꿈 1번으로 연결
           let header = '';
           if(usePref && p) header = p;
-          if(useDate && line) header = header ? (header + ' ' + line) : line;
+          if(useDate && line) header = header ? (header + '\n' + line) : line;
           const parts = [];
           if(header) parts.push(header);
           parts.push(original);
