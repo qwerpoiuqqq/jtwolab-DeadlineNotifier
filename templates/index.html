@@ -177,6 +177,9 @@
 
     <div class="toast" id="toast">복사되었습니다.</div>
 
+    <!-- 서버 데이터: 대행사별 날짜 문구(JSON) -->
+    <script id="data-agency-lines" type="application/json">{{ (agency_to_date_line or {}) | tojson | safe }}</script>
+
     <script>
       // 자동 멘트 로컬설정 키
       const LS_KEYS = { enabled: 'pm_auto_msg_enabled', prefix: 'pm_auto_msg_prefix', suffix: 'pm_auto_msg_suffix' };
@@ -293,7 +296,7 @@
       }
 
       // 날짜 문구 토글: 실시간 반영 (서버 계산된 대행사별 날짜 문구 사용)
-      const agencyToDateLine = {{ (agency_to_date_line or {}) | tojson | safe }};
+      const agencyToDateLine = JSON.parse(document.getElementById('data-agency-lines')?.textContent || '{}');
       const toggleEl = document.getElementById('toggleDateLine');
       const togglePrefix = document.getElementById('togglePrefix');
       const toggleSuffix = document.getElementById('toggleSuffix');
