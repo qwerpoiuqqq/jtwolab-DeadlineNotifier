@@ -1,7 +1,9 @@
 import os
 import json
 import re
-from typing import Dict, List, Set, Any, Tuple
+import time
+import random
+from typing import Dict, List, Set, Any, Tuple, Callable
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -203,40 +205,59 @@ def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, Li
 
 
 def _build_records(ws: gspread.Worksheet, header_row: int, headers: List[str]) -> List[Dict[str, Any]]:
+	def _with_retry(func: Callable, *args: Any, **kwargs: Any) -> Any:
+		"""지수 백오프 재시도 래퍼 (429/5xx 완화)."""
+		max_attempts = 5
+		base = 0.6
+		for attempt in range(max_attempts):
+			try:
+				return func(*args, **kwargs)
+			except Exception as e:
+				# 마지막 시도 실패면 재전파
+				if attempt == max_attempts - 1:
+					raise
+				# 429 또는 일시 오류 추정 시 대기
+				delay = base * (2 ** attempt) + random.uniform(0, 0.4)
+				time.sleep(delay)
+
 	def _get_all_values_full(sheet: gspread.Worksheet) -> List[List[str]]:
 		"""워크시트의 전체 행을 배치로 끝까지 읽어온다.
-		row_count 기준으로 2000행 단위로 스캔한다.
+		우선 단일 호출(get_all_values)로 시도하고, 실패 시 row_count 기준으로 5000행 단위로 스캔한다.
 		"""
+		# 1) 단일 호출 우선 (요청 수 최소화)
+		try:
+			return _with_retry(sheet.get_all_values)
+		except Exception:
+			pass
+
+		# 2) 폴백: 청크 스캔
 		try:
 			total = int(getattr(sheet, "row_count", 0) or 0)
 		except Exception:
 			total = 0
-		# row_count를 알 수 없으면 기존 방식 폴백
 		if total <= 0:
-			try:
-				return sheet.get_all_values()
-			except Exception:
-				return []
+			# row_count도 없고 단일 호출도 실패
+			return []
 
 		all_values: List[List[str]] = []
-		chunk = 2000
+		chunk = 5000
 		last_non_empty_row = 0
 		for start in range(1, total + 1, chunk):
 			end = min(total, start + chunk - 1)
 			try:
-				part = sheet.get_values(f"{start}:{end}")
+				part = _with_retry(sheet.get_values, f"{start}:{end}")
 			except Exception:
 				part = []
 			if part:
 				all_values.extend(part)
-				# 마지막 비어있지 않은 상대 인덱스 추적
 				for i, r in enumerate(part, start=start):
 					if any(str(c).strip() != "" for c in r):
 						last_non_empty_row = i
 			else:
-				# 완전히 빈 청크가 연속적으로 나오고, 이미 충분히 읽었다면 중단
 				if start > max(1, last_non_empty_row) + chunk:
 					break
+			# 청크 간 살짝 대기하여 RPM 완화
+			time.sleep(0.15)
 		return all_values
 
 	try:
@@ -567,7 +588,7 @@ def inspect_sheets(settings: Settings | None = None) -> List[Dict[str, Any]]:
 	return results
 
 
-def diagnose_matches(selected_days: List[int], settings: Settings | None = None, limit: int = 50) -> Dict[str, Any]:
+def diagnose_matches(selected_days: List[int], settings: Settings | None = None, limit: int = 50) -> Dict[str, Any]]:
 	"""탭별 매칭된 항목과 제외 사유 샘플, 사유별 카운트를 반환한다."""
 	if settings is None:
 		settings = load_settings()
