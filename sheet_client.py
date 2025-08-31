@@ -203,8 +203,44 @@ def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, Li
 
 
 def _build_records(ws: gspread.Worksheet, header_row: int, headers: List[str]) -> List[Dict[str, Any]]:
+	def _get_all_values_full(sheet: gspread.Worksheet) -> List[List[str]]:
+		"""워크시트의 전체 행을 배치로 끝까지 읽어온다.
+		row_count 기준으로 2000행 단위로 스캔한다.
+		"""
+		try:
+			total = int(getattr(sheet, "row_count", 0) or 0)
+		except Exception:
+			total = 0
+		# row_count를 알 수 없으면 기존 방식 폴백
+		if total <= 0:
+			try:
+				return sheet.get_all_values()
+			except Exception:
+				return []
+
+		all_values: List[List[str]] = []
+		chunk = 2000
+		last_non_empty_row = 0
+		for start in range(1, total + 1, chunk):
+			end = min(total, start + chunk - 1)
+			try:
+				part = sheet.get_values(f"{start}:{end}")
+			except Exception:
+				part = []
+			if part:
+				all_values.extend(part)
+				# 마지막 비어있지 않은 상대 인덱스 추적
+				for i, r in enumerate(part, start=start):
+					if any(str(c).strip() != "" for c in r):
+						last_non_empty_row = i
+			else:
+				# 완전히 빈 청크가 연속적으로 나오고, 이미 충분히 읽었다면 중단
+				if start > max(1, last_non_empty_row) + chunk:
+					break
+		return all_values
+
 	try:
-		values = ws.get_all_values()
+		values = _get_all_values_full(ws)
 	except Exception:
 		return []
 	if header_row - 1 >= len(values):
