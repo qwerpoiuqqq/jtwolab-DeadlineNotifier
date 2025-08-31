@@ -174,7 +174,7 @@ def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, Li
 	def score_headers(headers: List[str]) -> tuple[int, int]:
 		has_remaining = any(_matches(h, settings.remaining_days_col, "REMAINING_DAYS_COLUMN") for h in headers)
 		has_bizname = any(_matches(h, settings.bizname_col, "BIZNAME_COLUMN") for h in headers)
-		enessentials = int(has_remaining) + int(has_bizname)
+		essentials = int(has_remaining) + int(has_bizname)
 		total = 0
 		for header in headers:
 			for key_id, pref in required_map.items():
