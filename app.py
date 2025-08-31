@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from datetime import date, timedelta
 import re
 
-from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date
+from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency
 
 
 # .env 로드
@@ -173,6 +173,27 @@ def create_app() -> Flask:
 				yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 		return Response(stream_with_context(event_stream()), mimetype="text/event-stream")
+
+	@app.route("/api/mark-done", methods=["POST"])
+	def mark_done():
+		"""특정 대행사 카드의 모든 해당 행을 '마감 안내 체크'로 표시한다."""
+		try:
+			data = request.get_json(force=True, silent=False) or {}
+		except Exception:
+			return jsonify({"error": "invalid_json"}), 400
+
+		agency_label = str(data.get("agency") or "").strip()
+		days_param = str(data.get("days") or "").strip()
+		filter_mode = str(data.get("filter_mode") or "agency").strip().lower()
+		if not agency_label:
+			return jsonify({"error": "missing_agency"}), 400
+
+		selected_days = _parse_days(days_param)
+		try:
+			result = mark_checked_for_agency(selected_days=selected_days, agency_label=agency_label, filter_mode=filter_mode)
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify(result)
 
 	return app
 
