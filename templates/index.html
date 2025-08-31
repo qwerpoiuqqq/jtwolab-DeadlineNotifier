@@ -153,6 +153,7 @@
                   <div class="stack">
                     <button class="btn" type="button" data-toggle>접기</button>
                     <button class="btn btn-primary" type="button" onclick="copyText('c{{ loop.index }}')">복사</button>
+                    <button class="btn btn-success" type="button" data-mark-done data-agency="{{ agency }}">마감안내완료</button>
                   </div>
                 </div>
                 <div class="copy" id="c{{ loop.index }}" data-body>
@@ -338,6 +339,40 @@
       toggleSuffix?.addEventListener('change', composeAll);
       document.getElementById('autoMsgPrefix')?.addEventListener('input', ()=>{ composeAll(); try{ localStorage.setItem(LS_KEYS.prefix, document.getElementById('autoMsgPrefix').value); }catch(e){} });
       document.getElementById('autoMsgSuffix')?.addEventListener('input', ()=>{ composeAll(); try{ localStorage.setItem(LS_KEYS.suffix, document.getElementById('autoMsgSuffix').value); }catch(e){} });
+
+      // 마감안내완료 버튼 핸들러 (각 카드 단위)
+      function currentQueryParams(){
+        const url = new URL(window.location.href);
+        return {
+          days: url.searchParams.get('days') || '',
+          filter_mode: url.searchParams.get('filter_mode') || 'agency'
+        };
+      }
+      async function markDone(agency){
+        const { days, filter_mode } = currentQueryParams();
+        const res = await fetch('/api/mark-done', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agency, days, filter_mode })
+        });
+        const data = await res.json().catch(()=>({}));
+        if(!res.ok){ alert(data?.error || '업데이트 실패'); return; }
+        alert(`체크 업데이트: ${data.updated}건`);
+        // 성공 시 현재 조건으로 다시 조회
+        try{
+          const url = new URL(window.location.href);
+          url.searchParams.set('submit', '1');
+          window.location.href = url.toString();
+        }catch(e){ window.location.reload(); }
+      }
+      document.querySelectorAll('[data-mark-done]')?.forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const agency = btn.getAttribute('data-agency') || '';
+          if(!agency) return;
+          if(confirm(`[${agency}] 카드의 항목들을 '마감 안내 체크'로 표시할까요?`)){
+            markDone(agency);
+          }
+        });
+      });
       // 초기 상태: 날짜/멘트 토글 OFF/ON 설정
       if(toggleEl){ toggleEl.checked = false; }
       composeAll();
