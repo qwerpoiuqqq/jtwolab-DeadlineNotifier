@@ -47,7 +47,7 @@
       .pill{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
 
       .grid{ display:grid; gap:12px; }
-      textarea{ background:#fff; color:#var(--text); border:1px solid var(--line); border-radius:10px; padding:12px 14px; outline:none; width:100%; min-height:110px; resize:vertical; }
+      textarea{ background:#fff; color:#0b0f14; border:1px solid var(--line); border-radius:10px; padding:12px 14px; outline:none; width:100%; min-height:110px; resize:vertical; }
       .controls{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
       .switch{ display:flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--line); background:var(--pill); border-radius:999px; font-size:12px; }
       @media(min-width:900px){ .grid{ grid-template-columns:1fr 1fr; } }
@@ -177,6 +177,18 @@
     </div>
 
     <div class="toast" id="toast">복사되었습니다.</div>
+    
+    <!-- 진행/완료 모달 -->
+    <div class="overlay" id="modal" style="display:none; background:rgba(0,0,0,.18)">
+      <div class="center" style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; min-width:280px">
+        <div id="modal-title" style="font-weight:700; margin-bottom:8px">처리 중</div>
+        <div id="modal-body" class="muted">잠시만 기다려주세요...</div>
+        <div style="margin-top:12px; display:flex; gap:8px; justify-content:flex-end">
+          <button class="btn" type="button" id="modal-cancel" style="display:none">취소</button>
+          <button class="btn btn-primary" type="button" id="modal-ok" style="display:none">확인</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 서버 데이터: 대행사별 날짜 문구(JSON) -->
     <script id="data-agency-lines" type="application/json">{{ (agency_to_date_line or {}) | tojson | safe }}</script>
@@ -350,27 +362,70 @@
       }
       async function markDone(agency){
         const { days, filter_mode } = currentQueryParams();
-        const res = await fetch('/api/mark-done', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agency, days, filter_mode })
+        // 모든 상단 컨트롤/버튼 비활성화
+        const disableAll = (v)=>{
+          document.querySelectorAll('button, input, select, textarea').forEach(el=>{
+            if(el.id==='modal-ok' || el.id==='modal-cancel') return;
+            el.disabled = v;
+          });
+        }
+        // 모달 도우미
+        const modal = document.getElementById('modal');
+        const mTitle = document.getElementById('modal-title');
+        const mBody = document.getElementById('modal-body');
+        const mOk = document.getElementById('modal-ok');
+        const mCancel = document.getElementById('modal-cancel');
+        const showModal = ({title, body, ok=false, cancel=false})=>{
+          mTitle.textContent = title||''; mBody.textContent = body||'';
+          mOk.style.display = ok? 'inline-block':'none';
+          mCancel.style.display = cancel? 'inline-block':'none';
+          modal.style.display='flex';
+        };
+        const hideModal = ()=>{ modal.style.display='none'; };
+
+        // 확인 모달
+        showModal({title:'마감 안내 체크', body:`[${agency}] 카드의 항목들을 체크로 표시할까요?`, ok:true, cancel:true});
+        await new Promise((resolve)=>{
+          const onOk = ()=>{ mOk.removeEventListener('click', onOk); mCancel.removeEventListener('click', onCancel); resolve(true); };
+          const onCancel = ()=>{ mOk.removeEventListener('click', onOk); mCancel.removeEventListener('click', onCancel); resolve(false); };
+          mOk.addEventListener('click', onOk);
+          mCancel.addEventListener('click', onCancel);
+        }).then(async (go)=>{
+          if(!go){ hideModal(); return; }
+          // 진행 모달로 전환
+          showModal({title:'처리 중', body:'잠시만 기다려주세요...'});
+          disableAll(true);
+          try{
+            const res = await fetch('/api/mark-done', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ agency, days, filter_mode })
+            });
+            const data = await res.json().catch(()=>({}));
+            if(!res.ok){
+              showModal({title:'실패', body:(data?.error||'업데이트 실패'), ok:true});
+            }else{
+              showModal({title:'완료', body:`체크 업데이트: ${data.updated}건`, ok:true});
+              mOk.onclick = ()=>{
+                // 성공 시 현재 조건으로 다시 조회
+                try{
+                  const url = new URL(window.location.href);
+                  url.searchParams.set('submit', '1');
+                  window.location.href = url.toString();
+                }catch(e){ window.location.reload(); }
+              };
+            }
+          }catch(err){
+            showModal({title:'실패', body:'네트워크 오류', ok:true});
+          }finally{
+            disableAll(false);
+          }
         });
-        const data = await res.json().catch(()=>({}));
-        if(!res.ok){ alert(data?.error || '업데이트 실패'); return; }
-        alert(`체크 업데이트: ${data.updated}건`);
-        // 성공 시 현재 조건으로 다시 조회
-        try{
-          const url = new URL(window.location.href);
-          url.searchParams.set('submit', '1');
-          window.location.href = url.toString();
-        }catch(e){ window.location.reload(); }
       }
       document.querySelectorAll('[data-mark-done]')?.forEach(btn=>{
         btn.addEventListener('click', ()=>{
           const agency = btn.getAttribute('data-agency') || '';
           if(!agency) return;
-          if(confirm(`[${agency}] 카드의 항목들을 '마감 안내 체크'로 표시할까요?`)){
-            markDone(agency);
-          }
+          markDone(agency);
         });
       });
       // 초기 상태: 날짜/멘트 토글 OFF/ON 설정
