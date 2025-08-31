@@ -73,7 +73,7 @@ def _build_credentials() -> Credentials:
 	keyfile_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
 
 	scopes = [
-		"https://www.googleapis.com/auth/spreadsheets.readonly",
+		"https://www.googleapis.com/auth/spreadsheets",
 		"https://www.googleapis.com/auth/drive.readonly",
 	]
 
@@ -167,25 +167,33 @@ def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, Li
 		"PRODUCT_NAME_COLUMN": settings.product_name_col,
 	}
 	try:
-		candidates = ws.get_values('1:50')  # 상단 50행 탐색
+		candidates = ws.get_values('1:100')  # 상단 100행 탐색
 	except Exception:
 		candidates = []
-	best_idx = 1
-	best_headers: List[str] = []
-	best_score = -1
-	for idx, row in enumerate(candidates, start=1):
-		headers = [str(h).strip() for h in row]
-		score = 0
+
+	def score_headers(headers: List[str]) -> tuple[int, int]:
+		has_remaining = any(_matches(h, settings.remaining_days_col, "REMAINING_DAYS_COLUMN") for h in headers)
+		has_bizname = any(_matches(h, settings.bizname_col, "BIZNAME_COLUMN") for h in headers)
+		enessentials = int(has_remaining) + int(has_bizname)
+		total = 0
 		for header in headers:
 			for key_id, pref in required_map.items():
 				if _matches(header, pref, key_id):
-					score += 1
+					total += 1
 					break
-		if score > best_score:
+		return essentials, total
+
+	best_idx = 1
+	best_headers: List[str] = []
+	best_tuple = (-1, -1)
+	for idx, row in enumerate(candidates, start=1):
+		headers = [str(h).strip() for h in row]
+		s = score_headers(headers)
+		if s > best_tuple:
+			best_tuple = s
 			best_idx = idx
 			best_headers = headers
-			best_score = score
-	if best_score <= 0:
+	if best_tuple == (-1, -1):
 		try:
 			best_headers = [h.strip() for h in ws.row_values(1)]
 		except Exception:
@@ -397,6 +405,107 @@ def stream_grouped_messages_by_date(selected_days: List[int], settings: Settings
 	yield {"type": "result", "total": total, "grouped": agency_map}
 
 
+def _find_checked_col_index(headers: List[str], settings: Settings) -> int | None:
+	"""헤더들에서 체크 컬럼의 1-based 인덱스를 찾는다."""
+	for idx, h in enumerate(headers, start=1):
+		if _matches(h, settings.checked_col, "CHECKED_COLUMN"):
+			return idx
+	return None
+
+
+def mark_checked_for_agency(selected_days: List[int], agency_label: str, filter_mode: str = "agency", settings: Settings | None = None) -> Dict[str, Any]:
+	"""선택한 일수/보기 모드에서 특정 카드(agency_label)에 포함되는 모든 행의
+	'마감 안내 체크' 값을 TRUE로 업데이트한다.
+
+	반환: { updated: int, details: [{worksheet: str, updated: int}] }
+	"""
+	if settings is None:
+		settings = load_settings()
+	if not settings.spreadsheet_id:
+		raise RuntimeError("SPREADSHEET_ID 환경변수를 설정하세요.")
+
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+
+	selected_set: Set[int] = set(selected_days)
+	results: List[Dict[str, Any]] = []
+	total_updated = 0
+
+	for ws in ss.worksheets():
+		# 헤더 및 컬럼 인덱스 파악
+		header_row, headers = _find_header_row(ws, settings)
+		checked_col = _find_checked_col_index(headers, settings)
+		if checked_col is None:
+			results.append({"worksheet": ws.title, "updated": 0, "reason": "no_checked_col"})
+			continue
+
+		# 전체 값 읽고 레코드 + 실제 행번호 생성
+		try:
+			values = ws.get_all_values()
+		except Exception as e:
+			results.append({"worksheet": ws.title, "updated": 0, "reason": f"read_failed:{e}"})
+			continue
+		if header_row - 1 >= len(values):
+			results.append({"worksheet": ws.title, "updated": 0, "reason": "no_data"})
+			continue
+		data_rows = values[header_row:]
+
+		update_targets: List[int] = []  # 실제 시트 행 번호(1-based)
+		for idx, row in enumerate(data_rows):
+			# dict 구성
+			row_dict: Dict[str, Any] = {}
+			for i, h in enumerate(headers):
+				key = _normalize_key(h)
+				val = row[i] if i < len(row) else ""
+				row_dict[key] = val
+			row_norm = { _normalize_key(k): v for k, v in row_dict.items() }
+
+			agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
+			is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
+			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
+			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+
+			# 필터 모드 적용 (리스트 뷰와 동일 규칙)
+			if filter_mode == "agency":
+				if is_internal:
+					continue
+			elif filter_mode == "internal":
+				if not is_internal:
+					continue
+			else:
+				if is_internal:
+					continue
+
+			# 공통 필터 (리스트 뷰와 동일)
+			if is_checked or remain is None or remain not in selected_set or not bizname:
+				continue
+
+			# 에이전시 라벨 계산 (뷰와 동일)
+			computed_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
+			if computed_label != agency_label:
+				continue
+
+			# 실제 시트 상의 행 번호 계산: header_row는 헤더가 있는 1-based 라인
+			# data_rows는 header_row 바로 다음 줄부터 시작이므로 + (header_row + idx + 1)
+			real_row_num = header_row + idx + 1
+			update_targets.append(real_row_num)
+
+		# 업데이트 수행 (개별 업데이트: 신뢰성 우선)
+		updated_here = 0
+		for r in update_targets:
+			try:
+				ws.update_cell(r, checked_col, "TRUE")
+			except Exception:
+				continue
+			else:
+				updated_here += 1
+
+		results.append({"worksheet": ws.title, "updated": updated_here})
+		total_updated += updated_here
+
+	return {"updated": total_updated, "details": results}
+
 def inspect_sheets(settings: Settings | None = None) -> List[Dict[str, Any]]:
 	if settings is None:
 		settings = load_settings()
@@ -423,7 +532,7 @@ def inspect_sheets(settings: Settings | None = None) -> List[Dict[str, Any]]:
 
 
 def diagnose_matches(selected_days: List[int], settings: Settings | None = None, limit: int = 50) -> Dict[str, Any]:
-	"""탭별 매칭된 항목과 제외 사유 샘플을 반환한다."""
+	"""탭별 매칭된 항목과 제외 사유 샘플, 사유별 카운트를 반환한다."""
 	if settings is None:
 		settings = load_settings()
 	client = _get_client()
@@ -437,6 +546,7 @@ def diagnose_matches(selected_days: List[int], settings: Settings | None = None,
 		records = _build_records(ws, header_row, headers)
 		matched: List[Dict[str, Any]] = []
 		excluded: List[Dict[str, Any]] = []
+		reason_counts: Dict[str, int] = {}
 		for row in records:
 			row_norm = { _normalize_key(k): v for k, v in row.items() }
 			agency = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
@@ -462,11 +572,13 @@ def diagnose_matches(selected_days: List[int], settings: Settings | None = None,
 				matched.append({"agency": agency or "", "bizname": bizname, "remain": remain})
 			else:
 				excluded.append({"agency": agency or "", "bizname": bizname, "remain_raw": remain_val_raw, "reason": reason})
+				reason_counts[reason] = reason_counts.get(reason, 0) + 1
 
 		report[task_name] = {
 			"header_row": header_row,
 			"matched_count": len(matched),
 			"matched_sample": matched[:limit],
 			"excluded_sample": excluded[:limit],
+			"excluded_reason_counts": reason_counts,
 		}
 	return report
