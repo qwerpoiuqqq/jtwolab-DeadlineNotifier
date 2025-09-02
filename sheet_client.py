@@ -1,4 +1,4 @@
-import os 
+import os
 import json
 import re
 import time
@@ -99,6 +99,90 @@ def _get_client() -> gspread.Client:
 	return gspread.authorize(creds)
 
 
+# -----------------------
+# 읽기 요청 최소화를 위한 간단 캐시
+# 환경변수 READ_CACHE_TTL_SECS (기본 120초)
+# -----------------------
+_WS_CACHE: Dict[int, Dict[str, Any]] = {}
+
+def _now() -> float:
+	return time.time()
+
+def _get_cache_ttl_secs() -> int:
+	try:
+		return int(os.getenv("READ_CACHE_TTL_SECS", "120").strip())
+	except Exception:
+		return 120
+
+def _with_retry(func: Callable, *args: Any, **kwargs: Any) -> Any:
+	"""지수 백오프 재시도 (429/5xx 완화)."""
+	max_attempts = 5
+	base = 0.6
+	for attempt in range(max_attempts):
+		try:
+			return func(*args, **kwargs)
+		except Exception:
+			if attempt == max_attempts - 1:
+				raise
+			delay = base * (2 ** attempt) + random.uniform(0, 0.4)
+			time.sleep(delay)
+
+def _get_all_values_full_cached(ws: gspread.Worksheet) -> List[List[str]]:
+	"""워크시트 전체 값을 읽는다. 캐시를 우선 사용하고, 필요 시 배치 스캔으로 폴백.
+
+	반환 형태는 get_all_values와 동일.
+	"""
+	try:
+		ws_id = int(getattr(ws, 'id', 0) or 0)
+	except Exception:
+		ws_id = 0
+	entry = _WS_CACHE.get(ws_id)
+	if entry and (_now() - entry.get('ts', 0)) <= _get_cache_ttl_secs():
+		values = entry.get('values')
+		if isinstance(values, list):
+			return values
+
+	# 1) 단일 호출 우선
+	try:
+		values = _with_retry(ws.get_all_values)
+		_WS_CACHE[ws_id] = {"values": values, "ts": _now()}
+		return values
+	except Exception:
+		pass
+
+	# 2) 폴백: row_count 기반 청크 스캔
+	try:
+		total = int(getattr(ws, "row_count", 0) or 0)
+	except Exception:
+		total = 0
+	if total <= 0:
+		_WS_CACHE[ws_id] = {"values": [], "ts": _now()}
+		return []
+
+	all_values: List[List[str]] = []
+	chunk = 5000
+	last_non_empty_row = 0
+	for start in range(1, total + 1, chunk):
+		end = min(total, start + chunk - 1)
+		try:
+			part = _with_retry(ws.get_values, f"{start}:{end}")
+		except Exception:
+			part = []
+		if part:
+			all_values.extend(part)
+			for i, r in enumerate(part, start=start):
+				if any(str(c).strip() != "" for c in r):
+					last_non_empty_row = i
+		else:
+			if start > max(1, last_non_empty_row) + chunk:
+				break
+		# 청크 간 대기 (RPM 완화)
+		time.sleep(0.15)
+
+	_WS_CACHE[ws_id] = {"values": all_values, "ts": _now()}
+	return all_values
+
+
 def _normalize_key(key: str) -> str:
 	return (key or "").strip()
 
@@ -113,7 +197,7 @@ def _parse_int_maybe(value: Any) -> int | None:
 	s = str(value).strip()
 	if s == "":
 		return None
-	m = re.search(r"-?\d+", s)
+	m = re.search(r"-?\\d+", s)
 	if not m:
 		return None
 	try:
@@ -205,63 +289,8 @@ def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, Li
 
 
 def _build_records(ws: gspread.Worksheet, header_row: int, headers: List[str]) -> List[Dict[str, Any]]:
-	def _with_retry(func: Callable, *args: Any, **kwargs: Any) -> Any:
-		"""지수 백오프 재시도 래퍼 (429/5xx 완화)."""
-		max_attempts = 5
-		base = 0.6
-		for attempt in range(max_attempts):
-			try:
-				return func(*args, **kwargs)
-			except Exception as e:
-				# 마지막 시도 실패면 재전파
-				if attempt == max_attempts - 1:
-					raise
-				# 429 또는 일시 오류 추정 시 대기
-				delay = base * (2 ** attempt) + random.uniform(0, 0.4)
-				time.sleep(delay)
-
-	def _get_all_values_full(sheet: gspread.Worksheet) -> List[List[str]]:
-		"""워크시트의 전체 행을 배치로 끝까지 읽어온다.
-		우선 단일 호출(get_all_values)로 시도하고, 실패 시 row_count 기준으로 5000행 단위로 스캔한다.
-		"""
-		# 1) 단일 호출 우선 (요청 수 최소화)
-		try:
-			return _with_retry(sheet.get_all_values)
-		except Exception:
-			pass
-
-		# 2) 폴백: 청크 스캔
-		try:
-			total = int(getattr(sheet, "row_count", 0) or 0)
-		except Exception:
-			total = 0
-		if total <= 0:
-			# row_count도 없고 단일 호출도 실패
-			return []
-
-		all_values: List[List[str]] = []
-		chunk = 5000
-		last_non_empty_row = 0
-		for start in range(1, total + 1, chunk):
-			end = min(total, start + chunk - 1)
-			try:
-				part = _with_retry(sheet.get_values, f"{start}:{end}")
-			except Exception:
-				part = []
-			if part:
-				all_values.extend(part)
-				for i, r in enumerate(part, start=start):
-					if any(str(c).strip() != "" for c in r):
-						last_non_empty_row = i
-			else:
-				if start > max(1, last_non_empty_row) + chunk:
-					break
-			# 청크 간 살짝 대기하여 RPM 완화
-			time.sleep(0.15)
-		return all_values
-
 	try:
-		values = _get_all_values_full(ws)
+		values = _get_all_values_full_cached(ws)
 	except Exception:
 		return []
 	if header_row - 1 >= len(values):
@@ -588,7 +617,7 @@ def inspect_sheets(settings: Settings | None = None) -> List[Dict[str, Any]]:
 	return results
 
 
-def diagnose_matches(selected_days: List[int], settings: Settings | None = None, limit: int = 50) -> Dict[str, Any]:
+def diagnose_matches(selected_days: List[int], settings: Settings | None = None, limit: int = 50) -> Dict[str, Any]]:
 	"""탭별 매칭된 항목과 제외 사유 샘플, 사유별 카운트를 반환한다."""
 	if settings is None:
 		settings = load_settings()
