@@ -46,6 +46,7 @@ def create_app() -> Flask:
 		day_to_date_label: Dict[int, str] = {}
 		grouped_by_date: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
 		agency_to_message: Dict[str, str] = {}
+		agency_to_message_workload: Dict[str, str] = {}
 		agency_to_date_line: Dict[str, str] = {}
 		error = None
 		suggested_prefix = ""
@@ -70,26 +71,45 @@ def create_app() -> Flask:
 			else:
 				error = None
 
-			# 복붙 포맷: 날짜(요일) 한 줄 → <작업명> → 상호들
-			# 작업 블록 사이에는 빈 줄 1개, 날짜 블록 사이에는 빈 줄 2개가 되도록 구성한다.
+			# 복붙 포맷 2종 생성
+			# 1) 기본: 날짜(요일) → <작업명> → 상호명
+			# 2) 작업량 포함: 날짜(요일) → <작업명> → 상호명 : 일작업량
+			name_wl_re = re.compile(r"^(.+?)\s*\(일작업량\s+(.*?)\)$")
 			for agency, by_day in grouped_by_date.items():
-				parts: List[str] = []
+				parts_base: List[str] = []
+				parts_wl: List[str] = []
 				for d in sorted(by_day.keys()):
 					# 날짜 헤더
-					parts.append(day_to_date_label.get(d, f"+{d}"))
+					date_label = day_to_date_label.get(d, f"+{d}")
+					parts_base.append(date_label)
+					parts_wl.append(date_label)
 					# 작업명과 상호들
 					for task, names in by_day[d].items():
 						if not names:
 							continue
 						display_task = _strip_parentheses(task)
-						parts.append(f"<{display_task}>")
+						parts_base.append(f"<{display_task}>")
+						parts_wl.append(f"<{display_task}>")
 						for name in names:
-							parts.append(str(name).strip())
+							name_str = str(name).strip()
+							m = name_wl_re.match(name_str)
+							if m:
+								base_name = m.group(1).strip()
+								workload_val = m.group(2).strip()
+								parts_base.append(base_name)
+								parts_wl.append(f"{base_name} : {workload_val}")
+							else:
+								# 작업량 정보가 없으면 동일하게 표기
+								parts_base.append(name_str)
+								parts_wl.append(name_str)
 						# 작업 블록 사이: 1줄 공백
-						parts.append("")
+						parts_base.append("")
+						parts_wl.append("")
 					# 날짜 블록 사이: 추가로 1줄 더 공백(= 총 2줄)
-					parts.append("")
-				agency_to_message[agency] = "\n".join(parts).rstrip()
+					parts_base.append("")
+					parts_wl.append("")
+				agency_to_message[agency] = "\n".join(parts_base).rstrip()
+				agency_to_message_workload[agency] = "\n".join(parts_wl).rstrip()
 
 			# 대행사별 실제 존재하는 마감일 범위를 기준으로 날짜 문구(요일 포함) 생성
 			weekday_kr = ["월", "화", "수", "목", "금", "토", "일"]
@@ -132,6 +152,7 @@ def create_app() -> Flask:
 			ordered_days=ordered_days,
 			grouped=grouped_by_date,
 			agency_to_message=agency_to_message,
+			agency_to_message_workload=agency_to_message_workload,
 			agency_to_date_line=agency_to_date_line,
 			settings=settings,
 			filter_mode=filter_mode,
