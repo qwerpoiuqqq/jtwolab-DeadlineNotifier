@@ -140,6 +140,7 @@
           <div class="panel" style="margin-bottom:12px">
             <div class="controls">
               <div class="switch"><input id="toggleDateLine" type="checkbox" style="width:18px; height:18px" /><span>날짜 문구 포함</span></div>
+              <div class="switch"><input id="toggleWorkload" type="checkbox" style="width:18px; height:18px" /><span>일작업량 표시</span></div>
               <div class="switch"><input id="togglePrefix" type="checkbox" style="width:18px; height:18px" checked /><span>첫 멘트 포함</span></div>
               <div class="switch"><input id="toggleSuffix" type="checkbox" style="width:18px; height:18px" checked /><span>끝 멘트 포함</span></div>
               <span class="muted">체크 상태가 본문에 즉시 반영됩니다.</span>
@@ -156,7 +157,7 @@
                     <button class="btn btn-success" type="button" data-mark-done data-agency="{{ agency }}">마감안내완료</button>
                   </div>
                 </div>
-                <div class="copy" id="c{{ loop.index }}" data-body>
+                <div class="copy" id="c{{ loop.index }}" data-body data-agency-index="{{ loop.index }}">
                   {{ agency_to_message[agency] }}
                 </div>
               </div>
@@ -192,6 +193,8 @@
 
     <!-- 서버 데이터: 대행사별 날짜 문구(JSON) -->
     <script id="data-agency-lines" type="application/json">{{ (agency_to_date_line or {}) | tojson | safe }}</script>
+    <!-- 서버 데이터: 메시지(작업량 포함 버전) -->
+    <script id="data-agency-msg-workload" type="application/json">{{ (agency_to_message_workload or {}) | tojson | safe }}</script>
 
     <script>
       // 자동 멘트 로컬설정 키
@@ -317,7 +320,9 @@
 
       // 날짜 문구 토글: 실시간 반영 (서버 계산된 대행사별 날짜 문구 사용)
       const agencyToDateLine = JSON.parse(document.getElementById('data-agency-lines')?.textContent || '{}');
+      const agencyToMsgWorkload = JSON.parse(document.getElementById('data-agency-msg-workload')?.textContent || '{}');
       const toggleEl = document.getElementById('toggleDateLine');
+      const toggleWorkload = document.getElementById('toggleWorkload');
       const togglePrefix = document.getElementById('togglePrefix');
       const toggleSuffix = document.getElementById('toggleSuffix');
       const agencyToOriginalBody = {};
@@ -330,6 +335,7 @@
 
       function composeAll(){
         const useDate = !!toggleEl?.checked;
+        const useWorkload = !!toggleWorkload?.checked;
         const usePref = !!togglePrefix?.checked;
         const useSuf = !!toggleSuffix?.checked;
         const { p, s } = readMentions();
@@ -340,6 +346,8 @@
           if(!agencyToOriginalBody[agency]) agencyToOriginalBody[agency] = originalStored;
           // 첫 줄 왼쪽 여백 제거
           const original = originalStored.replace(/^\s+/, '');
+          const workloadVersion = (agencyToMsgWorkload && agencyToMsgWorkload[agency]) ? String(agencyToMsgWorkload[agency]) : original;
+          const baseBody = useWorkload ? workloadVersion : original;
           const line = agencyToDateLine[agency] || '';
           // 헤더(첫 멘트 + 날짜 문구)를 줄바꿈 1번으로 연결
           let header = '';
@@ -347,13 +355,14 @@
           if(useDate && line) header = header ? (header + '\n' + line) : line;
           const parts = [];
           if(header) parts.push(header);
-          parts.push(original);
+          parts.push(baseBody);
           if(useSuf && s) parts.push(s);
           body.innerText = parts.join('\n\n').trim();
         });
       }
 
       toggleEl?.addEventListener('change', composeAll);
+      toggleWorkload?.addEventListener('change', composeAll);
       togglePrefix?.addEventListener('change', composeAll);
       toggleSuffix?.addEventListener('change', composeAll);
       document.getElementById('autoMsgPrefix')?.addEventListener('input', ()=>{ composeAll(); try{ localStorage.setItem(LS_KEYS.prefix, document.getElementById('autoMsgPrefix').value); }catch(e){} });
