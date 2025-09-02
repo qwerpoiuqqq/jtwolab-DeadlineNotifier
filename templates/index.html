@@ -386,6 +386,9 @@
           mTitle.textContent = title||''; mBody.textContent = body||'';
           mOk.style.display = ok? 'inline-block':'none';
           mCancel.style.display = cancel? 'inline-block':'none';
+          // 기본 동작: 확인/취소 클릭 시 모달 닫기 (확인 단계에서는 곧바로 리스너를 교체함)
+          mOk.onclick = ()=>{ modal.style.display='none'; };
+          mCancel.onclick = ()=>{ modal.style.display='none'; };
           modal.style.display='flex';
         };
         const hideModal = ()=>{ modal.style.display='none'; };
