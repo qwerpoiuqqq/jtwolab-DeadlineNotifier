@@ -47,7 +47,7 @@
       .pill{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
 
       .grid{ display:grid; gap:12px; }
-      textarea{ background:#fff; color:#0b0f14; border:1px solid var(--line); border-radius:10px; padding:12px 14px; outline:none; width:100%; min-height:110px; resize:vertical; }
+      textarea{ background:#fff; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:12px 14px; outline:none; width:100%; min-height:110px; resize:vertical; }
       .controls{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
       .switch{ display:flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--line); background:var(--pill); border-radius:999px; font-size:12px; }
       @media(min-width:900px){ .grid{ grid-template-columns:1fr 1fr; } }
@@ -299,7 +299,14 @@
       });
 
       // 복사 & 토스트
-      function toast(){ const t=document.getElementById('toast'); t.style.display='block'; setTimeout(()=>t.style.display='none',1200); }
+      function toast(msg){
+        const t=document.getElementById('toast');
+        if(!t) return;
+        const prev=t.textContent;
+        if(typeof msg==='string' && msg.length>0){ t.textContent = msg; }
+        t.style.display='block';
+        setTimeout(()=>{ t.style.display='none'; t.textContent = prev; },1200);
+      }
       window.copyText = function(id){
         const el = document.getElementById(id); if(!el) return; const tx = el.innerText;
         (navigator.clipboard?.writeText ? navigator.clipboard.writeText(tx) : new Promise((res,rej)=>{
@@ -404,15 +411,23 @@
             if(!res.ok){
               showModal({title:'실패', body:(data?.error||'업데이트 실패'), ok:true});
             }else{
-              showModal({title:'완료', body:`체크 업데이트: ${data.updated}건`, ok:true});
-              mOk.onclick = ()=>{
-                // 성공 시 현재 조건으로 다시 조회
-                try{
-                  const url = new URL(window.location.href);
-                  url.searchParams.set('submit', '1');
-                  window.location.href = url.toString();
-                }catch(e){ window.location.reload(); }
-              };
+              // 성공: 재조회 없이 UI에서 해당 카드 제거 (optimistic UI)
+              showModal({title:'완료', body:`체크 업데이트: ${data.updated}건`});
+              setTimeout(()=>{ try{ hideModal(); }catch(e){} }, 600);
+              try{
+                const cards = Array.from(document.querySelectorAll('[data-card]'));
+                const card = cards.find(c=> (c.getAttribute('data-agency')||'') === agency);
+                if(card){ card.remove(); }
+                const container = document.getElementById('results');
+                if(container && container.querySelectorAll('[data-card]').length===0){
+                  const empty=document.createElement('div');
+                  empty.className='panel muted';
+                  empty.textContent='조건에 해당하는 항목이 없습니다.';
+                  container.parentNode.insertBefore(empty, container);
+                  container.remove();
+                }
+              }catch(e){}
+              toast(`체크 업데이트: ${data.updated}건`);
             }
           }catch(err){
             showModal({title:'실패', body:'네트워크 오류', ok:true});
