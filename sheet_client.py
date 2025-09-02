@@ -17,6 +17,7 @@ DEFAULT_KEYS = {
 	"BIZNAME_COLUMN": "상호명",
 	"PRODUCT_COLUMN": "상품",
 	"PRODUCT_NAME_COLUMN": "상품 명",
+	"DAILY_WORKLOAD_COLUMN": "일작업량",
 }
 
 # header 동의어(공백 무시, 소문자 비교)
@@ -28,6 +29,7 @@ SYNONYMS: Dict[str, List[str]] = {
 	"CHECKED_COLUMN": ["마감안내", "안내체크", "공지여부", "발송완료", "완료체크", "안내 여부"],
 	"PRODUCT_COLUMN": ["상품", "유형", "type", "종류"],
 	"PRODUCT_NAME_COLUMN": ["상품 명", "상품명", "작업명", "작업 명"],
+	"DAILY_WORKLOAD_COLUMN": ["일 작업량", "일작업량"],
 }
 
 TRUTHY_VALUES = {"true", "1", "yes", "y", "o", "ok", "checked", "done", "완료", "예", "y", "yy", "ㅇ", "ㅇㅇ", "o", "O", "✓", "✔"}
@@ -43,6 +45,7 @@ class Settings:
 		self.bizname_col: str = kwargs.get("BIZNAME_COLUMN", DEFAULT_KEYS["BIZNAME_COLUMN"]).strip()
 		self.product_col: str = kwargs.get("PRODUCT_COLUMN", DEFAULT_KEYS["PRODUCT_COLUMN"]).strip()
 		self.product_name_col: str = kwargs.get("PRODUCT_NAME_COLUMN", DEFAULT_KEYS["PRODUCT_NAME_COLUMN"]).strip()
+		self.daily_workload_col: str = kwargs.get("DAILY_WORKLOAD_COLUMN", DEFAULT_KEYS["DAILY_WORKLOAD_COLUMN"]).strip()
 
 	def to_dict(self) -> Dict[str, str]:
 		return {
@@ -54,6 +57,7 @@ class Settings:
 			"BIZNAME_COLUMN": self.bizname_col,
 			"PRODUCT_COLUMN": self.product_col,
 			"PRODUCT_NAME_COLUMN": self.product_name_col,
+			"DAILY_WORKLOAD_COLUMN": self.daily_workload_col,
 		}
 
 
@@ -67,6 +71,7 @@ def load_settings() -> Settings:
 		BIZNAME_COLUMN=os.getenv("BIZNAME_COLUMN", DEFAULT_KEYS["BIZNAME_COLUMN"]),
 		PRODUCT_COLUMN=os.getenv("PRODUCT_COLUMN", DEFAULT_KEYS["PRODUCT_COLUMN"]),
 		PRODUCT_NAME_COLUMN=os.getenv("PRODUCT_NAME_COLUMN", DEFAULT_KEYS["PRODUCT_NAME_COLUMN"]),
+		DAILY_WORKLOAD_COLUMN=os.getenv("DAILY_WORKLOAD_COLUMN", DEFAULT_KEYS["DAILY_WORKLOAD_COLUMN"]),
 	)
 
 
@@ -251,6 +256,7 @@ def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, Li
 		"BIZNAME_COLUMN": settings.bizname_col,
 		"PRODUCT_COLUMN": settings.product_col,
 		"PRODUCT_NAME_COLUMN": settings.product_name_col,
+		"DAILY_WORKLOAD_COLUMN": settings.daily_workload_col,
 	}
 	try:
 		candidates = ws.get_values('1:100')  # 상단 100행 탐색
@@ -333,6 +339,7 @@ def fetch_grouped_messages(selected_days: List[int], settings: Settings | None =
 			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
 			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
 			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+			workload = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
 
 			if is_checked:
 				continue
@@ -345,8 +352,9 @@ def fetch_grouped_messages(selected_days: List[int], settings: Settings | None =
 
 			task_map = agency_to_task_to_names.setdefault(agency, {})
 			name_list = task_map.setdefault(task_name, [])
-			if bizname not in name_list:
-				name_list.append(bizname)
+			display_name = f"{bizname} (일작업량 {workload})" if workload else bizname
+			if display_name not in name_list:
+				name_list.append(display_name)
 
 	return agency_to_task_to_names
 
@@ -381,6 +389,7 @@ def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings 
 			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
 			product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
 			product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
+			workload = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
 
 			# 필터 모드 적용
 			if filter_mode == "agency":
@@ -409,8 +418,9 @@ def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings 
 			dict_by_day = agency_map.setdefault(agency_label, {})
 			dict_by_task = dict_by_day.setdefault(remain, {})
 			name_list = dict_by_task.setdefault(display_task, [])
-			if bizname not in name_list:
-				name_list.append(bizname)
+			display_name = f"{bizname} (일작업량 {workload})" if workload else bizname
+			if display_name not in name_list:
+				name_list.append(display_name)
 
 	return agency_map
 
@@ -451,6 +461,7 @@ def stream_grouped_messages_by_date(selected_days: List[int], settings: Settings
 				bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
 				product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
 				product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
+				workload = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
 
 				# 필터 모드 적용
 				if filter_mode == "agency":
@@ -479,8 +490,9 @@ def stream_grouped_messages_by_date(selected_days: List[int], settings: Settings
 				dict_by_day = agency_map.setdefault(agency_label, {})
 				dict_by_task = dict_by_day.setdefault(remain, {})
 				name_list = dict_by_task.setdefault(display_task, [])
-				if bizname not in name_list:
-					name_list.append(bizname)
+				display_name = f"{bizname} (일작업량 {workload})" if workload else bizname
+				if display_name not in name_list:
+					name_list.append(display_name)
 		except Exception as e:
 			# 워크시트 처리 실패도 진행률로 보고
 			yield {"type": "progress", "processed": processed, "total": total, "tab": tab_title, "error": str(e)}
