@@ -197,7 +197,7 @@ def _parse_int_maybe(value: Any) -> int | None:
 	s = str(value).strip()
 	if s == "":
 		return None
-	m = re.search(r"-?\\d+", s)
+	m = re.search(r"-?\d+", s)
 	if not m:
 		return None
 	try:
@@ -286,6 +286,7 @@ def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, Li
 			best_headers = []
 		best_idx = 1
 	return best_idx, best_headers
+
 
 
 def _build_records(ws: gspread.Worksheet, header_row: int, headers: List[str]) -> List[Dict[str, Any]]:
@@ -617,7 +618,7 @@ def inspect_sheets(settings: Settings | None = None) -> List[Dict[str, Any]]:
 	return results
 
 
-def diagnose_matches(selected_days: List[int], settings: Settings | None = None, limit: int = 50) -> Dict[str, Any]]:
+def diagnose_matches(selected_days: List[int], settings: Settings | None = None, limit: int = 50) -> Dict[str, Any]:
 	"""탭별 매칭된 항목과 제외 사유 샘플, 사유별 카운트를 반환한다."""
 	if settings is None:
 		settings = load_settings()
