@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from datetime import date, timedelta
 import re
 
-from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency
+from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency, mark_checked_for_agencies
 
 
 # .env 로드
@@ -212,6 +212,30 @@ def create_app() -> Flask:
 		selected_days = _parse_days(days_param)
 		try:
 			result = mark_checked_for_agency(selected_days=selected_days, agency_label=agency_label, filter_mode=filter_mode)
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify(result)
+
+	@app.route("/api/mark-done-bulk", methods=["POST"])
+	def mark_done_bulk():
+		"""여러 대행사 카드를 한 번에 체크 처리한다."""
+		try:
+			data = request.get_json(force=True, silent=False) or {}
+		except Exception:
+			return jsonify({"error": "invalid_json"}), 400
+
+		agency_labels = data.get("agencies") or []
+		if not isinstance(agency_labels, list):
+			return jsonify({"error": "invalid_agencies"}), 400
+		agency_labels = [str(a or "").strip() for a in agency_labels if str(a or "").strip()]
+		if not agency_labels:
+			return jsonify({"error": "empty_agencies"}), 400
+
+		days_param = str(data.get("days") or "").strip()
+		filter_mode = str(data.get("filter_mode") or "agency").strip().lower()
+		selected_days = _parse_days(days_param)
+		try:
+			result = mark_checked_for_agencies(selected_days=selected_days, agency_labels=agency_labels, filter_mode=filter_mode)
 		except Exception as e:
 			return jsonify({"error": str(e)}), 500
 		return jsonify(result)
