@@ -141,8 +141,8 @@
             <div class="controls">
               <div class="switch"><input id="toggleDateLine" type="checkbox" style="width:18px; height:18px" /><span>날짜 문구 포함</span></div>
               <div class="switch"><input id="toggleWorkload" type="checkbox" style="width:18px; height:18px" /><span>일작업량 표시</span></div>
-              <div class="switch"><input id="togglePrefix" type="checkbox" style="width:18px; height:18px" checked /><span>첫 멘트 포함</span></div>
-              <div class="switch"><input id="toggleSuffix" type="checkbox" style="width:18px; height:18px" checked /><span>끝 멘트 포함</span></div>
+              <div class="switch"><input id="togglePrefix" type="checkbox" style="width:18px; height:18px" /><span>첫 멘트 포함</span></div>
+              <div class="switch"><input id="toggleSuffix" type="checkbox" style="width:18px; height:18px" /><span>끝 멘트 포함</span></div>
               <span class="muted">체크 상태가 본문에 즉시 반영됩니다.</span>
             </div>
           </div>
@@ -150,11 +150,9 @@
             <div class="controls" style="justify-content:space-between; gap:8px; flex-wrap:wrap">
               <div class="stack" style="gap:8px">
                 <button class="btn" type="button" id="select-all">전체 선택</button>
-                <button class="btn" type="button" id="select-none">선택 해제</button>
               </div>
               <div class="stack" style="gap:8px">
-                <button class="btn" type="button" id="bulk-done-selected">선택 마감안내완료</button>
-                <button class="btn btn-primary" type="button" id="bulk-done-all">전체 마감안내완료</button>
+                <button class="btn btn-primary" type="button" id="bulk-done">마감 완료</button>
               </div>
             </div>
           </div>
@@ -169,7 +167,6 @@
                   <div class="stack">
                     <button class="btn" type="button" data-toggle>접기</button>
                     <button class="btn btn-primary" type="button" onclick="copyText('c{{ loop.index }}')">복사</button>
-                    <button class="btn btn-success" type="button" data-mark-done data-agency="{{ agency }}">마감안내완료</button>
                   </div>
                 </div>
                 <div class="copy" id="c{{ loop.index }}" data-body data-agency-index="{{ loop.index }}">
@@ -383,7 +380,7 @@
       document.getElementById('autoMsgPrefix')?.addEventListener('input', ()=>{ composeAll(); try{ localStorage.setItem(LS_KEYS.prefix, document.getElementById('autoMsgPrefix').value); }catch(e){} });
       document.getElementById('autoMsgSuffix')?.addEventListener('input', ()=>{ composeAll(); try{ localStorage.setItem(LS_KEYS.suffix, document.getElementById('autoMsgSuffix').value); }catch(e){} });
 
-      // 마감안내완료 버튼 핸들러 (각 카드 단위)
+      // 유틸: 현재 쿼리 파라미터
       function currentQueryParams(){
         const url = new URL(window.location.href);
         return {
@@ -391,85 +388,7 @@
           filter_mode: url.searchParams.get('filter_mode') || 'agency'
         };
       }
-      async function markDone(agency){
-        const { days, filter_mode } = currentQueryParams();
-        // 모든 상단 컨트롤/버튼 비활성화
-        const disableAll = (v)=>{
-          document.querySelectorAll('button, input, select, textarea').forEach(el=>{
-            if(el.id==='modal-ok' || el.id==='modal-cancel') return;
-            el.disabled = v;
-          });
-        }
-        // 모달 도우미
-        const modal = document.getElementById('modal');
-        const mTitle = document.getElementById('modal-title');
-        const mBody = document.getElementById('modal-body');
-        const mOk = document.getElementById('modal-ok');
-        const mCancel = document.getElementById('modal-cancel');
-        const showModal = ({title, body, ok=false, cancel=false})=>{
-          mTitle.textContent = title||''; mBody.textContent = body||'';
-          mOk.style.display = ok? 'inline-block':'none';
-          mCancel.style.display = cancel? 'inline-block':'none';
-          // 기본 동작: 확인/취소 클릭 시 모달 닫기 (확인 단계에서는 곧바로 리스너를 교체함)
-          mOk.onclick = ()=>{ modal.style.display='none'; };
-          mCancel.onclick = ()=>{ modal.style.display='none'; };
-          modal.style.display='flex';
-        };
-        const hideModal = ()=>{ modal.style.display='none'; };
-
-        // 확인 모달
-        showModal({title:'마감 안내 체크', body:`[${agency}] 카드의 항목들을 체크로 표시할까요?`, ok:true, cancel:true});
-        await new Promise((resolve)=>{
-          const onOk = ()=>{ mOk.removeEventListener('click', onOk); mCancel.removeEventListener('click', onCancel); resolve(true); };
-          const onCancel = ()=>{ mOk.removeEventListener('click', onOk); mCancel.removeEventListener('click', onCancel); resolve(false); };
-          mOk.addEventListener('click', onOk);
-          mCancel.addEventListener('click', onCancel);
-        }).then(async (go)=>{
-          if(!go){ hideModal(); return; }
-          // 진행 모달로 전환
-          showModal({title:'처리 중', body:'잠시만 기다려주세요...'});
-          disableAll(true);
-          try{
-            const res = await fetch('/api/mark-done', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ agency, days, filter_mode })
-            });
-            const data = await res.json().catch(()=>({}));
-            if(!res.ok){
-              showModal({title:'실패', body:(data?.error||'업데이트 실패'), ok:true});
-            }else{
-              // 성공: 재조회 없이 UI에서 해당 카드 제거 (optimistic UI)
-              showModal({title:'완료', body:`체크 업데이트: ${data.updated}건`});
-              setTimeout(()=>{ try{ hideModal(); }catch(e){} }, 600);
-              try{
-                const cards = Array.from(document.querySelectorAll('[data-card]'));
-                const card = cards.find(c=> (c.getAttribute('data-agency')||'') === agency);
-                if(card){ card.remove(); }
-                const container = document.getElementById('results');
-                if(container && container.querySelectorAll('[data-card]').length===0){
-                  const empty=document.createElement('div');
-                  empty.className='panel muted';
-                  empty.textContent='조건에 해당하는 항목이 없습니다.';
-                  container.parentNode.insertBefore(empty, container);
-                  container.remove();
-                }
-              }catch(e){}
-              toast(`체크 업데이트: ${data.updated}건`);
-            }
-          }catch(err){
-            showModal({title:'실패', body:'네트워크 오류', ok:true});
-          }finally{
-            disableAll(false);
-          }
-        });
-      }
-      document.querySelectorAll('[data-mark-done]')?.forEach(btn=>{
-        btn.addEventListener('click', ()=>{
-          const agency = btn.getAttribute('data-agency') || '';
-          if(!agency) return;
-          markDone(agency);
-        });
-      });
+      // (단일 카드 마감 기능 제거됨)
 
       // 선택 수집 유틸
       function getSelectedAgencies(){
@@ -483,12 +402,12 @@
         return Array.from(set);
       }
 
-      // 전체 선택/해제
+      // 전체 선택
       document.getElementById('select-all')?.addEventListener('click', ()=>{
-        document.querySelectorAll('.select-agency')?.forEach(chk=>{ chk.checked = true; });
-      });
-      document.getElementById('select-none')?.addEventListener('click', ()=>{
-        document.querySelectorAll('.select-agency')?.forEach(chk=>{ chk.checked = false; });
+        const all = Array.from(document.querySelectorAll('.select-agency'));
+        const allChecked = all.every(chk=>chk.checked);
+        const next = !allChecked; // 모두 체크되어 있으면 해제, 아니면 모두 체크
+        all.forEach(chk=>{ chk.checked = next; });
       });
 
       async function markDoneBulk(agencies){
@@ -570,12 +489,10 @@
       }
 
       // 버튼 바인딩
-      document.getElementById('bulk-done-selected')?.addEventListener('click', ()=>{
-        const agencies = getSelectedAgencies();
-        markDoneBulk(agencies);
-      });
-      document.getElementById('bulk-done-all')?.addEventListener('click', ()=>{
-        const agencies = getAllAgencies();
+      document.getElementById('bulk-done')?.addEventListener('click', ()=>{
+        const selected = getSelectedAgencies();
+        // 선택 없으면 전체 선택 동작으로 간주
+        const agencies = selected.length>0 ? selected : getAllAgencies();
         markDoneBulk(agencies);
       });
       // 초기 상태: 날짜/멘트 토글 OFF/ON 설정
