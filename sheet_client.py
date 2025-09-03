@@ -605,6 +605,106 @@ def mark_checked_for_agency(selected_days: List[int], agency_label: str, filter_
 
 	return {"updated": total_updated, "details": results}
 
+
+def mark_checked_for_agencies(selected_days: List[int], agency_labels: List[str], filter_mode: str = "agency", settings: Settings | None = None) -> Dict[str, Any]:
+	"""선택한 일수/보기 모드에서 여러 카드(agency_labels)에 포함되는 모든 행의
+	'마감 안내 체크' 값을 TRUE로 일괄 업데이트한다.
+
+	반환: { updated: int, details: [{worksheet: str, updated: int}], per_agency: {label: int} }
+	"""
+	if settings is None:
+		settings = load_settings()
+	if not settings.spreadsheet_id:
+		raise RuntimeError("SPREADSHEET_ID 환경변수를 설정하세요.")
+
+	# 타겟 라벨 집합 정리
+	target_labels: Set[str] = set([str(a or "").strip() for a in agency_labels if str(a or "").strip()])
+	if not target_labels:
+		return {"updated": 0, "details": [], "per_agency": {}}
+
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+
+	selected_set: Set[int] = set(selected_days)
+	results: List[Dict[str, Any]] = []
+	total_updated = 0
+	per_agency: Dict[str, int] = {label: 0 for label in target_labels}
+
+	for ws in ss.worksheets():
+		# 헤더 및 컬럼 인덱스 파악
+		header_row, headers = _find_header_row(ws, settings)
+		checked_col = _find_checked_col_index(headers, settings)
+		if checked_col is None:
+			results.append({"worksheet": ws.title, "updated": 0, "reason": "no_checked_col"})
+			continue
+
+		# 전체 값 읽고 레코드 + 실제 행번호 생성 (캐시 활용)
+		try:
+			values = _get_all_values_full_cached(ws)
+		except Exception as e:
+			results.append({"worksheet": ws.title, "updated": 0, "reason": f"read_failed:{e}"})
+			continue
+		if header_row - 1 >= len(values):
+			results.append({"worksheet": ws.title, "updated": 0, "reason": "no_data"})
+			continue
+		data_rows = values[header_row:]
+
+		# 업데이트 대상 수집
+		update_targets: List[int] = []  # 실제 시트 행 번호(1-based)
+		labels_for_row: List[str] = []  # 행별 라벨(통계용)
+		for idx, row in enumerate(data_rows):
+			row_dict: Dict[str, Any] = {}
+			for i, h in enumerate(headers):
+				key = _normalize_key(h)
+				val = row[i] if i < len(row) else ""
+				row_dict[key] = val
+			row_norm = { _normalize_key(k): v for k, v in row_dict.items() }
+
+			agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
+			is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
+			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
+			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+
+			# 필터 모드 적용
+			if filter_mode == "agency":
+				if is_internal:
+					continue
+			elif filter_mode == "internal":
+				if not is_internal:
+					continue
+			else:
+				if is_internal:
+					continue
+
+			# 공통 필터
+			if is_checked or remain is None or remain not in selected_set or not bizname:
+				continue
+
+			computed_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
+			if computed_label not in target_labels:
+				continue
+
+			real_row_num = header_row + idx + 1
+			update_targets.append(real_row_num)
+			labels_for_row.append(computed_label)
+
+		# 업데이트 수행 (개별 업데이트: 신뢰성 우선)
+		updated_here = 0
+		for r, label in zip(update_targets, labels_for_row):
+			try:
+				ws.update_cell(r, checked_col, "TRUE")
+			except Exception:
+				continue
+			else:
+				updated_here += 1
+				per_agency[label] = per_agency.get(label, 0) + 1
+
+		results.append({"worksheet": ws.title, "updated": updated_here})
+		total_updated += updated_here
+
+	return {"updated": total_updated, "details": results, "per_agency": per_agency}
+
 def inspect_sheets(settings: Settings | None = None) -> List[Dict[str, Any]]:
 	if settings is None:
 		settings = load_settings()
