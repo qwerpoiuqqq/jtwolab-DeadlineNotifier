@@ -146,11 +146,26 @@
               <span class="muted">체크 상태가 본문에 즉시 반영됩니다.</span>
             </div>
           </div>
+          <div class="panel" style="margin-bottom:12px">
+            <div class="controls" style="justify-content:space-between; gap:8px; flex-wrap:wrap">
+              <div class="stack" style="gap:8px">
+                <button class="btn" type="button" id="select-all">전체 선택</button>
+                <button class="btn" type="button" id="select-none">선택 해제</button>
+              </div>
+              <div class="stack" style="gap:8px">
+                <button class="btn" type="button" id="bulk-done-selected">선택 마감안내완료</button>
+                <button class="btn btn-primary" type="button" id="bulk-done-all">전체 마감안내완료</button>
+              </div>
+            </div>
+          </div>
           <div class="grid" id="results">
             {% for agency, tasks in grouped.items() %}
               <div class="card" data-card data-agency="{{ agency }}">
                 <div class="card-head">
-                  <div class="name">[{{ agency }}]</div>
+                  <div class="stack" style="align-items:center; gap:8px">
+                    <input type="checkbox" class="select-agency" data-agency="{{ agency }}" style="width:16px; height:16px" />
+                    <div class="name">[{{ agency }}]</div>
+                  </div>
                   <div class="stack">
                     <button class="btn" type="button" data-toggle>접기</button>
                     <button class="btn btn-primary" type="button" onclick="copyText('c{{ loop.index }}')">복사</button>
@@ -454,6 +469,114 @@
           if(!agency) return;
           markDone(agency);
         });
+      });
+
+      // 선택 수집 유틸
+      function getSelectedAgencies(){
+        const set = new Set();
+        document.querySelectorAll('.select-agency')?.forEach(chk=>{ if(chk.checked){ const a = chk.getAttribute('data-agency')||''; if(a) set.add(a); }});
+        return Array.from(set);
+      }
+      function getAllAgencies(){
+        const set = new Set();
+        document.querySelectorAll('[data-card]')?.forEach(card=>{ const a=card.getAttribute('data-agency')||''; if(a) set.add(a); });
+        return Array.from(set);
+      }
+
+      // 전체 선택/해제
+      document.getElementById('select-all')?.addEventListener('click', ()=>{
+        document.querySelectorAll('.select-agency')?.forEach(chk=>{ chk.checked = true; });
+      });
+      document.getElementById('select-none')?.addEventListener('click', ()=>{
+        document.querySelectorAll('.select-agency')?.forEach(chk=>{ chk.checked = false; });
+      });
+
+      async function markDoneBulk(agencies){
+        const { days, filter_mode } = currentQueryParams();
+        // 공통 UI 제어
+        const disableAll = (v)=>{
+          document.querySelectorAll('button, input, select, textarea').forEach(el=>{
+            if(el.id==='modal-ok' || el.id==='modal-cancel') return;
+            el.disabled = v;
+          });
+        };
+        const modal = document.getElementById('modal');
+        const mTitle = document.getElementById('modal-title');
+        const mBody = document.getElementById('modal-body');
+        const mOk = document.getElementById('modal-ok');
+        const mCancel = document.getElementById('modal-cancel');
+        const showModal = ({title, body, ok=false, cancel=false})=>{
+          mTitle.textContent = title||''; mBody.textContent = body||'';
+          mOk.style.display = ok? 'inline-block':'none';
+          mCancel.style.display = cancel? 'inline-block':'none';
+          mOk.onclick = ()=>{ modal.style.display='none'; };
+          mCancel.onclick = ()=>{ modal.style.display='none'; };
+          modal.style.display='flex';
+        };
+        const hideModal = ()=>{ modal.style.display='none'; };
+
+        if(!agencies || agencies.length===0){
+          showModal({title:'안내', body:'선택된 대행사가 없습니다.', ok:true});
+          return;
+        }
+
+        // 확인
+        showModal({title:'일괄 처리 확인', body:`선택된 ${agencies.length}개 카드의 항목을 체크로 표시할까요?`, ok:true, cancel:true});
+        const go = await new Promise(resolve=>{
+          const onOk = ()=>{ cleanup(); resolve(true); };
+          const onCancel = ()=>{ cleanup(); resolve(false); };
+          function cleanup(){ mOk.removeEventListener('click', onOk); mCancel.removeEventListener('click', onCancel); }
+          mOk.addEventListener('click', onOk);
+          mCancel.addEventListener('click', onCancel);
+        });
+        if(!go){ hideModal(); return; }
+
+        // 진행
+        showModal({title:'처리 중', body:'잠시만 기다려주세요...'});
+        disableAll(true);
+        try{
+          const res = await fetch('/api/mark-done-bulk', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agencies, days, filter_mode })
+          });
+          const data = await res.json().catch(()=>({}));
+          if(!res.ok){
+            showModal({title:'실패', body:(data?.error||'업데이트 실패'), ok:true});
+          }else{
+            // 성공: 선택된 카드들을 제거
+            showModal({title:'완료', body:`체크 업데이트: ${data.updated}건`});
+            setTimeout(()=>{ try{ hideModal(); }catch(e){} }, 600);
+            try{
+              const selected = new Set(agencies);
+              const cards = Array.from(document.querySelectorAll('[data-card]'));
+              let removed = 0;
+              cards.forEach(card=>{ const a = card.getAttribute('data-agency')||''; if(selected.has(a)){ card.remove(); removed++; }});
+              const container = document.getElementById('results');
+              if(container && container.querySelectorAll('[data-card]').length===0){
+                const empty=document.createElement('div');
+                empty.className='panel muted';
+                empty.textContent='조건에 해당하는 항목이 없습니다.';
+                container.parentNode.insertBefore(empty, container);
+                container.remove();
+              }
+            }catch(e){}
+            toast(`체크 업데이트: ${data.updated}건`);
+          }
+        }catch(err){
+          showModal({title:'실패', body:'네트워크 오류', ok:true});
+        }finally{
+          disableAll(false);
+        }
+      }
+
+      // 버튼 바인딩
+      document.getElementById('bulk-done-selected')?.addEventListener('click', ()=>{
+        const agencies = getSelectedAgencies();
+        markDoneBulk(agencies);
+      });
+      document.getElementById('bulk-done-all')?.addEventListener('click', ()=>{
+        const agencies = getAllAgencies();
+        markDoneBulk(agencies);
       });
       // 초기 상태: 날짜/멘트 토글 OFF/ON 설정
       if(toggleEl){ toggleEl.checked = false; }
