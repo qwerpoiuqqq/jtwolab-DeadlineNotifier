@@ -8,6 +8,7 @@ from datetime import date, timedelta
 import re
 
 from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency, mark_checked_for_agencies
+from internal_manager import load_cache as internal_load_cache, refresh_cache as internal_refresh_cache
 
 
 # .env 로드
@@ -159,6 +160,17 @@ def create_app() -> Flask:
 			suggested_prefix=suggested_prefix,
 		)
 
+	@app.route("/manage", methods=["GET"])  # 내부 보장건/관리 탭
+	def manage():
+		cache = internal_load_cache()
+		updated_at = cache.get("updated_at")
+		items = cache.get("items", [])
+		return render_template(
+			"manage.html",
+			updated_at=updated_at,
+			initial_items=items,
+		)
+
 	@app.route("/debug/headers")
 	def debug_headers():
 		try:
@@ -194,6 +206,25 @@ def create_app() -> Flask:
 				yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 		return Response(stream_with_context(event_stream()), mimetype="text/event-stream")
+
+	@app.route("/api/internal/items", methods=["GET"])  # 캐시된 내부 진행건 목록 반환
+	def api_internal_items():
+		try:
+			cache = internal_load_cache()
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify({
+			"updated_at": cache.get("updated_at"),
+			"items": cache.get("items", []),
+		}), 200
+
+	@app.route("/api/internal/refresh", methods=["POST"])  # 수동 불러오기
+	def api_internal_refresh():
+		try:
+			data = internal_refresh_cache()
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify(data), 200
 
 	@app.route("/api/mark-done", methods=["POST"])
 	def mark_done():
