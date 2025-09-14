@@ -45,9 +45,21 @@
       </div>
 
       <div class="panel" style="margin-bottom:12px">
-        <div class="stack">
-          <input id="q-biz" type="text" placeholder="상호명 검색" />
-          <input id="q-agency" type="text" placeholder="대행사명 검색" />
+        <div class="stack" style="align-items:flex-end">
+          <div>
+            <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">날짜 선택 (해당 날짜 기준 잔여일 재계산)</label>
+            <input id="q-date" type="date" />
+          </div>
+          <div>
+            <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">상호명</label>
+            <input id="q-biz" type="text" placeholder="상호명 검색" list="dl-biz" />
+            <datalist id="dl-biz"></datalist>
+          </div>
+          <div>
+            <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">대행사명</label>
+            <input id="q-agency" type="text" placeholder="대행사명 검색" list="dl-agency" />
+            <datalist id="dl-agency"></datalist>
+          </div>
           <span class="muted">(둘 중 하나만 입력)</span>
         </div>
       </div>
@@ -78,11 +90,44 @@
 
     <script>
       const initialItems = {{ (initial_items or []) | tojson | safe }};
+      const initialUpdatedAt = {{ (updated_at or 'null') | tojson | safe }};
       const $ = (sel)=>document.querySelector(sel);
       function toast(msg){ const t=$('#toast'); if(!t) return; t.textContent=msg||'완료'; t.style.display='block'; setTimeout(()=>t.style.display='none', 1200); }
 
       function norm(s){ return (s||'').toString().trim().toLowerCase(); }
       let allItems = Array.isArray(initialItems) ? initialItems : [];
+      let lastUpdatedAt = typeof initialUpdatedAt==='string' ? initialUpdatedAt : null;
+
+      function toKSTString(iso){
+        try{
+          const d = new Date(iso);
+          // KST 포맷
+          return d.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }).replaceAll('.', '-').replace(' ', ' ').replace(/\.$/, '') + ' KST';
+        }catch(e){ return iso||''; }
+      }
+      function setUpdatedBadge(){
+        const el = document.getElementById('last-updated');
+        if(!el) return;
+        el.textContent = lastUpdatedAt ? toKSTString(lastUpdatedAt) : '없음';
+      }
+
+      function ymd(date){ const y=date.getFullYear(); const m=String(date.getMonth()+1).padStart(2,'0'); const d=String(date.getDate()).padStart(2,'0'); return `${y}-${m}-${d}`; }
+      function parseYMD(str){ const [y,m,d]=(str||'').split('-').map(v=>parseInt(v,10)); if(!y||!m||!d) return null; return new Date(Date.UTC(y, m-1, d)); }
+      function toUTCDateOnly(iso){ try{ const d=new Date(iso); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); }catch(e){ return null; } }
+      function daysBetween(aUTCDateOnly, bUTCDateOnly){ if(!aUTCDateOnly||!bUTCDateOnly) return 0; const ms= aUTCDateOnly.getTime()-bUTCDateOnly.getTime(); return Math.round(ms/86400000); }
+
+      function buildSuggestions(){
+        const dlBiz = document.getElementById('dl-biz');
+        const dlAgency = document.getElementById('dl-agency');
+        if(!dlBiz || !dlAgency) return;
+        const bizSet = new Set();
+        const agencySet = new Set();
+        for(const it of allItems){ if(it.bizname) bizSet.add(it.bizname.trim()); if(it.agency) agencySet.add(it.agency.trim()); }
+        const bizArr = Array.from(bizSet).sort((a,b)=>a.localeCompare(b,'ko')); 
+        const agencyArr = Array.from(agencySet).sort((a,b)=>a.localeCompare(b,'ko'));
+        dlBiz.innerHTML = bizArr.map(v=>`<option value="${v}"></option>`).join('');
+        dlAgency.innerHTML = agencyArr.map(v=>`<option value="${v}"></option>`).join('');
+      }
 
       function render(items){
         const tb = document.querySelector('#tbl tbody');
@@ -93,7 +138,7 @@
             <td>${it.agency||''}</td>
             <td>${it.bizname||''}</td>
             <td>${it.task_display||''}</td>
-            <td>${(it.remain_days??'')!==''? it.remain_days: ''}</td>
+            <td>${(it._effective_remain??'')!==''? it._effective_remain: ''}</td>
             <td>${it.daily_workload||''}</td>
             <td>${it.checked? '✓' : ''}</td>
             <td>${it.tab_title||''}</td>
@@ -106,8 +151,21 @@
       function applyFilter(){
         const qb = norm(document.getElementById('q-biz').value);
         const qa = norm(document.getElementById('q-agency').value);
-        let list = allItems;
-        if(qb && qa){ // 둘 다 있으면 교집합 기준
+        const dateStr = document.getElementById('q-date').value;
+        const userDate = parseYMD(dateStr);
+        const snapshotDate = toUTCDateOnly(lastUpdatedAt || new Date().toISOString());
+        const userDateUTC = userDate ? userDate : toUTCDateOnly(new Date().toISOString());
+        const delta = daysBetween(userDateUTC, snapshotDate); // 사용자날짜 - 스냅샷날짜
+
+        let list = allItems.map(it=>{
+          const r = (typeof it.remain_days === 'number') ? (it.remain_days - delta) : null;
+          return Object.assign({}, it, { _effective_remain: r });
+        });
+
+        // 날짜 기준: 해당 날짜에 구동 중인 항목만 (잔여일>=0)
+        list = list.filter(it=> it._effective_remain === null ? false : (it._effective_remain >= 0));
+
+        if(qb && qa){
           list = list.filter(it=> norm(it.bizname).includes(qb) && norm(it.agency).includes(qa));
         }else if(qb){
           list = list.filter(it=> norm(it.bizname).includes(qb));
@@ -119,6 +177,7 @@
 
       document.getElementById('q-biz').addEventListener('input', applyFilter);
       document.getElementById('q-agency').addEventListener('input', applyFilter);
+      document.getElementById('q-date').addEventListener('change', applyFilter);
 
       document.getElementById('refresh').addEventListener('click', async()=>{
         const btn = document.getElementById('refresh');
@@ -128,7 +187,9 @@
           const data = await res.json().catch(()=>({}));
           if(!res.ok){ throw new Error(data?.error||'갱신 실패'); }
           allItems = Array.isArray(data.items) ? data.items : [];
-          document.getElementById('last-updated').textContent = data.updated_at || '';
+          lastUpdatedAt = data.updated_at || null;
+          setUpdatedBadge();
+          buildSuggestions();
           applyFilter();
           toast('업데이트 완료');
         }catch(e){
@@ -138,8 +199,19 @@
         }
       });
 
-      // 초기 렌더
-      render(allItems);
+      // 초기 상태 설정: 업데이트 시간 배지(KST), 날짜 기본값(오늘 KST), 자동완성 목록, 렌더
+      (function init(){
+        setUpdatedBadge();
+        try{
+          const now = new Date();
+          const yyyy = now.getFullYear();
+          const mm = String(now.getMonth()+1).padStart(2,'0');
+          const dd = String(now.getDate()).padStart(2,'0');
+          document.getElementById('q-date').value = `${yyyy}-${mm}-${dd}`;
+        }catch(e){}
+        buildSuggestions();
+        applyFilter();
+      })();
     </script>
   </body>
   </html>
