@@ -60,6 +60,7 @@
             <input id="q-agency" type="text" placeholder="대행사명 검색" list="dl-agency" />
             <datalist id="dl-agency"></datalist>
           </div>
+          <button id="search" class="btn btn-primary">검색</button>
           <span class="muted">(둘 중 하나만 입력)</span>
         </div>
       </div>
@@ -116,17 +117,23 @@
       function toUTCDateOnly(iso){ try{ const d=new Date(iso); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); }catch(e){ return null; } }
       function daysBetween(aUTCDateOnly, bUTCDateOnly){ if(!aUTCDateOnly||!bUTCDateOnly) return 0; const ms= aUTCDateOnly.getTime()-bUTCDateOnly.getTime(); return Math.round(ms/86400000); }
 
-      function buildSuggestions(){
-        const dlBiz = document.getElementById('dl-biz');
-        const dlAgency = document.getElementById('dl-agency');
-        if(!dlBiz || !dlAgency) return;
+      let bizOptions = [];
+      let agencyOptions = [];
+      function buildOptionSets(){
         const bizSet = new Set();
         const agencySet = new Set();
         for(const it of allItems){ if(it.bizname) bizSet.add(it.bizname.trim()); if(it.agency) agencySet.add(it.agency.trim()); }
-        const bizArr = Array.from(bizSet).sort((a,b)=>a.localeCompare(b,'ko')); 
-        const agencyArr = Array.from(agencySet).sort((a,b)=>a.localeCompare(b,'ko'));
-        dlBiz.innerHTML = bizArr.map(v=>`<option value="${v}"></option>`).join('');
-        dlAgency.innerHTML = agencyArr.map(v=>`<option value="${v}"></option>`).join('');
+        bizOptions = Array.from(bizSet).sort((a,b)=>a.localeCompare(b,'ko'));
+        agencyOptions = Array.from(agencySet).sort((a,b)=>a.localeCompare(b,'ko'));
+      }
+      function updateDatalistFor(inputId, datalistId, options){
+        const inp = document.getElementById(inputId);
+        const dl = document.getElementById(datalistId);
+        if(!inp || !dl) return;
+        const q = norm(inp.value);
+        if(!q){ dl.innerHTML = ''; return; }
+        const filtered = options.filter(v=> norm(v).includes(q)).slice(0, 30);
+        dl.innerHTML = filtered.map(v=>`<option value="${v}"></option>`).join('');
       }
 
       function render(items){
@@ -175,9 +182,10 @@
         render(list);
       }
 
-      document.getElementById('q-biz').addEventListener('input', applyFilter);
-      document.getElementById('q-agency').addEventListener('input', applyFilter);
+      document.getElementById('q-biz').addEventListener('input', ()=>{ updateDatalistFor('q-biz','dl-biz', bizOptions); applyFilter(); });
+      document.getElementById('q-agency').addEventListener('input', ()=>{ updateDatalistFor('q-agency','dl-agency', agencyOptions); applyFilter(); });
       document.getElementById('q-date').addEventListener('change', applyFilter);
+      document.getElementById('search').addEventListener('click', applyFilter);
 
       document.getElementById('refresh').addEventListener('click', async()=>{
         const btn = document.getElementById('refresh');
@@ -189,7 +197,7 @@
           allItems = Array.isArray(data.items) ? data.items : [];
           lastUpdatedAt = data.updated_at || null;
           setUpdatedBadge();
-          buildSuggestions();
+          buildOptionSets();
           applyFilter();
           toast('업데이트 완료');
         }catch(e){
@@ -209,7 +217,7 @@
           const dd = String(now.getDate()).padStart(2,'0');
           document.getElementById('q-date').value = `${yyyy}-${mm}-${dd}`;
         }catch(e){}
-        buildSuggestions();
+        buildOptionSets();
         applyFilter();
       })();
     </script>
