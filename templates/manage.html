@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>내부 보장건 관리</title>
+    <style>
+      :root{ --bg:#ffffff; --text:#1f2328; --muted:#6b778c; --line:#e5e7eb; --panel:#ffffff; --pill:#f6f8fa; --btn:#111827; }
+      html,body{ height:100% }
+      body{ margin:0; background:var(--bg); color:var(--text); font-family: ui-sans-serif, system-ui, "Noto Sans KR", Arial; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+      .container{ max-width:980px; margin:0 auto; padding:24px; }
+      .title{ font-weight:800; letter-spacing:.2px; font-size:18px; margin-bottom:16px; }
+      .home-link{ color:inherit; text-decoration:none; }
+      .home-link:hover{ text-decoration:underline; }
+      .nav{ display:flex; gap:8px; margin-bottom:12px; }
+      .btn{ border:1px solid var(--line); background:#fff; color:#111827; padding:10px 14px; border-radius:10px; cursor:pointer; }
+      .btn-primary{ background:#111827; color:#fff; border-color:#111827; }
+      .panel{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+      .stack{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+      input[type="text"]{ background:#fff; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px 12px; min-width:220px; outline:none; }
+      .muted{ color:var(--muted); }
+      table{ width:100%; border-collapse: collapse; }
+      th, td{ border-bottom:1px solid var(--line); padding:8px 6px; text-align:left; }
+      th{ font-size:12px; color:var(--muted); font-weight:600; }
+      .badge{ display:inline-block; padding:4px 8px; border-radius:999px; border:1px solid var(--line); background:var(--pill); font-size:12px; }
+      .right{ margin-left:auto; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="title"><a class="home-link" href="/">마감 안내 생성기</a> · <span class="muted">내부 보장건</span></div>
+
+      <div class="panel" style="margin-bottom:12px">
+        <div class="stack">
+          <div class="nav">
+            <a class="btn" href="/">마감 안내</a>
+            <a class="btn btn-primary" href="/manage">보장 관리</a>
+          </div>
+          <div class="right stack">
+            <span class="muted">마지막 업데이트:</span>
+            <span id="last-updated" class="badge">{{ updated_at or '없음' }}</span>
+            <button id="refresh" class="btn">작업 불러오기</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:12px">
+        <div class="stack">
+          <input id="q-biz" type="text" placeholder="상호명 검색" />
+          <input id="q-agency" type="text" placeholder="대행사명 검색" />
+          <span class="muted">(둘 중 하나만 입력)</span>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:12px">
+        <div class="muted" style="margin-bottom:8px">총 <span id="count">0</span>건</div>
+        <div style="overflow:auto">
+          <table id="tbl">
+            <thead>
+              <tr>
+                <th>대행사</th>
+                <th>상호명</th>
+                <th>작업명</th>
+                <th>마감 잔여일</th>
+                <th>일작업량</th>
+                <th>체크</th>
+                <th>탭</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="panel" id="toast" style="display:none; position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; border:1px solid #111827; padding:10px 12px; border-radius:10px;">완료</div>
+
+    <script>
+      const initialItems = {{ (initial_items or []) | tojson | safe }};
+      const $ = (sel)=>document.querySelector(sel);
+      function toast(msg){ const t=$('#toast'); if(!t) return; t.textContent=msg||'완료'; t.style.display='block'; setTimeout(()=>t.style.display='none', 1200); }
+
+      function norm(s){ return (s||'').toString().trim().toLowerCase(); }
+      let allItems = Array.isArray(initialItems) ? initialItems : [];
+
+      function render(items){
+        const tb = document.querySelector('#tbl tbody');
+        tb.innerHTML = '';
+        for(const it of items){
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${it.agency||''}</td>
+            <td>${it.bizname||''}</td>
+            <td>${it.task_display||''}</td>
+            <td>${(it.remain_days??'')!==''? it.remain_days: ''}</td>
+            <td>${it.daily_workload||''}</td>
+            <td>${it.checked? '✓' : ''}</td>
+            <td>${it.tab_title||''}</td>
+          `;
+          tb.appendChild(tr);
+        }
+        document.getElementById('count').textContent = items.length.toString();
+      }
+
+      function applyFilter(){
+        const qb = norm(document.getElementById('q-biz').value);
+        const qa = norm(document.getElementById('q-agency').value);
+        let list = allItems;
+        if(qb && qa){ // 둘 다 있으면 교집합 기준
+          list = list.filter(it=> norm(it.bizname).includes(qb) && norm(it.agency).includes(qa));
+        }else if(qb){
+          list = list.filter(it=> norm(it.bizname).includes(qb));
+        }else if(qa){
+          list = list.filter(it=> norm(it.agency).includes(qa));
+        }
+        render(list);
+      }
+
+      document.getElementById('q-biz').addEventListener('input', applyFilter);
+      document.getElementById('q-agency').addEventListener('input', applyFilter);
+
+      document.getElementById('refresh').addEventListener('click', async()=>{
+        const btn = document.getElementById('refresh');
+        btn.disabled = true; btn.textContent = '불러오는 중...';
+        try{
+          const res = await fetch('/api/internal/refresh', { method: 'POST' });
+          const data = await res.json().catch(()=>({}));
+          if(!res.ok){ throw new Error(data?.error||'갱신 실패'); }
+          allItems = Array.isArray(data.items) ? data.items : [];
+          document.getElementById('last-updated').textContent = data.updated_at || '';
+          applyFilter();
+          toast('업데이트 완료');
+        }catch(e){
+          toast(e.message || '업데이트 실패');
+        }finally{
+          btn.disabled = false; btn.textContent = '작업 불러오기';
+        }
+      });
+
+      // 초기 렌더
+      render(allItems);
+    </script>
+  </body>
+  </html>
+
+
