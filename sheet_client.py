@@ -120,27 +120,27 @@ def _get_cache_ttl_secs() -> int:
 		return 120
 
 def _with_retry(func: Callable, *args: Any, **kwargs: Any) -> Any:
-    """지수 백오프 재시도 (429/5xx 완화). 환경변수로 조정 가능.
+	"""지수 백오프 재시도 (429/5xx 완화). 환경변수로 조정 가능.
 
-    - RETRY_MAX_ATTEMPTS (기본 6)
-    - RETRY_BASE_DELAY (초, 기본 0.8)
-    """
-    try:
-        max_attempts = int(os.getenv("RETRY_MAX_ATTEMPTS", "6").strip())
-    except Exception:
-        max_attempts = 6
-    try:
-        base = float(os.getenv("RETRY_BASE_DELAY", "0.8").strip())
-    except Exception:
-        base = 0.8
-    for attempt in range(max_attempts):
-        try:
-            return func(*args, **kwargs)
-        except Exception:
-            if attempt == max_attempts - 1:
-                raise
-            delay = base * (2 ** attempt) + random.uniform(0, 0.4)
-            time.sleep(delay)
+	- RETRY_MAX_ATTEMPTS (기본 6)
+	- RETRY_BASE_DELAY (초, 기본 0.8)
+	"""
+	try:
+		max_attempts = int(os.getenv("RETRY_MAX_ATTEMPTS", "6").strip())
+	except Exception:
+		max_attempts = 6
+	try:
+		base = float(os.getenv("RETRY_BASE_DELAY", "0.8").strip())
+	except Exception:
+		base = 0.8
+	for attempt in range(max_attempts):
+		try:
+			return func(*args, **kwargs)
+		except Exception:
+			if attempt == max_attempts - 1:
+				raise
+			delay = base * (2 ** attempt) + random.uniform(0, 0.4)
+			time.sleep(delay)
 
 def _get_all_values_full_cached(ws: gspread.Worksheet) -> List[List[str]]:
 	"""워크시트 전체 값을 읽는다. 캐시를 우선 사용하고, 필요 시 배치 스캔으로 폴백.
@@ -172,14 +172,14 @@ def _get_all_values_full_cached(ws: gspread.Worksheet) -> List[List[str]]:
 		total = 0
 	if total <= 0:
 		_WS_CACHE[ws_id] = {"values": [], "ts": _now()}
-		return []
+	return []
 
-    all_values: List[List[str]] = []
-    chunk = 5000
-    try:
-        chunk_sleep = float(os.getenv("CHUNK_SLEEP_SECS", "0.25").strip())
-    except Exception:
-        chunk_sleep = 0.25
+	all_values: List[List[str]] = []
+	chunk = 5000
+	try:
+		chunk_sleep = float(os.getenv("CHUNK_SLEEP_SECS", "0.25").strip())
+	except Exception:
+		chunk_sleep = 0.25
 	last_non_empty_row = 0
 	for start in range(1, total + 1, chunk):
 		end = min(total, start + chunk - 1)
@@ -195,8 +195,8 @@ def _get_all_values_full_cached(ws: gspread.Worksheet) -> List[List[str]]:
 		else:
 			if start > max(1, last_non_empty_row) + chunk:
 				break
-        # 청크 간 대기 (RPM 완화)
-        time.sleep(chunk_sleep)
+		# 청크 간 대기 (RPM 완화)
+		time.sleep(chunk_sleep)
 
 	_WS_CACHE[ws_id] = {"values": all_values, "ts": _now()}
 	return all_values
