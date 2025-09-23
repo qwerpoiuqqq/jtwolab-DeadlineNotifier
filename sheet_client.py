@@ -120,17 +120,27 @@ def _get_cache_ttl_secs() -> int:
 		return 120
 
 def _with_retry(func: Callable, *args: Any, **kwargs: Any) -> Any:
-	"""지수 백오프 재시도 (429/5xx 완화)."""
-	max_attempts = 5
-	base = 0.6
-	for attempt in range(max_attempts):
-		try:
-			return func(*args, **kwargs)
-		except Exception:
-			if attempt == max_attempts - 1:
-				raise
-			delay = base * (2 ** attempt) + random.uniform(0, 0.4)
-			time.sleep(delay)
+    """지수 백오프 재시도 (429/5xx 완화). 환경변수로 조정 가능.
+
+    - RETRY_MAX_ATTEMPTS (기본 6)
+    - RETRY_BASE_DELAY (초, 기본 0.8)
+    """
+    try:
+        max_attempts = int(os.getenv("RETRY_MAX_ATTEMPTS", "6").strip())
+    except Exception:
+        max_attempts = 6
+    try:
+        base = float(os.getenv("RETRY_BASE_DELAY", "0.8").strip())
+    except Exception:
+        base = 0.8
+    for attempt in range(max_attempts):
+        try:
+            return func(*args, **kwargs)
+        except Exception:
+            if attempt == max_attempts - 1:
+                raise
+            delay = base * (2 ** attempt) + random.uniform(0, 0.4)
+            time.sleep(delay)
 
 def _get_all_values_full_cached(ws: gspread.Worksheet) -> List[List[str]]:
 	"""워크시트 전체 값을 읽는다. 캐시를 우선 사용하고, 필요 시 배치 스캔으로 폴백.
@@ -164,8 +174,12 @@ def _get_all_values_full_cached(ws: gspread.Worksheet) -> List[List[str]]:
 		_WS_CACHE[ws_id] = {"values": [], "ts": _now()}
 		return []
 
-	all_values: List[List[str]] = []
-	chunk = 5000
+    all_values: List[List[str]] = []
+    chunk = 5000
+    try:
+        chunk_sleep = float(os.getenv("CHUNK_SLEEP_SECS", "0.25").strip())
+    except Exception:
+        chunk_sleep = 0.25
 	last_non_empty_row = 0
 	for start in range(1, total + 1, chunk):
 		end = min(total, start + chunk - 1)
@@ -181,8 +195,8 @@ def _get_all_values_full_cached(ws: gspread.Worksheet) -> List[List[str]]:
 		else:
 			if start > max(1, last_non_empty_row) + chunk:
 				break
-		# 청크 간 대기 (RPM 완화)
-		time.sleep(0.15)
+        # 청크 간 대기 (RPM 완화)
+        time.sleep(chunk_sleep)
 
 	_WS_CACHE[ws_id] = {"values": all_values, "ts": _now()}
 	return all_values
@@ -258,10 +272,10 @@ def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, Li
 		"PRODUCT_NAME_COLUMN": settings.product_name_col,
 		"DAILY_WORKLOAD_COLUMN": settings.daily_workload_col,
 	}
-	try:
-		candidates = ws.get_values('1:100')  # 상단 100행 탐색
-	except Exception:
-		candidates = []
+    try:
+        candidates = _with_retry(ws.get_values, '1:100')  # 상단 100행 탐색 (재시도 적용)
+    except Exception:
+        candidates = []
 
 	def score_headers(headers: List[str]) -> tuple[int, int]:
 		has_remaining = any(_matches(h, settings.remaining_days_col, "REMAINING_DAYS_COLUMN") for h in headers)
@@ -285,11 +299,11 @@ def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, Li
 			best_tuple = s
 			best_idx = idx
 			best_headers = headers
-	if best_tuple == (-1, -1):
-		try:
-			best_headers = [h.strip() for h in ws.row_values(1)]
-		except Exception:
-			best_headers = []
+    if best_tuple == (-1, -1):
+        try:
+            best_headers = [h.strip() for h in _with_retry(ws.row_values, 1)]
+        except Exception:
+            best_headers = []
 		best_idx = 1
 	return best_idx, best_headers
 
@@ -325,21 +339,24 @@ def fetch_grouped_messages(selected_days: List[int], settings: Settings | None =
 	client = _get_client()
 	ss = client.open_by_key(settings.spreadsheet_id)
 
-	agency_to_task_to_names: Dict[str, Dict[str, List[str]]] = {}
+    agency_to_task_to_names: Dict[str, Dict[str, List[str]]] = {}
+    # 중복 상호명 병합을 위한 임시 집계: agency -> task -> bizname -> sum(workload)
+    aggregator: Dict[str, Dict[str, Dict[str, int]]] = {}
 	selected_set: Set[int] = set(selected_days)
 
-	for ws in ss.worksheets():
-		task_name = ws.title
-		header_row, headers = _find_header_row(ws, settings)
-		records = _build_records(ws, header_row, headers)
-		for row in records:
+    for ws in ss.worksheets():
+        task_name = ws.title
+        header_row, headers = _find_header_row(ws, settings)
+        records = _build_records(ws, header_row, headers)
+        for row in records:
 			row_norm = { _normalize_key(k): v for k, v in row.items() }
 			agency = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip() or "미지정 대행사"
 			is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
 			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
 			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
 			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
-			workload = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
+            workload_raw = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
+            workload_num = _parse_int_maybe(workload_raw) or 0
 
 			if is_checked:
 				continue
@@ -350,13 +367,19 @@ def fetch_grouped_messages(selected_days: List[int], settings: Settings | None =
 			if not bizname:
 				continue
 
-			task_map = agency_to_task_to_names.setdefault(agency, {})
-			name_list = task_map.setdefault(task_name, [])
-			display_name = f"{bizname} (일작업량 {workload})" if workload else bizname
-			if display_name not in name_list:
-				name_list.append(display_name)
+            by_task = aggregator.setdefault(agency, {}).setdefault(task_name, {})
+            by_task[bizname] = by_task.get(bizname, 0) + workload_num
+    # 집계 결과를 출력 포맷으로 변환
+    for agency, tasks in aggregator.items():
+        out_task_map: Dict[str, List[str]] = {}
+        for task, name_to_wl in tasks.items():
+            names: List[str] = []
+            for name, wl_sum in sorted(name_to_wl.items(), key=lambda kv: kv[0]):
+                names.append(f"{name} (일작업량 {wl_sum})" if wl_sum > 0 else name)
+            out_task_map[task] = names
+        agency_to_task_to_names[agency] = out_task_map
 
-	return agency_to_task_to_names
+    return agency_to_task_to_names
 
 
 def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings | None = None, filter_mode: str = "agency") -> Dict[str, Dict[int, Dict[str, List[str]]]]:
@@ -374,9 +397,10 @@ def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings 
 	ss = client.open_by_key(settings.spreadsheet_id)
 
 	selected_set: Set[int] = set(selected_days)
-	agency_map: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
+    # 임시 집계: agency -> day -> task -> bizname -> sum(workload)
+    aggregator: Dict[str, Dict[int, Dict[str, Dict[str, int]]]] = {}
 
-	for ws in ss.worksheets():
+    for ws in ss.worksheets():
 		tab_title = (ws.title or "").strip()
 		header_row, headers = _find_header_row(ws, settings)
 		records = _build_records(ws, header_row, headers)
@@ -415,14 +439,31 @@ def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings 
 				display_task = f"{base_task} {product}".strip() if product else base_task
 
 			agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
-			dict_by_day = agency_map.setdefault(agency_label, {})
-			dict_by_task = dict_by_day.setdefault(remain, {})
-			name_list = dict_by_task.setdefault(display_task, [])
-			display_name = f"{bizname} (일작업량 {workload})" if workload else bizname
-			if display_name not in name_list:
-				name_list.append(display_name)
+            # 집계 업데이트
+            try:
+                wl_num = _parse_int_maybe(workload) or 0
+            except Exception:
+                wl_num = 0
+            dict_by_day = aggregator.setdefault(agency_label, {})
+            dict_by_task = dict_by_day.setdefault(remain, {})
+            by_name = dict_by_task.setdefault(display_task, {})
+            by_name[bizname] = by_name.get(bizname, 0) + wl_num
 
-	return agency_map
+    # 집계를 최종 출력 포맷으로 변환: List[str]
+    result: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
+    for agency, by_day in aggregator.items():
+        day_out: Dict[int, Dict[str, List[str]]] = {}
+        for day_key, by_task in by_day.items():
+            task_out: Dict[str, List[str]] = {}
+            for task, name_to_wl in by_task.items():
+                names: List[str] = []
+                for name, wl_sum in sorted(name_to_wl.items(), key=lambda kv: kv[0]):
+                    names.append(f"{name} (일작업량 {wl_sum})" if wl_sum > 0 else name)
+                task_out[task] = names
+            day_out[day_key] = task_out
+        result[agency] = day_out
+
+    return result
 
 
 def stream_grouped_messages_by_date(selected_days: List[int], settings: Settings | None = None, filter_mode: str = "agency"):
@@ -442,7 +483,8 @@ def stream_grouped_messages_by_date(selected_days: List[int], settings: Settings
 	processed = 0
 
 	selected_set: Set[int] = set(selected_days)
-	agency_map: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
+    # 임시 집계 저장
+    aggregator: Dict[str, Dict[int, Dict[str, Dict[str, int]]]] = {}
 
 	# 시작 이벤트
 	yield {"type": "start", "total": total}
@@ -452,7 +494,7 @@ def stream_grouped_messages_by_date(selected_days: List[int], settings: Settings
 		try:
 			header_row, headers = _find_header_row(ws, settings)
 			records = _build_records(ws, header_row, headers)
-			for row in records:
+            for row in records:
 				row_norm = { _normalize_key(k): v for k, v in row.items() }
 				agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
 				is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
@@ -487,12 +529,11 @@ def stream_grouped_messages_by_date(selected_days: List[int], settings: Settings
 					display_task = f"{base_task} {product}".strip() if product else base_task
 
 				agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
-				dict_by_day = agency_map.setdefault(agency_label, {})
-				dict_by_task = dict_by_day.setdefault(remain, {})
-				name_list = dict_by_task.setdefault(display_task, [])
-				display_name = f"{bizname} (일작업량 {workload})" if workload else bizname
-				if display_name not in name_list:
-					name_list.append(display_name)
+                dict_by_day = aggregator.setdefault(agency_label, {})
+                dict_by_task = dict_by_day.setdefault(remain, {})
+                by_name = dict_by_task.setdefault(display_task, {})
+                wl_num = _parse_int_maybe(workload) or 0
+                by_name[bizname] = by_name.get(bizname, 0) + wl_num
 		except Exception as e:
 			# 워크시트 처리 실패도 진행률로 보고
 			yield {"type": "progress", "processed": processed, "total": total, "tab": tab_title, "error": str(e)}
@@ -500,8 +541,22 @@ def stream_grouped_messages_by_date(selected_days: List[int], settings: Settings
 			processed += 1
 			yield {"type": "progress", "processed": processed, "total": total, "tab": tab_title}
 
-	# 완료 이벤트
-	yield {"type": "result", "total": total, "grouped": agency_map}
+    # 완료 시 집계를 최종 포맷으로 변환
+    final_map: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
+    for agency, by_day in aggregator.items():
+        day_out: Dict[int, Dict[str, List[str]]] = {}
+        for day_key, by_task in by_day.items():
+            task_out: Dict[str, List[str]] = {}
+            for task, name_to_wl in by_task.items():
+                names: List[str] = []
+                for name, wl_sum in sorted(name_to_wl.items(), key=lambda kv: kv[0]):
+                    names.append(f"{name} (일작업량 {wl_sum})" if wl_sum > 0 else name)
+                task_out[task] = names
+            day_out[day_key] = task_out
+        final_map[agency] = day_out
+
+    # 완료 이벤트
+    yield {"type": "result", "total": total, "grouped": final_map}
 
 
 def _find_checked_col_index(headers: List[str], settings: Settings) -> int | None:
@@ -539,9 +594,9 @@ def mark_checked_for_agency(selected_days: List[int], agency_label: str, filter_
 			continue
 
 		# 전체 값 읽고 레코드 + 실제 행번호 생성
-		try:
-			values = ws.get_all_values()
-		except Exception as e:
+        try:
+            values = _get_all_values_full_cached(ws)
+        except Exception as e:
 			results.append({"worksheet": ws.title, "updated": 0, "reason": f"read_failed:{e}"})
 			continue
 		if header_row - 1 >= len(values):
