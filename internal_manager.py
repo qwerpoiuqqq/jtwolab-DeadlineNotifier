@@ -42,7 +42,8 @@ def fetch_internal_items() -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
 	client = _get_client()
 	ss = client.open_by_key(settings.spreadsheet_id)
 
-	items: List[Dict[str, Any]] = []
+    # 중복 상호 병합 및 작업량 합산을 위한 집계: key=(agency, tab_title, task_display, bizname) -> sum(workload)
+    aggregator: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
 	ws_list = ss.worksheets()
 	for ws in ws_list:
 		tab_title = (ws.title or "").strip()
@@ -64,19 +65,42 @@ def fetch_internal_items() -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
 			if not bizname:
 				continue
 
-			display_task = _build_task_display(tab_title, product, product_name)
-			label_agency = agency_raw or "내부 진행"
-			items.append({
-				"tab_title": tab_title,
-				"agency": label_agency,
-				"bizname": bizname,
-				"task_display": display_task,
-				"remain_days": remain,
-				"daily_workload": workload or None,
-				"checked": bool(is_checked),
-			})
+            display_task = _build_task_display(tab_title, product, product_name)
+            label_agency = agency_raw or "내부 진행"
+            try:
+                wl_num = _parse_int_maybe(workload) or 0
+            except Exception:
+                wl_num = 0
+            key = (label_agency, tab_title, display_task, bizname)
+            entry = aggregator.get(key)
+            if not entry:
+                aggregator[key] = {
+                    "tab_title": tab_title,
+                    "agency": label_agency,
+                    "bizname": bizname,
+                    "task_display": display_task,
+                    "remain_days": remain,
+                    "daily_workload_sum": wl_num,
+                    "checked": bool(is_checked),
+                }
+            else:
+                entry["daily_workload_sum"] = int(entry.get("daily_workload_sum", 0)) + wl_num
 
-	return items, {"worksheets": len(ws_list), "items": len(items)}
+    # 출력 리스트 구성 (정렬은 상호명 기준)
+    items: List[Dict[str, Any]] = []
+    for entry in sorted(aggregator.values(), key=lambda e: (e["agency"], e["task_display"], e["bizname"])):
+        wl_sum = int(entry.get("daily_workload_sum", 0))
+        items.append({
+            "tab_title": entry["tab_title"],
+            "agency": entry["agency"],
+            "bizname": entry["bizname"],
+            "task_display": entry["task_display"],
+            "remain_days": entry["remain_days"],
+            "daily_workload": (str(wl_sum) if wl_sum > 0 else None),
+            "checked": entry["checked"],
+        })
+
+    return items, {"worksheets": len(ws_list), "items": len(items)}
 
 
 def load_cache() -> Dict[str, Any]:
