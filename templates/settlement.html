@@ -156,75 +156,102 @@
             </div>
           </div>
         
-          <!-- 3) 정산 미리보기 모달 -->
-          <div class="overlay" id="preview-modal" style="display:none; background:rgba(0,0,0,.18)">
-          <div class="center" style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; min-width:720px; max-width:90%;">
-              <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
-              <div style="font-weight:700">정산 미리보기 (날짜 ▶ 거래처 ▶ 대행사)</div>
-              <div class="stack">
-                <button id="btn-export-excel" class="btn">엑셀 양식 복붙</button>
-                <button id="btn-close-preview" class="btn btn-primary">닫기</button>
-              </div>
-            </div>
-              <!-- 모달 내 탭 버튼 -->
-              <div class="stack" style="gap:8px; margin-bottom:8px">
+          <!-- 3) 정산 미리보기(페이지 하단 표시) -->
+          <div id="results-panel" class="panel" style="display:none; margin-bottom:12px">
+            <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
+              <div class="stack" style="gap:8px">
                 <button id="pv-tab-rows" class="btn btn-primary" type="button">행 보기</button>
                 <button id="pv-tab-product" class="btn" type="button">상품별</button>
                 <button id="pv-tab-agency" class="btn" type="button">대행사별</button>
               </div>
-            <div style="overflow:auto; max-height:70vh">
-                <!-- 행 보기 -->
-                <table id="tbl-preview" style="width:100%">
+              <div class="stack" style="gap:8px">
+                <button id="btn-export-excel" class="btn">엑셀 양식 복붙</button>
+              </div>
+            </div>
+            <!-- 정렬 컨트롤: 상품별 -->
+            <div id="sort-product" class="stack" style="gap:8px; margin-bottom:8px; display:none">
+              <label class="muted" style="margin:0">상품별 정렬</label>
+              <select id="sp-key">
+                <option value="qty">접수량</option>
+                <option value="expense">지출</option>
+                <option value="income">매출</option>
+              </select>
+              <select id="sp-order">
+                <option value="desc">내림차순</option>
+                <option value="asc">오름차순</option>
+              </select>
+            </div>
+            <!-- 정렬 컨트롤: 대행사별 -->
+            <div id="sort-agency" class="stack" style="gap:8px; margin-bottom:8px; display:none">
+              <label class="muted" style="margin:0">대행사별 정렬</label>
+              <select id="sa-key">
+                <option value="client">대행사</option>
+                <option value="product">상품명</option>
+                <option value="qty">수량</option>
+                <option value="expense">지출</option>
+                <option value="income">매출</option>
+              </select>
+              <select id="sa-order">
+                <option value="asc">오름차순</option>
+                <option value="desc">내림차순</option>
+              </select>
+            </div>
+            <!-- 행 보기 -->
+            <div style="overflow:auto">
+              <table id="tbl-preview" style="width:100%">
                 <thead>
                   <tr>
                     <th>날짜</th>
-                    <th>거래처</th>
                     <th>대행사</th>
                     <th>상품명</th>
                     <th>수량</th>
                     <th>단가</th>
-                      <th>금액</th>
+                    <th>지출</th>
+                    <th>매출</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
                 <tfoot>
                   <tr>
-                    <th colspan="6" style="text-align:right">총액</th>
+                    <th colspan="6" style="text-align:right">총 지출</th>
                     <th id="grand-total">0</th>
                   </tr>
                 </tfoot>
               </table>
-                <!-- 상품별 보기 -->
-                <table id="tbl-product" style="width:100%; display:none; margin-top:8px">
-                  <thead>
-                    <tr>
-                      <th>날짜</th>
-                      <th>상품명</th>
-                      <th>총 접수량</th>
-                      <th>지출</th>
-                      <th>매출</th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
-                <!-- 대행사별 보기 -->
-                <table id="tbl-agency" style="width:100%; display:none; margin-top:8px">
-                  <thead>
-                    <tr>
-                      <th>날짜</th>
-                      <th>대행사</th>
-                      <th>상품명</th>
-                      <th>유형</th>
-                      <th>수량</th>
-                      <th>단가</th>
-                      <th>지출</th>
-                      <th>매출</th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
             </div>
-          </div>
+            <!-- 상품별 보기 -->
+            <div style="overflow:auto">
+              <table id="tbl-product" style="width:100%; display:none">
+                <thead>
+                  <tr>
+                    <th>날짜</th>
+                    <th>상품명</th>
+                    <th>총 접수량</th>
+                    <th>지출</th>
+                    <th>매출</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <!-- 대행사별 보기 -->
+            <div style="overflow:auto">
+              <table id="tbl-agency" style="width:100%; display:none">
+                <thead>
+                  <tr>
+                    <th>날짜</th>
+                    <th>대행사</th>
+                    <th>상품명</th>
+                    <th>유형</th>
+                    <th>수량</th>
+                    <th>단가</th>
+                    <th>지출</th>
+                    <th>매출</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
