@@ -104,12 +104,48 @@
                 <button id="btn-export-price" class="btn">내보내기</button>
               </div>
             </div>
+            <!-- 인라인 에디터 -->
+            <div class="panel" style="margin-top:10px">
+              <div class="stack" style="align-items:flex-end; gap:10px; flex-wrap:wrap">
+                <div>
+                  <label>거래처</label>
+                  <input id="pb-client" type="text" placeholder="예: 레알마케팅" />
+                </div>
+                <div>
+                  <label>상품명</label>
+                  <input id="pb-product" type="text" placeholder="예: 일류1" />
+                </div>
+                <div>
+                  <label>단가</label>
+                  <input id="pb-price" type="text" placeholder="예: 1750" />
+                </div>
+                <div style="min-width:200px">
+                  <label>계좌</label>
+                  <input id="pb-account" type="text" placeholder="선택" />
+                </div>
+                <div class="stack" style="gap:8px">
+                  <label style="margin:0; color:var(--muted); font-size:12px">유형</label>
+                  <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="공통" checked />공통</label>
+                  <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="저장" />저장</label>
+                  <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="트래픽" />트래픽</label>
+                </div>
+                <div class="stack">
+                  <button id="pb-add-one" class="btn btn-primary" type="button">추가</button>
+                  <button id="pb-add-both" class="btn" type="button">저장·트래픽 동시 추가</button>
+                </div>
+                <div style="margin-left:auto">
+                  <label>검색</label>
+                  <input id="pb-search" type="text" placeholder="거래처/상품 검색" />
+                </div>
+              </div>
+            </div>
             <div style="overflow:auto; margin-top:8px">
               <table id="tbl-price">
                 <thead>
                   <tr>
                     <th>거래처</th>
                     <th>상품명</th>
+                    <th>유형</th>
                     <th>단가</th>
                     <th>계좌</th>
                     <th></th>
@@ -321,11 +357,22 @@
 
       // 단가부: 추가/삭제/입출력 (로컬 메모리)
       $('#btn-add-price').addEventListener('click', ()=>{
-        const client = prompt('거래처명?'); if(!client) return;
-        const product = prompt('상품명?'); if(!product) return;
-        const price = Number(prompt('단가? (숫자)')||'0')||0;
-        const account = prompt('계좌? (예: 국민 000-00-000000, 홍길동)')||'';
-        upsertPrice({ client, product, price, account });
+        // 인라인 입력값 읽기
+        const client = (document.getElementById('pb-client')?.value||'').trim(); if(!client) return alert('거래처를 입력하세요');
+        const product = (document.getElementById('pb-product')?.value||'').trim(); if(!product) return alert('상품명을 입력하세요');
+        const price = Number((document.getElementById('pb-price')?.value||'0').replace(/,/g,''))||0;
+        const account = (document.getElementById('pb-account')?.value||'').trim();
+        const type = (document.querySelector('input[name="pb-type"]:checked')?.value)||'공통';
+        upsertPrice({ client, product, price, account, type });
+        renderPriceBook();
+      });
+      document.getElementById('pb-add-both').addEventListener('click', ()=>{
+        const client = (document.getElementById('pb-client')?.value||'').trim(); if(!client) return alert('거래처를 입력하세요');
+        const product = (document.getElementById('pb-product')?.value||'').trim(); if(!product) return alert('상품명을 입력하세요');
+        const price = Number((document.getElementById('pb-price')?.value||'0').replace(/,/g,''))||0;
+        const account = (document.getElementById('pb-account')?.value||'').trim();
+        upsertPrice({ client, product, price, account, type:'저장' });
+        upsertPrice({ client, product, price, account, type:'트래픽' });
         renderPriceBook();
       });
       $('#btn-export-price').addEventListener('click', ()=>{
@@ -351,7 +398,7 @@
       });
 
       function upsertPrice(item){
-        const idx = state.priceBook.findIndex(x=>x.client===item.client && x.product===item.product);
+        const idx = state.priceBook.findIndex(x=>x.client===item.client && x.product===item.product && (String(x.type||'공통')===String(item.type||'공통')));
         if(idx>=0){ state.priceBook[idx] = item; } else { state.priceBook.push(item); }
       }
       function removePrice(client, product){
@@ -378,6 +425,7 @@
           tr.innerHTML = `
             <td>${it.client||''}</td>
             <td>${it.product||''}</td>
+            <td>${it.type||'공통'}</td>
             <td>${it.price??''}</td>
             <td>${it.account||''}</td>
             <td><button class="btn" data-del="${it.client}|||${it.product}">삭제</button></td>
