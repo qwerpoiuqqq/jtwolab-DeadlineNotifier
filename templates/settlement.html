@@ -8,10 +8,10 @@
       :root{ --bg:#ffffff; --text:#1f2328; --muted:#6b778c; --line:#e5e7eb; --panel:#ffffff; --pill:#f6f8fa; --btn:#111827; }
       html,body{ height:100% }
       body{ margin:0; background:var(--bg); color:var(--text); font-family: ui-sans-serif, system-ui, "Noto Sans KR", Arial; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-      .layout{ display:flex; min-height:100vh; }
-      .sidebar{ width:240px; border-right:1px solid var(--line); padding:16px; background:#fff; }
       .content{ flex:1; padding:24px; }
       .title{ font-weight:800; letter-spacing:.2px; font-size:18px; margin-bottom:16px; }
+      .home-link{ color:inherit; text-decoration:none; }
+      .home-link:hover{ text-decoration:underline; }
       .nav a{ display:block; padding:10px 12px; border-radius:10px; color:inherit; text-decoration:none; margin-bottom:6px; border:1px solid var(--line); background:var(--pill); }
       .nav a.active{ background:#111827; color:#fff; border-color:#111827; }
       .panel{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
@@ -35,27 +35,43 @@
       .progress{ width:260px; height:8px; background:#e5e7eb; border-radius:999px; overflow:hidden; margin:8px auto 0; }
       .progress-bar{ height:100%; width:0%; background:#111827; transition:width .2s ease; }
       @keyframes spin{ to{ transform:rotate(360deg); } }
+      /* 페이지 2열 레이아웃 */
+      .page{ display:flex; gap:16px; align-items:flex-start; }
+      .subnav{ width:220px; border:1px solid var(--line); background:#fff; border-radius:12px; padding:12px; }
+      .subnav .title-sm{ font-weight:700; margin-bottom:10px; }
+      .subnav .vtab{ display:block; width:100%; text-align:left; padding:10px 12px; border:1px solid var(--line); background:var(--pill); border-radius:10px; margin-bottom:8px; cursor:pointer; }
+      .subnav .vtab.active{ background:#111827; color:#fff; border-color:#111827; }
+      .maincol{ flex:1; min-width:0; }
+      /* 모바일: 좌측 탭 숨기고 상단 탭 표시 */
+      .tabbar{ display:none; }
+      @media(max-width:900px){
+        .page{ display:block; }
+        .subnav{ display:none; }
+        .tabbar{ display:block; }
+      }
     </style>
   </head>
   <body>
     <div class="content" style="max-width:1100px; margin:0 auto; padding:24px">
-      <div class="title">결재선 · 정산</div>
-      <div class="nav" style="display:flex; gap:8px; margin-bottom:12px">
-        <a class="btn" href="/">마감 안내</a>
-        <a class="btn" href="/manage">보장 관리</a>
-        <a class="btn btn-primary" href="/settlement">결재선 · 정산</a>
-      </div>
+      <div class="title"><a class="home-link" href="/">마감 안내 생성기</a> · <a class="home-link" href="/manage">보장 관리</a> · <a class="home-link" href="/settlement" style="font-weight:600">결재선 · 정산</a></div>
 
-      <!-- 상단 탭: 정산 / 단가 관리 -->
-      <div class="panel" style="margin-bottom:12px">
-        <div class="stack" style="justify-content:flex-start">
-          <button id="tab-settle" class="btn btn-primary" type="button">정산</button>
-          <button id="tab-price" class="btn" type="button">단가 관리</button>
-        </div>
-      </div>
+      <div class="page">
+        <aside class="subnav">
+          <div class="title-sm">결재선</div>
+          <button id="side-tab-settle" class="vtab active" type="button">정산</button>
+          <button id="side-tab-price" class="vtab" type="button">단가 관리</button>
+        </aside>
+        <div class="maincol">
+          <!-- 모바일 상단 탭: 데스크톱에서는 숨김 -->
+          <div id="tabbar" class="panel tabbar" style="margin-bottom:12px">
+            <div class="stack" style="justify-content:flex-start">
+              <button id="tab-settle" class="btn btn-primary" type="button">정산</button>
+              <button id="tab-price" class="btn" type="button">단가 관리</button>
+            </div>
+          </div>
 
-        <!-- 1) 중앙 히어로: 탭 불러오기/기간/가져오기만 표시 (정산 탭에서만 보임) -->
-        <div id="hero" class="panel" style="margin-bottom:12px; display:block">
+          <!-- 1) 중앙 히어로: 탭 불러오기/기간/가져오기만 표시 (정산 탭에서만 보임) -->
+          <div id="hero" class="panel" style="margin-bottom:12px; display:block">
             <div class="stack" style="align-items:flex-end">
               <div>
                 <label>구글 시트 하단 탭</label>
@@ -77,8 +93,8 @@
             <div class="muted" style="margin-top:8px; font-size:12px">탭명은 날짜(예: 2025-10-06) 형식을 권장합니다.</div>
           </div>
 
-        <!-- 2) 단가 관리: 상단 탭에서 전환 시 표시 -->
-        <div id="price-panel" class="panel" style="display:none; margin-bottom:12px">
+          <!-- 2) 단가 관리: 상단/좌측 탭에서 전환 시 표시 -->
+          <div id="price-panel" class="panel" style="display:none; margin-bottom:12px">
             <div class="stack" style="justify-content:space-between">
               <div class="muted">거래처별 계좌 · 상품별 단가</div>
               <div class="stack">
@@ -104,8 +120,8 @@
             </div>
           </div>
         
-        <!-- 3) 정산 미리보기 모달 -->
-        <div class="overlay" id="preview-modal" style="display:none; background:rgba(0,0,0,.18)">
+          <!-- 3) 정산 미리보기 모달 -->
+          <div class="overlay" id="preview-modal" style="display:none; background:rgba(0,0,0,.18)">
           <div class="center" style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; min-width:720px; max-width:90%;">
             <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
               <div style="font-weight:700">정산 미리보기 (날짜 ▶ 거래처 ▶ 대행사)</div>
@@ -137,8 +153,9 @@
               </table>
             </div>
           </div>
+          </div>
         </div>
-
+      </div>
     </div>
 
     <div class="overlay" id="overlay">
@@ -356,20 +373,23 @@
       })();
 
       // 상단 탭 전환: 정산 / 단가 관리
+      function setTab(mode){
+        const isSettle = mode==='settle';
+        try{ document.getElementById('tab-settle')?.classList.toggle('btn-primary', isSettle); }catch(e){}
+        try{ document.getElementById('tab-price')?.classList.toggle('btn-primary', !isSettle); }catch(e){}
+        try{ document.getElementById('side-tab-settle')?.classList.toggle('active', isSettle); }catch(e){}
+        try{ document.getElementById('side-tab-price')?.classList.toggle('active', !isSettle); }catch(e){}
+        document.getElementById('price-panel').style.display = isSettle ? 'none' : 'block';
+        document.getElementById('hero').style.display = isSettle ? 'block' : 'none';
+      }
       document.getElementById('tab-settle').addEventListener('click', ()=>{
-        document.getElementById('tab-settle').classList.add('btn-primary');
-        document.getElementById('tab-price').classList.remove('btn-primary');
-        document.getElementById('price-panel').style.display='none';
-        document.getElementById('hero').style.display='block';
+        setTab('settle');
       });
       document.getElementById('tab-price').addEventListener('click', ()=>{
-        document.getElementById('tab-price').classList.add('btn-primary');
-        document.getElementById('tab-settle').classList.remove('btn-primary');
-        document.getElementById('price-panel').style.display='block';
-        document.getElementById('hero').style.display='none';
+        setTab('price');
       });
+      document.getElementById('side-tab-settle').addEventListener('click', ()=>{ setTab('settle'); });
+      document.getElementById('side-tab-price').addEventListener('click', ()=>{ setTab('price'); });
     </script>
   </body>
   </html>
-
-
