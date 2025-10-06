@@ -38,31 +38,24 @@
     </style>
   </head>
   <body>
-    <div class="layout">
-      <aside class="sidebar">
-        <div class="title">Place Manager</div>
-        <div class="nav">
-          <a href="/" >마감 안내</a>
-          <a href="/manage">보장 관리</a>
-          <a href="/settlement" class="active">결재선 · 정산</a>
-        </div>
-        <div class="panel" style="margin-top:12px">
-          <div class="muted" style="font-size:12px">워크플로우</div>
-          <ol style="padding-left:18px; margin:8px 0 0 0; color:#4b5563; font-size:13px">
-            <li>하단 탭 목록 불러오기</li>
-            <li>날짜(탭명) 선택</li>
-            <li>상품별 수량×단가 산출</li>
-            <li>거래처별 합계 확인</li>
-            <li>엑셀 양식으로 복붙</li>
-          </ol>
-        </div>
-      </aside>
-      <main class="content">
-        <div class="title">결재선 · 정산</div>
+    <div class="content" style="max-width:1100px; margin:0 auto; padding:24px">
+      <div class="title">결재선 · 정산</div>
+      <div class="nav" style="display:flex; gap:8px; margin-bottom:12px">
+        <a class="btn" href="/">마감 안내</a>
+        <a class="btn" href="/manage">보장 관리</a>
+        <a class="btn btn-primary" href="/settlement">결재선 · 정산</a>
+      </div>
 
-        <div class="grid">
-          <!-- 1) 탭 불러오기 & 날짜 선택 -->
-          <div class="panel">
+      <!-- 상단 탭: 정산 / 단가 관리 -->
+      <div class="panel" style="margin-bottom:12px">
+        <div class="stack" style="justify-content:flex-start">
+          <button id="tab-settle" class="btn btn-primary" type="button">정산</button>
+          <button id="tab-price" class="btn" type="button">단가 관리</button>
+        </div>
+      </div>
+
+        <!-- 1) 중앙 히어로: 탭 불러오기/기간/가져오기만 표시 (정산 탭에서만 보임) -->
+        <div id="hero" class="panel" style="margin-bottom:12px; display:block">
             <div class="stack" style="align-items:flex-end">
               <div>
                 <label>구글 시트 하단 탭</label>
@@ -84,8 +77,8 @@
             <div class="muted" style="margin-top:8px; font-size:12px">탭명은 날짜(예: 2025-10-06) 형식을 권장합니다.</div>
           </div>
 
-          <!-- 2) 단가 관리 -->
-          <div class="panel">
+        <!-- 2) 단가 관리: 상단 탭에서 전환 시 표시 -->
+        <div id="price-panel" class="panel" style="display:none; margin-bottom:12px">
             <div class="stack" style="justify-content:space-between">
               <div class="muted">거래처별 계좌 · 상품별 단가</div>
               <div class="stack">
@@ -110,17 +103,19 @@
               </table>
             </div>
           </div>
-
-          <!-- 3) 정산 미리보기 -->
-          <div class="panel" style="grid-column:1/-1">
-            <div class="stack" style="justify-content:space-between">
-              <div class="muted">정산 미리보기 (날짜 ▶ 거래처 ▶ 대행사)</div>
+        
+        <!-- 3) 정산 미리보기 모달 -->
+        <div class="overlay" id="preview-modal" style="display:none; background:rgba(0,0,0,.18)">
+          <div class="center" style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; min-width:720px; max-width:90%;">
+            <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
+              <div style="font-weight:700">정산 미리보기 (날짜 ▶ 거래처 ▶ 대행사)</div>
               <div class="stack">
-                <button id="btn-export-excel" class="btn btn-primary">엑셀 양식 복붙</button>
+                <button id="btn-export-excel" class="btn">엑셀 양식 복붙</button>
+                <button id="btn-close-preview" class="btn btn-primary">닫기</button>
               </div>
             </div>
-            <div style="overflow:auto; margin-top:8px">
-              <table id="tbl-preview">
+            <div style="overflow:auto; max-height:70vh">
+              <table id="tbl-preview" style="width:100%">
                 <thead>
                   <tr>
                     <th>날짜</th>
@@ -144,7 +139,6 @@
           </div>
         </div>
 
-      </main>
     </div>
 
     <div class="overlay" id="overlay">
@@ -168,6 +162,7 @@
       const overlay = document.getElementById('overlay');
       const pbar = document.getElementById('progress-bar');
       const ptxt = document.getElementById('progress-text');
+      const modalPreview = document.getElementById('preview-modal');
 
       function showLoading(msg){ overlay.style.display='flex'; if(ptxt) ptxt.textContent = msg||'불러오는 중...'; if(pbar) pbar.style.width='15%'; }
       function setProgress(pct, msg){ if(pbar){ pbar.style.width = Math.max(0, Math.min(100, pct))+'%'; } if(msg && ptxt){ ptxt.textContent = msg; } }
@@ -239,8 +234,12 @@
         }
         state.previewRows = rows;
         renderPreview();
+        // 미리보기 모달 표시
+        try{ modalPreview.style.display='flex'; }catch(e){}
         setProgress(100, '완료'); hideLoading();
       });
+
+      document.getElementById('btn-close-preview').addEventListener('click', ()=>{ try{ modalPreview.style.display='none'; }catch(e){} });
 
       // 단가부: 추가/삭제/입출력 (로컬 메모리)
       $('#btn-add-price').addEventListener('click', ()=>{
@@ -355,6 +354,20 @@
         renderPriceBook();
         hideLoading();
       })();
+
+      // 상단 탭 전환: 정산 / 단가 관리
+      document.getElementById('tab-settle').addEventListener('click', ()=>{
+        document.getElementById('tab-settle').classList.add('btn-primary');
+        document.getElementById('tab-price').classList.remove('btn-primary');
+        document.getElementById('price-panel').style.display='none';
+        document.getElementById('hero').style.display='block';
+      });
+      document.getElementById('tab-price').addEventListener('click', ()=>{
+        document.getElementById('tab-price').classList.add('btn-primary');
+        document.getElementById('tab-settle').classList.remove('btn-primary');
+        document.getElementById('price-panel').style.display='block';
+        document.getElementById('hero').style.display='none';
+      });
     </script>
   </body>
   </html>
