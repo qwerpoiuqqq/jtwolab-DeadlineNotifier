@@ -278,7 +278,7 @@
       const overlay = document.getElementById('overlay');
       const pbar = document.getElementById('progress-bar');
       const ptxt = document.getElementById('progress-text');
-      const modalPreview = document.getElementById('preview-modal');
+      // 미리보기는 하단 패널 사용
 
       function showLoading(msg){ overlay.style.display='flex'; if(ptxt) ptxt.textContent = msg||'불러오는 중...'; if(pbar) pbar.style.width='15%'; }
       function setProgress(pct, msg){ if(pbar){ pbar.style.width = Math.max(0, Math.min(100, pct))+'%'; } if(msg && ptxt){ ptxt.textContent = msg; } }
@@ -338,15 +338,14 @@
           if(!res.ok) throw new Error(data?.error||'집계 실패');
           // data.rows: {date, client, job, type, qty, unit_price, expense, income}
           const rows = Array.isArray(data.rows) ? data.rows : [];
-          state.previewRows = rows.map(r=>({ date: r.date, client: r.client, agency: '', product: (r.type?`${r.job} ${r.type}`:r.job), qty: r.qty, price: r.unit_price, amount: r.expense }));
+          state.previewRows = rows.map(r=>({ date: r.date, client: r.client, product: (r.type?`${r.job} ${r.type}`:r.job), qty: r.qty, price: r.unit_price, expense: r.expense||0, income: r.income||0 }));
           renderPreview();
           renderAggregates(data?.aggregates||{});
-          try{ modalPreview.style.display='flex'; }catch(e){}
+          document.getElementById('results-panel').style.display = 'block';
+          setPvTab('rows');
         }catch(e){ alert(e.message||'집계 실패'); }
         finally{ setProgress(100, '완료'); hideLoading(); }
       });
-
-      document.getElementById('btn-close-preview').addEventListener('click', ()=>{ try{ modalPreview.style.display='none'; }catch(e){} });
 
       function renderAggregates(aggs){
         try{
@@ -424,12 +423,14 @@
         finally{ hideLoading(); }
       });
 
+      let pbEditingIndex = -1;
       function upsertPrice(item){
+        if(pbEditingIndex>=0){ state.priceBook[pbEditingIndex] = item; pbEditingIndex=-1; return; }
         const idx = state.priceBook.findIndex(x=>x.client===item.client && x.product===item.product && (String(x.type||'공통')===String(item.type||'공통')));
         if(idx>=0){ state.priceBook[idx] = item; } else { state.priceBook.push(item); }
       }
-      function removePrice(client, product){
-        state.priceBook = state.priceBook.filter(x=> !(x.client===client && x.product===product));
+      function removePrice(client, product, type){
+        state.priceBook = state.priceBook.filter(x=> !(x.client===client && x.product===product && String(x.type||'공통')===String(type||'공통')));
       }
       function lookupPrice(client, product){
         const it = state.priceBook.find(x=>x.client===client && x.product===product);
@@ -447,7 +448,11 @@
       function renderPriceBook(){
         const tb = document.querySelector('#tbl-price tbody');
         tb.innerHTML = '';
-        for(const it of state.priceBook){
+        const q = (document.getElementById('pb-search')?.value||'').trim().toLowerCase();
+        const list = state.priceBook.filter(it=>{
+          if(!q) return true; const t=(it.client+' '+it.product).toLowerCase(); return t.includes(q);
+        });
+        for(const it of list){
           const tr = document.createElement('tr');
           tr.innerHTML = `
             <td>${it.client||''}</td>
@@ -455,14 +460,30 @@
             <td>${it.type||'공통'}</td>
             <td>${it.price??''}</td>
             <td>${it.account||''}</td>
-            <td><button class="btn" data-del="${it.client}|||${it.product}">삭제</button></td>
+            <td>
+              <button class="btn" data-edit="${it.client}|||${it.product}|||${it.type||'공통'}">수정</button>
+              <button class="btn" data-del="${it.client}|||${it.product}|||${it.type||'공통'}">삭제</button>
+            </td>
           `;
           tb.appendChild(tr);
         }
         tb.querySelectorAll('button[data-del]')?.forEach(btn=>{
           btn.addEventListener('click', ()=>{
-            const [c,p] = btn.getAttribute('data-del').split('|||');
-            removePrice(c, p); renderPriceBook();
+            const [c,p,t] = btn.getAttribute('data-del').split('|||');
+            removePrice(c, p, t); renderPriceBook();
+          });
+        });
+        tb.querySelectorAll('button[data-edit]')?.forEach(btn=>{
+          btn.addEventListener('click', ()=>{
+            const [c,p,t] = btn.getAttribute('data-edit').split('|||');
+            const idx = state.priceBook.findIndex(x=>x.client===c && x.product===p && String(x.type||'공통')===String(t||'공통'));
+            if(idx>=0){ pbEditingIndex=idx; const it=state.priceBook[idx];
+              document.getElementById('pb-client').value = it.client||'';
+              document.getElementById('pb-product').value = it.product||'';
+              document.getElementById('pb-price').value = it.price||'';
+              document.getElementById('pb-account').value = it.account||'';
+              const r = document.querySelector(`input[name="pb-type"][value="${it.type||'공통'}"]`); if(r) r.checked = true;
+            }
           });
         });
       }
@@ -472,16 +493,16 @@
         tb.innerHTML = '';
         let total = 0;
         for(const r of state.previewRows){
-          total += (r.amount||0);
+          total += (r.expense||0);
           const tr = document.createElement('tr');
           tr.innerHTML = `
             <td>${r.date}</td>
             <td>${r.client}</td>
-            <td>${r.agency}</td>
             <td>${r.product}</td>
             <td>${r.qty}</td>
             <td>${r.price}</td>
-            <td>${r.amount}</td>
+            <td>${r.expense||0}</td>
+            <td>${r.income||0}</td>
           `;
           tb.appendChild(tr);
         }
@@ -490,15 +511,18 @@
 
       // 4) 엑셀 양식 복붙용 생성 (간단 CSV 형태)
       document.getElementById('btn-export-excel').addEventListener('click', ()=>{
-        const headers = ['날짜','거래처','대행사','상품명','수량','단가','금액'];
+        const headers = ['날짜','대행사','상품명','수량','단가','지출','매출'];
         const lines = [headers.join('\t')];
         for(const r of state.previewRows){
-          lines.push([r.date, r.client, r.agency, r.product, r.qty, r.price, r.amount].join('\t'));
+          lines.push([r.date, r.client, r.product, r.qty, r.price, r.expense||0, r.income||0].join('\t'));
         }
         const text = lines.join('\n');
         navigator.clipboard?.writeText(text);
         alert('복사 완료! 엑셀에 붙여넣기 하세요.');
       });
+
+      // 검색 렌더 업데이트
+      document.getElementById('pb-search').addEventListener('input', renderPriceBook);
 
       // 초기화: 가격표 로드 및 렌더
       (async function init(){
@@ -529,5 +553,3 @@
     </script>
   </body>
   </html>
-
-
