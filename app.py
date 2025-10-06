@@ -147,7 +147,7 @@ def create_app() -> Flask:
 			error=error,
 			did_fetch=did_fetch,
 			days_param=days_param,
-			base_date_str=base_date_str or base_dt.isoformat(),
+			base_date_str=base_dt.isoformat() if 'base_dt' in locals() else '',
 			day_to_date=day_to_date,
 			day_to_date_label=day_to_date_label,
 			ordered_days=ordered_days,
@@ -169,6 +169,12 @@ def create_app() -> Flask:
 			"manage.html",
 			updated_at=updated_at,
 			initial_items=items,
+		)
+
+	@app.route("/settlement", methods=["GET"])  # 결재선 · 정산 페이지 (UI 스켈레톤)
+	def settlement():
+		return render_template(
+			"settlement.html",
 		)
 
 	@app.route("/debug/headers")
