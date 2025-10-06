@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from datetime import date, timedelta
 import re
 
-from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency, mark_checked_for_agencies
+from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency, mark_checked_for_agencies, list_sheet_tabs
 from internal_manager import load_cache as internal_load_cache, refresh_cache as internal_refresh_cache
 
 
@@ -147,7 +147,7 @@ def create_app() -> Flask:
 			error=error,
 			did_fetch=did_fetch,
 			days_param=days_param,
-			base_date_str=base_dt.isoformat() if 'base_dt' in locals() else '',
+			base_date_str=base_date_str or base_dt.isoformat(),
 			day_to_date=day_to_date,
 			day_to_date_label=day_to_date_label,
 			ordered_days=ordered_days,
@@ -176,6 +176,44 @@ def create_app() -> Flask:
 		return render_template(
 			"settlement.html",
 		)
+
+	# --- 결재선 보조 API들 ---
+	@app.route("/api/settlement/tabs", methods=["GET"])  # 시트 탭 제목 목록 (결재선 전용 시트)
+	def api_settlement_tabs():
+		try:
+			settlement_ssid = os.getenv("SETTLEMENT_SPREADSHEET_ID", "").strip()
+			tabs = list_sheet_tabs(settlement_ssid or None)
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify({"tabs": tabs}), 200
+
+	@app.route("/api/settlement/pricebook", methods=["GET", "POST"])  # 단가/계좌 저장소 - 파일 기반(로컬)
+	def api_settlement_pricebook():
+		storage_path = os.getenv("PRICEBOOK_PATH", os.path.join(os.getcwd(), "pricebook.json"))
+		if request.method == "GET":
+			try:
+				if os.path.exists(storage_path):
+					with open(storage_path, "r", encoding="utf-8") as f:
+						data = json.load(f)
+				else:
+					data = []
+			except Exception as e:
+				return jsonify({"error": str(e)}), 500
+			return jsonify({"items": data}), 200
+		# POST: 저장
+		try:
+			payload = request.get_json(force=True, silent=False) or {}
+		except Exception:
+			return jsonify({"error": "invalid_json"}), 400
+		items = payload.get("items")
+		if not isinstance(items, list):
+			return jsonify({"error": "invalid_items"}), 400
+		try:
+			with open(storage_path, "w", encoding="utf-8") as f:
+				json.dump(items, f, ensure_ascii=False, indent=2)
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify({"ok": True}), 200
 
 	@app.route("/debug/headers")
 	def debug_headers():
