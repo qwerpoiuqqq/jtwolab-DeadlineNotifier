@@ -231,29 +231,19 @@
       });
 
       // 2) 데이터 가져오기 (임시 계산 로직: 상품별 수량 합계 × 단가)
-      $('#fetch-data').addEventListener('click', ()=>{
+      $('#fetch-data').addEventListener('click', async()=>{
         showLoading('정산 데이터를 준비 중...'); setProgress(25);
-        // 임시: 랜덤 더미 데이터 생성
-        const products = ['트래픽', '저장'];
-        const agencies = ['A대행', 'B대행'];
-        const clients = ['거래처1', '거래처2'];
-        const rows = [];
-        for(const date of state.selectedTabs){
-          for(const client of clients){
-            for(const agency of agencies){
-              for(const product of products){
-                const qty = Math.floor(Math.random()*5)+1;
-                const price = lookupPrice(client, product) ?? (product==='트래픽' ? 1000 : 2000);
-                rows.push({ date, client, agency, product, qty, price, amount: qty*price });
-              }
-            }
-          }
-        }
-        state.previewRows = rows;
-        renderPreview();
-        // 미리보기 모달 표시
-        try{ modalPreview.style.display='flex'; }catch(e){}
-        setProgress(100, '완료'); hideLoading();
+        try{
+          const res = await fetch('/api/settlement/compute', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tabs: state.selectedTabs }) });
+          const data = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(data?.error||'집계 실패');
+          // data.rows: {date, client, job, type, qty, unit_price, amount}
+          const rows = Array.isArray(data.rows) ? data.rows : [];
+          state.previewRows = rows.map(r=>({ date: r.date, client: r.client, agency: '', product: `${r.job} ${r.type}`, qty: r.qty, price: r.unit_price, amount: r.amount }));
+          renderPreview();
+          try{ modalPreview.style.display='flex'; }catch(e){}
+        }catch(e){ alert(e.message||'집계 실패'); }
+        finally{ setProgress(100, '완료'); hideLoading(); }
       });
 
       document.getElementById('btn-close-preview').addEventListener('click', ()=>{ try{ modalPreview.style.display='none'; }catch(e){} });
