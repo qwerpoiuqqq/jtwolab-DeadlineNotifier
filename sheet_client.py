@@ -884,63 +884,46 @@ def _find_header_row_simple(values: List[List[str]]) -> int:
 	return 1
 
 
-def _fetch_background_colors(client: gspread.Client, spreadsheet_id: str, sheet_title: str, max_rows: int = 1000) -> Dict[tuple, tuple]:
-	"""Sheets API v4로 특정 탭의 셀 배경색을 조회한다.
-	
-	반환: { (row_idx_0based, col_idx_0based): (r, g, b) }
-	r,g,b는 0~1 범위 float (API 응답 형식)
+
+def _authed_session():
+	"""Google API Authorized session 생성"""
+	from google.auth.transport.requests import AuthorizedSession
+	creds = _build_credentials()
+	return AuthorizedSession(creds)
+
+
+def _fetch_background_colors(spreadsheet_id: str, sheet_title: str, max_rows: int) -> Dict[Tuple[int, int], Tuple[float, float, float]]:
+	"""지정 탭의 A1:Z{max_rows} 배경색을 조회한다.
+	반환: {(row0,col0): (r,g,b)} 0-based
 	"""
-	try:
-		import requests
-	except ImportError:
-		raise RuntimeError("requests 패키지가 필요합니다.")
-	
-	# gspread Client의 인증 세션 활용
-	try:
-		auth_session = client.http_client
-	except Exception:
-		raise RuntimeError("gspread Client에서 HTTP 세션을 가져올 수 없습니다.")
-	
+	sess = _authed_session()
 	url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
 	params = {
 		"includeGridData": "true",
 		"ranges": f"{sheet_title}!A1:Z{max_rows}",
-		"fields": "sheets(data(rowData(values(effectiveFormat(backgroundColor)))))"
+		"fields": "sheets(data(rowData(values(effectiveFormat(backgroundColor)))))",
 	}
-	
 	try:
-		resp = auth_session.request("GET", url, params=params)
+		resp = sess.get(url, params=params)
 		resp.raise_for_status()
 		data = resp.json()
-	except Exception as e:
-		raise RuntimeError(f"배경색 조회 실패: {e}")
-	
-	colors: Dict[tuple, tuple] = {}
+	except Exception:
+		return {}
+	colors: Dict[Tuple[int, int], Tuple[float, float, float]] = {}
 	try:
-		sheets = data.get("sheets", [])
-		if not sheets:
-			return colors
-		grid_data = sheets[0].get("data", [])
-		if not grid_data:
-			return colors
-		row_data = grid_data[0].get("rowData", [])
+		row_data = data.get("sheets", [{}])[0].get("data", [{}])[0].get("rowData", [])
 		for r_idx, row in enumerate(row_data):
 			cells = row.get("values", [])
 			for c_idx, cell in enumerate(cells):
-				fmt = cell.get("effectiveFormat", {})
-				bg = fmt.get("backgroundColor", {})
-				r = bg.get("red", 0)
-				g = bg.get("green", 0)
-				b = bg.get("blue", 0)
-				colors[(r_idx, c_idx)] = (r, g, b)
+				bg = cell.get("effectiveFormat", {}).get("backgroundColor", {})
+				r, g, b = bg.get("red", 0.0), bg.get("green", 0.0), bg.get("blue", 0.0)
+				colors[(r_idx, c_idx)] = (float(r or 0.0), float(g or 0.0), float(b or 0.0))
 	except Exception:
-		pass
-	
+		return {}
 	return colors
 
 
-def _is_yellow_bg(rgb: tuple) -> bool:
-	"""RGB(0~1 범위)가 노란색(#ffff00)인지 판별한다. 허용 오차 0.05"""
+def _is_yellow(rgb: Tuple[float, float, float]) -> bool:
 	if not rgb or len(rgb) != 3:
 		return False
 	r, g, b = rgb
@@ -948,13 +931,11 @@ def _is_yellow_bg(rgb: tuple) -> bool:
 
 
 def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], pricebook: List[Dict[str, Any]]) -> Dict[str, Any]:
-	"""결재선 시트에서 선택 탭의 행을 읽어 정산 행을 생성한다.
+	"""결재선 시트에서 선택 탭의 행을 읽어 정산 행 + 집계를 생성한다.
 
-	- 입력 단가: pricebook [{client, product, type, price, account}]
-	  - type: "저장", "트래픽", "공통"(둘 다 적용)
-	- 행 기준: 상호명, 상품명, 저장, 트래픽, 금액(vat제외)
-	- 자사건 구분: 셀 배경색이 노란색(#ffff00)이면 자사건 → 지출만 산출
-	- 대행사건: 지출 + 매출(금액(vat제외)) 둘 다 표시
+	- 단가 레코드 예: { client, product, price, account, type? }  // type 미지정=공통
+	- 자사건: 배경 노란색(#ffff00) → 지출만 산출
+	- 대행사건: 지출 + 매출(금액[vAT제외]) 산출
 	"""
 	if not spreadsheet_id:
 		raise RuntimeError("스프레드시트 ID가 비어 있습니다.")
@@ -962,41 +943,37 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 	ss = client.open_by_key(spreadsheet_id)
 	wanted = set([str(t).strip() for t in (selected_tabs or []) if str(t).strip()])
 
-	# 단가 조회 헬퍼: (client, product, type) 우선 → (client, product, "공통") → (product, type) → (product, "공통") 순
+	# 단가 조회: (client, product, type) → (client, product, 공통) → (product, type) → (product, 공통)
 	def find_unit_price(client_name: str, product_name: str, qty_type: str) -> float:
 		client_name = (client_name or "").strip()
 		product_name = (product_name or "").strip()
 		qty_type = (qty_type or "").strip()
-		# 1) 완전 매치
 		for it in pricebook:
-			if (str(it.get("client") or "").strip() == client_name and 
-			    str(it.get("product") or "").strip() == product_name and 
-			    str(it.get("type") or "").strip() == qty_type):
+			it_type = str(it.get("type") or "공통").strip()
+			if str(it.get("client") or "").strip() == client_name and str(it.get("product") or "").strip() == product_name and it_type == qty_type:
 				return float(it.get("price") or 0)
-		# 2) (client, product, "공통")
 		for it in pricebook:
-			if (str(it.get("client") or "").strip() == client_name and 
-			    str(it.get("product") or "").strip() == product_name and 
-			    str(it.get("type") or "").strip() == "공통"):
+			it_type = str(it.get("type") or "공통").strip()
+			if str(it.get("client") or "").strip() == client_name and str(it.get("product") or "").strip() == product_name and it_type == "공통":
 				return float(it.get("price") or 0)
-		# 3) (product, type)
 		for it in pricebook:
-			if (str(it.get("product") or "").strip() == product_name and 
-			    str(it.get("type") or "").strip() == qty_type):
+			it_type = str(it.get("type") or "공통").strip()
+			if str(it.get("product") or "").strip() == product_name and it_type == qty_type:
 				return float(it.get("price") or 0)
-		# 4) (product, "공통")
 		for it in pricebook:
-			if (str(it.get("product") or "").strip() == product_name and 
-			    str(it.get("type") or "").strip() == "공통"):
+			it_type = str(it.get("type") or "공통").strip()
+			if str(it.get("product") or "").strip() == product_name and it_type == "공통":
 				return float(it.get("price") or 0)
 		return 0.0
 
 	rows_out: List[Dict[str, Any]] = []
-	missing: Dict[tuple, int] = {}
+	missing: Dict[Tuple[str, str, str], int] = {}
 	by_client_expense: Dict[str, float] = {}
 	by_client_income: Dict[str, float] = {}
 	grand_expense = 0.0
 	grand_income = 0.0
+	by_product: Dict[str, Dict[str, Dict[str, float]]] = {}
+	by_agency: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
 
 	for ws in ss.worksheets():
 		tab = (ws.title or "").strip()
@@ -1008,12 +985,8 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 			continue
 		header_row = _find_header_row_simple(values)
 		headers = [str(c or "").strip() for c in (values[header_row-1] if header_row-1 < len(values) else [])]
-		# 배경색 조회 (GridData)
-		try:
-			bg_colors = _fetch_background_colors(client, spreadsheet_id, tab, max_rows=len(values))
-		except Exception:
-			bg_colors = {}
-		
+		# 배경색 조회
+		bg = _fetch_background_colors(spreadsheet_id, tab, max_rows=len(values))
 		# 컬럼 인덱스
 		def col_idx(name: str) -> int | None:
 			try:
@@ -1026,8 +999,7 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 		ci_traf = col_idx("트래픽")
 		ci_amount = col_idx("금액(vat제외)")
 
-		for r_idx, r in enumerate(values[header_row:]):
-			real_row_idx = header_row + r_idx  # 0-based
+		for row_idx, r in enumerate(values[header_row:]):
 			agency = str((r[ci_agency] if (ci_agency is not None and ci_agency < len(r)) else "").strip()) if ci_agency is not None else ""
 			job = str((r[ci_job] if (ci_job is not None and ci_job < len(r)) else "").strip()) if ci_job is not None else ""
 			store_s = str((r[ci_store] if (ci_store is not None and ci_store < len(r)) else "").strip()) if ci_store is not None else ""
@@ -1047,26 +1019,23 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 				return float(m.group(0)) if m else 0.0
 			qty_store = to_int(store_s)
 			qty_traf = to_int(traf_s)
-			noted_income = to_float(amount_note_s)
+			income_noted = to_float(amount_note_s)  # 대행사건에만 매출 반영
 			if qty_store == 0 and qty_traf == 0:
 				continue
 
-			# 자사건 판별: ci_agency 컬럼의 배경색이 노란색이면 자사건
+			# 자사건 판정: 상호명 셀 배경이 노란색이면 자사건
 			is_internal = False
 			if ci_agency is not None:
-				bg_rgb = bg_colors.get((real_row_idx, ci_agency))
-				if bg_rgb and _is_yellow_bg(bg_rgb):
+				rgb = bg.get((header_row + row_idx, ci_agency))
+				if _is_yellow(rgb):
 					is_internal = True
 
 			# 저장 행
 			if qty_store:
 				unit = find_unit_price(agency, job, "저장")
 				expense = float(qty_store) * unit
-				income = noted_income if not is_internal else 0.0
-				rows_out.append({
-					"date": tab, "client": agency, "job": job, "type": "저장", "qty": qty_store, 
-					"unit_price": unit, "expense": expense, "income": income, "is_internal": is_internal
-				})
+				income = 0.0 if is_internal else income_noted
+				rows_out.append({"date": tab, "client": agency, "job": job, "type": "저장", "qty": qty_store, "unit_price": unit, "expense": expense, "income": income, "is_internal": is_internal})
 				by_client_expense[agency] = by_client_expense.get(agency, 0.0) + expense
 				if not is_internal:
 					by_client_income[agency] = by_client_income.get(agency, 0.0) + income
@@ -1074,15 +1043,16 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 				grand_income += income
 				if unit == 0:
 					missing[(agency, job, "저장")] = missing.get((agency, job, "저장"), 0) + qty_store
+				# 집계: 상품명 기준(type을 붙이지 않음)
+				bp = by_product.setdefault(tab, {}).setdefault(job, {"qty": 0.0, "expense": 0.0, "income": 0.0})
+				bp["qty"] += float(qty_store); bp["expense"] += expense; bp["income"] += income
+				by_agency.setdefault(tab, {}).setdefault(agency, []).append({"product": job, "type": "저장", "qty": qty_store, "unit_price": unit, "expense": expense, "income": income})
 			# 트래픽 행
 			if qty_traf:
 				unit = find_unit_price(agency, job, "트래픽")
 				expense = float(qty_traf) * unit
-				income = noted_income if not is_internal else 0.0
-				rows_out.append({
-					"date": tab, "client": agency, "job": job, "type": "트래픽", "qty": qty_traf, 
-					"unit_price": unit, "expense": expense, "income": income, "is_internal": is_internal
-				})
+				income = 0.0 if is_internal else income_noted
+				rows_out.append({"date": tab, "client": agency, "job": job, "type": "트래픽", "qty": qty_traf, "unit_price": unit, "expense": expense, "income": income, "is_internal": is_internal})
 				by_client_expense[agency] = by_client_expense.get(agency, 0.0) + expense
 				if not is_internal:
 					by_client_income[agency] = by_client_income.get(agency, 0.0) + income
@@ -1090,16 +1060,20 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 				grand_income += income
 				if unit == 0:
 					missing[(agency, job, "트래픽")] = missing.get((agency, job, "트래픽"), 0) + qty_traf
+				bp = by_product.setdefault(tab, {}).setdefault(job, {"qty": 0.0, "expense": 0.0, "income": 0.0})
+				bp["qty"] += float(qty_traf); bp["expense"] += expense; bp["income"] += income
+				by_agency.setdefault(tab, {}).setdefault(agency, []).append({"product": job, "type": "트래픽", "qty": qty_traf, "unit_price": unit, "expense": expense, "income": income})
 
 	# missing 리스트 가공
 	missing_list = [{"client": k[0], "job": k[1], "type": k[2], "qty_sum": v} for k, v in missing.items()]
 	return {
-		"rows": rows_out, 
+		"rows": rows_out,
 		"totals": {
-			"by_client_expense": by_client_expense, 
-			"by_client_income": by_client_income, 
-			"grand_expense": grand_expense, 
-			"grand_income": grand_income
-		}, 
-		"missing_prices": missing_list
+			"by_client_expense": by_client_expense,
+			"by_client_income": by_client_income,
+			"grand_expense": grand_expense,
+			"grand_income": grand_income,
+		},
+		"aggregates": {"by_product": by_product, "by_agency": by_agency},
+		"missing_prices": missing_list,
 	}
