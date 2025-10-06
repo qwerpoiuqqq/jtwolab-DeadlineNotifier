@@ -27,6 +27,14 @@
       table{ width:100%; border-collapse: collapse; }
       th, td{ border-bottom:1px solid var(--line); padding:8px 6px; text-align:left; }
       th{ font-size:12px; color:var(--muted); font-weight:600; }
+      .chips{ display:flex; gap:8px; flex-wrap:wrap; }
+      .chip{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:8px 12px; border-radius:999px; cursor:pointer; font-size:12px; }
+      .chip.active{ background:#111827; color:#fff; border-color:#111827; }
+      .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.08); backdrop-filter: blur(2px); z-index:50; }
+      .spinner{ width:34px; height:34px; border:3px solid rgba(17,24,39,.18); border-top-color:#111827; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 10px; }
+      .progress{ width:260px; height:8px; background:#e5e7eb; border-radius:999px; overflow:hidden; margin:8px auto 0; }
+      .progress-bar{ height:100%; width:0%; background:#111827; transition:width .2s ease; }
+      @keyframes spin{ to{ transform:rotate(360deg); } }
     </style>
   </head>
   <body>
@@ -63,9 +71,9 @@
                   <span id="tab-count" class="pill">0개</span>
                 </div>
               </div>
-              <div style="min-width:260px">
+              <div style="flex:1; min-width:260px">
                 <label>탭(날짜) 선택</label>
-                <select id="tab-select" multiple size="6" style="width:100%"></select>
+                <div id="tab-chips" class="chips"></div>
               </div>
               <div class="stack">
                 <button id="select-range" class="btn">기간 선택</button>
@@ -82,6 +90,7 @@
               <div class="muted">거래처별 계좌 · 상품별 단가</div>
               <div class="stack">
                 <button id="btn-add-price" class="btn">상품 추가</button>
+                <button id="btn-save-price" class="btn btn-primary">저장</button>
                 <button id="btn-import-price" class="btn">가져오기</button>
                 <button id="btn-export-price" class="btn">내보내기</button>
               </div>
@@ -138,6 +147,14 @@
       </main>
     </div>
 
+    <div class="overlay" id="overlay">
+      <div class="center">
+        <div class="spinner"></div>
+        <div class="muted" id="progress-text">불러오는 중...</div>
+        <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
+      </div>
+    </div>
+
     <script>
       // 상태 저장소 (임시: 클라이언트 메모리)
       const state = {
@@ -148,33 +165,62 @@
       };
 
       const $ = (s)=>document.querySelector(s);
+      const overlay = document.getElementById('overlay');
+      const pbar = document.getElementById('progress-bar');
+      const ptxt = document.getElementById('progress-text');
+
+      function showLoading(msg){ overlay.style.display='flex'; if(ptxt) ptxt.textContent = msg||'불러오는 중...'; if(pbar) pbar.style.width='15%'; }
+      function setProgress(pct, msg){ if(pbar){ pbar.style.width = Math.max(0, Math.min(100, pct))+'%'; } if(msg && ptxt){ ptxt.textContent = msg; } }
+      function hideLoading(){ overlay.style.display='none'; if(pbar) pbar.style.width='0%'; }
 
       // 1) 탭 불러오기 (API 연동 예정)
       $('#load-tabs').addEventListener('click', async()=>{
+        showLoading('탭 목록을 불러오는 중...');
         try{
-          // TODO: 서버 API로 교체 예정
-          // 임시 더미 (오늘±3일)
-          const today = new Date();
-          function ymd(d){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
-          const list = [-1,0,1,2].map(n=>{ const d=new Date(today); d.setDate(today.getDate()+n); return ymd(d); });
-          state.tabs = Array.from(new Set(list));
-          const sel = $('#tab-select'); sel.innerHTML = state.tabs.map(t=>`<option value="${t}">${t}</option>`).join('');
+          const res = await fetch('/api/settlement/tabs');
+          const data = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(data?.error||'탭 조회 실패');
+          state.tabs = Array.isArray(data.tabs) ? data.tabs : [];
+          renderTabChips();
           $('#tab-count').textContent = `${state.tabs.length}개`;
-        }catch(e){ alert('탭 불러오기 실패'); }
+          setProgress(100, '완료');
+        }catch(e){ alert(e.message||'탭 불러오기 실패'); }
+        finally{ hideLoading(); }
       });
+
+      function renderTabChips(){
+        const wrap = document.getElementById('tab-chips');
+        if(!wrap) return;
+        wrap.innerHTML = '';
+        state.tabs.forEach(tab=>{
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'chip';
+          btn.textContent = tab;
+          const active = state.selectedTabs.includes(tab);
+          if(active) btn.classList.add('active');
+          btn.addEventListener('click', ()=>{
+            const i = state.selectedTabs.indexOf(tab);
+            if(i>=0) state.selectedTabs.splice(i,1); else state.selectedTabs.push(tab);
+            renderTabChips();
+          });
+          wrap.appendChild(btn);
+        });
+      }
 
       // 기간 선택 (간단 데모)
       $('#select-range').addEventListener('click', ()=>{
-        const sel = $('#tab-select');
-        const opts = Array.from(sel.options).map(o=>o.value).sort();
+        const opts = [...state.tabs].sort();
         if(opts.length===0){ $('#selected-range').textContent=''; return; }
         const first = opts[0], last = opts[opts.length-1];
         $('#selected-range').textContent = `${first} ~ ${last}`;
         state.selectedTabs = opts;
+        renderTabChips();
       });
 
       // 2) 데이터 가져오기 (임시 계산 로직: 상품별 수량 합계 × 단가)
       $('#fetch-data').addEventListener('click', ()=>{
+        showLoading('정산 데이터를 준비 중...'); setProgress(25);
         // 임시: 랜덤 더미 데이터 생성
         const products = ['트래픽', '저장'];
         const agencies = ['A대행', 'B대행'];
@@ -193,6 +239,7 @@
         }
         state.previewRows = rows;
         renderPreview();
+        setProgress(100, '완료'); hideLoading();
       });
 
       // 단가부: 추가/삭제/입출력 (로컬 메모리)
@@ -215,6 +262,16 @@
         try{ const arr = JSON.parse(json); if(Array.isArray(arr)) state.priceBook = arr; }catch(e){ alert('JSON 파싱 실패'); }
         renderPriceBook();
       });
+      $('#btn-save-price').addEventListener('click', async()=>{
+        showLoading('단가표 저장 중...');
+        try{
+          const res = await fetch('/api/settlement/pricebook', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items: state.priceBook }) });
+          const data = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(data?.error||'저장 실패');
+          alert('저장 완료');
+        }catch(e){ alert(e.message||'저장 실패'); }
+        finally{ hideLoading(); }
+      });
 
       function upsertPrice(item){
         const idx = state.priceBook.findIndex(x=>x.client===item.client && x.product===item.product);
@@ -226,6 +283,14 @@
       function lookupPrice(client, product){
         const it = state.priceBook.find(x=>x.client===client && x.product===product);
         return it ? it.price : null;
+      }
+
+      async function loadPriceBook(){
+        try{
+          const res = await fetch('/api/settlement/pricebook');
+          const data = await res.json().catch(()=>({}));
+          if(res.ok && Array.isArray(data.items)) state.priceBook = data.items; else state.priceBook = [];
+        }catch(e){ state.priceBook = []; }
       }
 
       function renderPriceBook(){
@@ -282,6 +347,16 @@
         navigator.clipboard?.writeText(text);
         alert('복사 완료! 엑셀에 붙여넣기 하세요.');
       });
+
+      // 초기화: 가격표 로드 및 렌더
+      (async function init(){
+        showLoading('초기화 중...');
+        await loadPriceBook();
+        renderPriceBook();
+        hideLoading();
+      })();
     </script>
   </body>
   </html>
+
+
