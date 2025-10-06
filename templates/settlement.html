@@ -110,7 +110,6 @@
                   <tr>
                     <th>거래처</th>
                     <th>상품명</th>
-                    <th>타입</th>
                     <th>단가</th>
                     <th>계좌</th>
                     <th></th>
@@ -123,48 +122,74 @@
         
           <!-- 3) 정산 미리보기 모달 -->
           <div class="overlay" id="preview-modal" style="display:none; background:rgba(0,0,0,.18)">
-          <div class="center" style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; min-width:820px; max-width:95%;">
-            <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
-              <div style="font-weight:700">정산 미리보기</div>
+          <div class="center" style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; min-width:720px; max-width:90%;">
+              <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
+              <div style="font-weight:700">정산 미리보기 (날짜 ▶ 거래처 ▶ 대행사)</div>
               <div class="stack">
-                <button id="view-by-product" class="btn btn-primary" type="button">상품명 기준</button>
-                <button id="view-by-client" class="btn" type="button">대행사명 기준</button>
                 <button id="btn-export-excel" class="btn">엑셀 양식 복붙</button>
                 <button id="btn-close-preview" class="btn btn-primary">닫기</button>
               </div>
             </div>
-            <!-- 미정 단가 경고 -->
-            <div id="missing-warn" style="display:none; margin-bottom:8px; padding:8px; border:1px solid #fbbf24; background:#fffbeb; border-radius:10px; font-size:12px">
-              <div class="muted">단가가 설정되지 않은 항목이 있습니다. 단가 관리 탭에서 추가하세요.</div>
-              <div id="missing-list" style="margin-top:4px"></div>
-            </div>
+              <!-- 모달 내 탭 버튼 -->
+              <div class="stack" style="gap:8px; margin-bottom:8px">
+                <button id="pv-tab-rows" class="btn btn-primary" type="button">행 보기</button>
+                <button id="pv-tab-product" class="btn" type="button">상품별</button>
+                <button id="pv-tab-agency" class="btn" type="button">대행사별</button>
+              </div>
             <div style="overflow:auto; max-height:70vh">
-              <table id="tbl-preview" style="width:100%">
+                <!-- 행 보기 -->
+                <table id="tbl-preview" style="width:100%">
                 <thead>
                   <tr>
                     <th>날짜</th>
                     <th>거래처</th>
+                    <th>대행사</th>
                     <th>상품명</th>
-                    <th>저장 타수</th>
-                    <th>트래픽 타수</th>
-                    <th>지출(원가)</th>
-                    <th>매출(입금)</th>
-                    <th>비고</th>
+                    <th>수량</th>
+                    <th>단가</th>
+                      <th>금액</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
                 <tfoot>
                   <tr>
-                    <th colspan="5" style="text-align:right">총액</th>
-                    <th id="grand-expense">0</th>
-                    <th id="grand-income">0</th>
-                    <th></th>
+                    <th colspan="6" style="text-align:right">총액</th>
+                    <th id="grand-total">0</th>
                   </tr>
                 </tfoot>
               </table>
+                <!-- 상품별 보기 -->
+                <table id="tbl-product" style="width:100%; display:none; margin-top:8px">
+                  <thead>
+                    <tr>
+                      <th>날짜</th>
+                      <th>상품명</th>
+                      <th>총 접수량</th>
+                      <th>지출</th>
+                      <th>매출</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+                <!-- 대행사별 보기 -->
+                <table id="tbl-agency" style="width:100%; display:none; margin-top:8px">
+                  <thead>
+                    <tr>
+                      <th>날짜</th>
+                      <th>대행사</th>
+                      <th>상품명</th>
+                      <th>유형</th>
+                      <th>수량</th>
+                      <th>단가</th>
+                      <th>지출</th>
+                      <th>매출</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
             </div>
           </div>
-        </div>
+          </div>
         </div>
       </div>
     </div>
@@ -178,13 +203,12 @@
     </div>
 
     <script>
-      // 상태 저장소
+      // 상태 저장소 (임시: 클라이언트 메모리)
       const state = {
         tabs: [], // 시트 탭명
         selectedTabs: [], // 선택된 탭
-        priceBook: [], // { client, product, type, price, account }
-        rawRows: [], // { date, client, job, type, qty, unit_price, expense, income, is_internal }
-        viewMode: 'product' // 'product' | 'client'
+        priceBook: [], // { client, product, price, account }
+        previewRows: [] // { date, client, agency, product, qty, price, amount }
       };
 
       const $ = (s)=>document.querySelector(s);
@@ -242,18 +266,18 @@
         renderTabChips();
       });
 
-      // 2) 데이터 가져오기 (임시 계산 로직: 상품별 수량 합계 × 단가)
+      // 2) 데이터 가져오기
       $('#fetch-data').addEventListener('click', async()=>{
         showLoading('정산 데이터를 준비 중...'); setProgress(25);
         try{
           const res = await fetch('/api/settlement/compute', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tabs: state.selectedTabs }) });
           const data = await res.json().catch(()=>({}));
           if(!res.ok) throw new Error(data?.error||'집계 실패');
-          state.rawRows = Array.isArray(data.rows) ? data.rows : [];
-          state.totals = data.totals || {};
-          state.missing = Array.isArray(data.missing_prices) ? data.missing_prices : [];
+          // data.rows: {date, client, job, type, qty, unit_price, expense, income}
+          const rows = Array.isArray(data.rows) ? data.rows : [];
+          state.previewRows = rows.map(r=>({ date: r.date, client: r.client, agency: '', product: (r.type?`${r.job} ${r.type}`:r.job), qty: r.qty, price: r.unit_price, amount: r.expense }));
           renderPreview();
-          renderMissingWarning();
+          renderAggregates(data?.aggregates||{});
           try{ modalPreview.style.display='flex'; }catch(e){}
         }catch(e){ alert(e.message||'집계 실패'); }
         finally{ setProgress(100, '완료'); hideLoading(); }
@@ -261,14 +285,47 @@
 
       document.getElementById('btn-close-preview').addEventListener('click', ()=>{ try{ modalPreview.style.display='none'; }catch(e){} });
 
-      // 단가부: 추가/삭제/입출력
+      function renderAggregates(aggs){
+        try{
+          const byProduct = aggs?.by_product||{}; const tb1 = document.querySelector('#tbl-product tbody'); tb1.innerHTML='';
+          Object.keys(byProduct).sort().forEach(date=>{
+            const map = byProduct[date]||{}; Object.keys(map).sort().forEach(prod=>{
+              const v = map[prod]||{}; const tr=document.createElement('tr');
+              tr.innerHTML = `<td>${date}</td><td>${prod}</td><td>${v.qty||0}</td><td>${v.expense||0}</td><td>${v.income||0}</td>`; tb1.appendChild(tr);
+            });
+          });
+          const byAgency = aggs?.by_agency||{}; const tb2 = document.querySelector('#tbl-agency tbody'); tb2.innerHTML='';
+          Object.keys(byAgency).sort().forEach(date=>{
+            const map = byAgency[date]||{}; Object.keys(map).sort().forEach(client=>{
+              const arr = map[client]||[]; arr.forEach(it=>{
+                const tr=document.createElement('tr');
+                tr.innerHTML = `<td>${date}</td><td>${client}</td><td>${it.product||''}</td><td>${it.type||''}</td><td>${it.qty||0}</td><td>${it.unit_price||0}</td><td>${it.expense||0}</td><td>${it.income||0}</td>`; tb2.appendChild(tr);
+              });
+            });
+          });
+        }catch(e){}
+      }
+
+      // 모달 탭 전환
+      function setPvTab(name){
+        const ids = ['rows','product','agency'];
+        ids.forEach(id=>{
+          document.getElementById('pv-tab-'+id)?.classList.toggle('btn-primary', id===name);
+          const el = document.getElementById('tbl-'+id);
+          if(el){ el.style.display = (id===name? 'table' : 'none'); if(id!=='rows') el.style.marginTop = '8px'; }
+        });
+      }
+      document.getElementById('pv-tab-rows').addEventListener('click', ()=>setPvTab('rows'));
+      document.getElementById('pv-tab-product').addEventListener('click', ()=>setPvTab('product'));
+      document.getElementById('pv-tab-agency').addEventListener('click', ()=>setPvTab('agency'));
+
+      // 단가부: 추가/삭제/입출력 (로컬 메모리)
       $('#btn-add-price').addEventListener('click', ()=>{
         const client = prompt('거래처명?'); if(!client) return;
         const product = prompt('상품명?'); if(!product) return;
-        const type = prompt('타입? (저장/트래픽/공통 중 입력)')||'공통';
         const price = Number(prompt('단가? (숫자)')||'0')||0;
         const account = prompt('계좌? (예: 국민 000-00-000000, 홍길동)')||'';
-        upsertPrice({ client, product, type, price, account });
+        upsertPrice({ client, product, price, account });
         renderPriceBook();
       });
       $('#btn-export-price').addEventListener('click', ()=>{
@@ -294,14 +351,14 @@
       });
 
       function upsertPrice(item){
-        const idx = state.priceBook.findIndex(x=>x.client===item.client && x.product===item.product && x.type===item.type);
+        const idx = state.priceBook.findIndex(x=>x.client===item.client && x.product===item.product);
         if(idx>=0){ state.priceBook[idx] = item; } else { state.priceBook.push(item); }
       }
-      function removePrice(client, product, type){
-        state.priceBook = state.priceBook.filter(x=> !(x.client===client && x.product===product && x.type===type));
+      function removePrice(client, product){
+        state.priceBook = state.priceBook.filter(x=> !(x.client===client && x.product===product));
       }
-      function lookupPrice(client, product, type){
-        const it = state.priceBook.find(x=>x.client===client && x.product===product && x.type===type);
+      function lookupPrice(client, product){
+        const it = state.priceBook.find(x=>x.client===client && x.product===product);
         return it ? it.price : null;
       }
 
@@ -321,137 +378,51 @@
           tr.innerHTML = `
             <td>${it.client||''}</td>
             <td>${it.product||''}</td>
-            <td>${it.type||'공통'}</td>
             <td>${it.price??''}</td>
             <td>${it.account||''}</td>
-            <td><button class="btn" data-del="${it.client}|||${it.product}|||${it.type||''}">삭제</button></td>
+            <td><button class="btn" data-del="${it.client}|||${it.product}">삭제</button></td>
           `;
           tb.appendChild(tr);
         }
         tb.querySelectorAll('button[data-del]')?.forEach(btn=>{
           btn.addEventListener('click', ()=>{
-            const [c,p,t] = btn.getAttribute('data-del').split('|||');
-            removePrice(c, p, t); renderPriceBook();
+            const [c,p] = btn.getAttribute('data-del').split('|||');
+            removePrice(c, p); renderPriceBook();
           });
         });
-      }
-
-      function renderMissingWarning(){
-        const warn = document.getElementById('missing-warn');
-        const list = document.getElementById('missing-list');
-        if(!state.missing || state.missing.length===0){ warn.style.display='none'; return; }
-        warn.style.display='block';
-        list.innerHTML = state.missing.map(m=>`<div>· ${m.client||''} / ${m.job||''} / ${m.type||''} (${m.qty_sum||0}개)</div>`).join('');
       }
 
       function renderPreview(){
         const tb = document.querySelector('#tbl-preview tbody');
         tb.innerHTML = '';
-        const mode = state.viewMode;
-        // 상품명 기준: job별 그룹핑 → 날짜/거래처별 수량 집계
-        if(mode === 'product'){
-          const byJob = {};
-          for(const r of state.rawRows){
-            const key = r.job||'';
-            if(!byJob[key]) byJob[key] = [];
-            byJob[key].push(r);
-          }
-          for(const job of Object.keys(byJob).sort()){
-            const list = byJob[job];
-            const byDate = {};
-            for(const r of list){
-              const dk = r.date||'';
-              if(!byDate[dk]) byDate[dk] = { clients: new Set(), qty_store:0, qty_traf:0, expense:0, income:0 };
-              byDate[dk].clients.add(r.client||'');
-              if(r.type==='저장') byDate[dk].qty_store += (r.qty||0);
-              if(r.type==='트래픽') byDate[dk].qty_traf += (r.qty||0);
-              byDate[dk].expense += (r.expense||0);
-              byDate[dk].income += (r.income||0);
-            }
-            for(const dt of Object.keys(byDate).sort()){
-              const agg = byDate[dt];
-              const tr = document.createElement('tr');
-              tr.innerHTML = `
-                <td>${dt}</td>
-                <td>${Array.from(agg.clients).join(', ')}</td>
-                <td>${job}</td>
-                <td>${agg.qty_store||''}</td>
-                <td>${agg.qty_traf||''}</td>
-                <td>${agg.expense||0}</td>
-                <td>${agg.income||0}</td>
-                <td></td>
-              `;
-              tb.appendChild(tr);
-            }
-          }
-        } else {
-          // 대행사명 기준: client별 그룹핑 → 날짜/상품별 수량 집계
-          const byClient = {};
-          for(const r of state.rawRows){
-            const key = r.client||'';
-            if(!byClient[key]) byClient[key] = [];
-            byClient[key].push(r);
-          }
-          for(const client of Object.keys(byClient).sort()){
-            const list = byClient[client];
-            const byDateJob = {};
-            for(const r of list){
-              const dk = `${r.date||''}::${r.job||''}`;
-              if(!byDateJob[dk]) byDateJob[dk] = { date: r.date, job: r.job, qty_store:0, qty_traf:0, expense:0, income:0, is_internal: r.is_internal };
-              if(r.type==='저장') byDateJob[dk].qty_store += (r.qty||0);
-              if(r.type==='트래픽') byDateJob[dk].qty_traf += (r.qty||0);
-              byDateJob[dk].expense += (r.expense||0);
-              byDateJob[dk].income += (r.income||0);
-            }
-            for(const dk of Object.keys(byDateJob).sort()){
-              const agg = byDateJob[dk];
-              const note = agg.is_internal ? '자사건' : '';
-              const tr = document.createElement('tr');
-              tr.innerHTML = `
-                <td>${agg.date}</td>
-                <td>${client}</td>
-                <td>${agg.job}</td>
-                <td>${agg.qty_store||''}</td>
-                <td>${agg.qty_traf||''}</td>
-                <td>${agg.expense||0}</td>
-                <td>${agg.income||0}</td>
-                <td>${note}</td>
-              `;
-              tb.appendChild(tr);
-            }
-          }
+        let total = 0;
+        for(const r of state.previewRows){
+          total += (r.amount||0);
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${r.date}</td>
+            <td>${r.client}</td>
+            <td>${r.agency}</td>
+            <td>${r.product}</td>
+            <td>${r.qty}</td>
+            <td>${r.price}</td>
+            <td>${r.amount}</td>
+          `;
+          tb.appendChild(tr);
         }
-        document.getElementById('grand-expense').textContent = String(state.totals?.grand_expense||0);
-        document.getElementById('grand-income').textContent = String(state.totals?.grand_income||0);
+        document.getElementById('grand-total').textContent = String(total);
       }
 
-      // 4) 엑셀 양식 복붙용 생성
+      // 4) 엑셀 양식 복붙용 생성 (간단 CSV 형태)
       document.getElementById('btn-export-excel').addEventListener('click', ()=>{
-        const headers = ['날짜','거래처','상품명','저장 타수','트래픽 타수','지출(원가)','매출(입금)','비고'];
+        const headers = ['날짜','거래처','대행사','상품명','수량','단가','금액'];
         const lines = [headers.join('\t')];
-        for(const r of state.rawRows){
-          const qtyStore = r.type==='저장' ? (r.qty||'') : '';
-          const qtyTraf = r.type==='트래픽' ? (r.qty||'') : '';
-          const note = r.is_internal ? '자사건' : '';
-          lines.push([r.date, r.client, r.job, qtyStore, qtyTraf, r.expense||0, r.income||0, note].join('\t'));
+        for(const r of state.previewRows){
+          lines.push([r.date, r.client, r.agency, r.product, r.qty, r.price, r.amount].join('\t'));
         }
         const text = lines.join('\n');
         navigator.clipboard?.writeText(text);
         alert('복사 완료! 엑셀에 붙여넣기 하세요.');
-      });
-
-      // 뷰 전환
-      document.getElementById('view-by-product').addEventListener('click', ()=>{
-        state.viewMode = 'product';
-        document.getElementById('view-by-product').classList.add('btn-primary');
-        document.getElementById('view-by-client').classList.remove('btn-primary');
-        renderPreview();
-      });
-      document.getElementById('view-by-client').addEventListener('click', ()=>{
-        state.viewMode = 'client';
-        document.getElementById('view-by-client').classList.add('btn-primary');
-        document.getElementById('view-by-product').classList.remove('btn-primary');
-        renderPreview();
       });
 
       // 초기화: 가격표 로드 및 렌더
