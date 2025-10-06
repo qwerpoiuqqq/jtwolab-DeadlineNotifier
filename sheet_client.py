@@ -850,3 +850,21 @@ def list_sheet_tabs(spreadsheet_id: str | None = None) -> List[str]:
 	client = _get_client()
 	ss = client.open_by_key(spreadsheet_id)
 	return [str((ws.title or "").strip()) for ws in ss.worksheets()]
+
+
+def inspect_sheets_by_id(spreadsheet_id: str) -> List[Dict[str, Any]]:
+	"""지정된 스프레드시트 ID에 대해 탭별 헤더 정보를 반환한다."""
+	if not spreadsheet_id:
+		raise RuntimeError("스프레드시트 ID가 비어 있습니다.")
+	client = _get_client()
+	ss = client.open_by_key(spreadsheet_id)
+	settings = load_settings()
+	results: List[Dict[str, Any]] = []
+	for ws in ss.worksheets():
+		header_row, headers = _find_header_row(ws, settings)
+		results.append({
+			"title": ws.title,
+			"header_row": header_row,
+			"headers": headers,
+		})
+	return results
