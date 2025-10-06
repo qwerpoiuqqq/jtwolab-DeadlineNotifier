@@ -836,3 +836,17 @@ def diagnose_matches(selected_days: List[int], settings: Settings | None = None,
 			"excluded_reason_counts": reason_counts,
 		}
 	return report
+
+
+def list_sheet_tabs(spreadsheet_id: str | None = None) -> List[str]:
+	"""스프레드시트의 워크시트 탭 제목 목록을 반환한다.
+	spreadsheet_id를 명시하면 그것을 사용하고, 없으면 기본 설정의 SPREADSHEET_ID를 사용한다.
+	"""
+	if not spreadsheet_id:
+		settings = load_settings()
+		spreadsheet_id = settings.spreadsheet_id
+	if not spreadsheet_id:
+		raise RuntimeError("스프레드시트 ID가 비어 있습니다.")
+	client = _get_client()
+	ss = client.open_by_key(spreadsheet_id)
+	return [str((ws.title or "").strip()) for ws in ss.worksheets()]
