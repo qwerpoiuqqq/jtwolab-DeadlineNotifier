@@ -868,3 +868,112 @@ def inspect_sheets_by_id(spreadsheet_id: str) -> List[Dict[str, Any]]:
 			"headers": headers,
 		})
 	return results
+
+
+def _find_header_row_simple(values: List[List[str]]) -> int:
+	"""상단 20행 내에서 '상호명/상품명/저장/트래픽' 중 하나 이상이 있는 첫 행을 헤더로 간주한다.
+	반환: 1-based 행 번호(없으면 1)
+	"""
+	max_scan = min(len(values), 20)
+	keys = {"상호명", "상품명", "저장", "트래픽"}
+	for idx in range(max_scan):
+		row = [str(c or "").strip() for c in values[idx]]
+		row_set = set(row)
+		if any(k in row_set for k in keys):
+			return idx + 1
+	return 1
+
+
+def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], pricebook: List[Dict[str, Any]]) -> Dict[str, Any]:
+	"""결재선 시트에서 선택 탭의 행을 읽어 정산 행을 생성한다.
+
+	- 입력 단가: pricebook [{client, product, price, account}]
+	- 행 기준: 상호명, 상품명, 저장, 트래픽, 금액(vat제외)
+	- 필터: 입금/세팅 확인은 고려하지 않음 (요청 명세)
+	- 탭 제목을 날짜 필드로 반환
+	"""
+	if not spreadsheet_id:
+		raise RuntimeError("스프레드시트 ID가 비어 있습니다.")
+	client = _get_client()
+	ss = client.open_by_key(spreadsheet_id)
+	wanted = set([str(t).strip() for t in (selected_tabs or []) if str(t).strip()])
+
+	# 단가 조회 헬퍼: (client, product) 우선 → product만
+	def find_unit_price(client_name: str, product_name: str) -> float:
+		client_name = (client_name or "").strip()
+		product_name = (product_name or "").strip()
+		cand = None
+		for it in pricebook:
+			if str(it.get("client") or "").strip() == client_name and str(it.get("product") or "").strip() == product_name:
+				return float(it.get("price") or 0)
+		for it in pricebook:
+			if str(it.get("product") or "").strip() == product_name:
+				cand = float(it.get("price") or 0)
+		return float(cand or 0)
+
+	rows_out: List[Dict[str, Any]] = []
+	missing: Dict[tuple, int] = {}
+	by_client: Dict[str, float] = {}
+	grand = 0.0
+
+	for ws in ss.worksheets():
+		tab = (ws.title or "").strip()
+		if wanted and tab not in wanted:
+			continue
+		# 전체 값
+		values = _get_all_values_full_cached(ws)
+		if not values:
+			continue
+		header_row = _find_header_row_simple(values)
+		headers = [str(c or "").strip() for c in (values[header_row-1] if header_row-1 < len(values) else [])]
+		# 컬럼 인덱스
+		def col_idx(name: str) -> int | None:
+			try:
+				return headers.index(name)
+			except ValueError:
+				return None
+		ci_agency = col_idx("상호명")
+		ci_job = col_idx("상품명")
+		ci_store = col_idx("저장")
+		ci_traf = col_idx("트래픽")
+		ci_amount = col_idx("금액(vat제외)")
+
+		for r in values[header_row:]:
+			agency = str((r[ci_agency] if (ci_agency is not None and ci_agency < len(r)) else "").strip()) if ci_agency is not None else ""
+			job = str((r[ci_job] if (ci_job is not None and ci_job < len(r)) else "").strip()) if ci_job is not None else ""
+			store_s = str((r[ci_store] if (ci_store is not None and ci_store < len(r)) else "").strip()) if ci_store is not None else ""
+			traf_s = str((r[ci_traf] if (ci_traf is not None and ci_traf < len(r)) else "").strip()) if ci_traf is not None else ""
+			amount_note_s = str((r[ci_amount] if (ci_amount is not None and ci_amount < len(r)) else "").strip()) if ci_amount is not None else ""
+
+			if not agency:
+				continue
+			# 수량 파싱
+			def to_int(s: str) -> int:
+				m = re.search(r"-?\d+", s or "")
+				return int(m.group(0)) if m else 0
+			qty_store = to_int(store_s)
+			qty_traf = to_int(traf_s)
+			if qty_store == 0 and qty_traf == 0:
+				continue
+
+			unit = find_unit_price(agency, job)
+			# 저장 행
+			if qty_store:
+				amt = float(qty_store) * unit
+				rows_out.append({"date": tab, "client": agency, "job": job, "type": "저장", "qty": qty_store, "unit_price": unit, "amount": amt, "noted_amount": amount_note_s})
+				by_client[agency] = by_client.get(agency, 0.0) + amt
+				grand += amt
+				if unit == 0:
+					missing[(agency, job)] = missing.get((agency, job), 0) + qty_store
+			# 트래픽 행
+			if qty_traf:
+				amt = float(qty_traf) * unit
+				rows_out.append({"date": tab, "client": agency, "job": job, "type": "트래픽", "qty": qty_traf, "unit_price": unit, "amount": amt, "noted_amount": amount_note_s})
+				by_client[agency] = by_client.get(agency, 0.0) + amt
+				grand += amt
+				if unit == 0:
+					missing[(agency, job)] = missing.get((agency, job), 0) + qty_traf
+
+	# missing 리스트 가공
+	missing_list = [{"client": k[0], "job": k[1], "qty_sum": v} for k, v in missing.items()]
+	return {"rows": rows_out, "totals": {"by_client": by_client, "grand": grand}, "missing_prices": missing_list}
