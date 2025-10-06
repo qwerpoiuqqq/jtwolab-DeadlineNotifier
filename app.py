@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from datetime import date, timedelta
 import re
 
-from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency, mark_checked_for_agencies, list_sheet_tabs, inspect_sheets_by_id
+from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency, mark_checked_for_agencies, list_sheet_tabs, inspect_sheets_by_id, compute_settlement_rows
 from internal_manager import load_cache as internal_load_cache, refresh_cache as internal_refresh_cache
 
 
@@ -223,6 +223,32 @@ def create_app() -> Flask:
 		except Exception as e:
 			return jsonify({"error": str(e)}), 500
 		return jsonify({"tabs": info}), 200
+
+	@app.route("/api/settlement/compute", methods=["POST"])  # 결재선 집계 계산
+	def api_settlement_compute():
+		try:
+			payload = request.get_json(force=True, silent=False) or {}
+		except Exception:
+			return jsonify({"error": "invalid_json"}), 400
+		ssid = os.getenv("SETTLEMENT_SPREADSHEET_ID", "").strip()
+		selected_tabs = payload.get("tabs") or []
+		if not isinstance(selected_tabs, list):
+			return jsonify({"error": "invalid_tabs"}), 400
+		# 단가 로드
+		storage_path = os.getenv("PRICEBOOK_PATH", os.path.join(os.getcwd(), "pricebook.json"))
+		try:
+			if os.path.exists(storage_path):
+				with open(storage_path, "r", encoding="utf-8") as f:
+					pricebook = json.load(f)
+			else:
+				pricebook = []
+		except Exception:
+			pricebook = []
+		try:
+			result = compute_settlement_rows(ssid, selected_tabs, pricebook)
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify(result), 200
 
 	@app.route("/debug/headers")
 	def debug_headers():
