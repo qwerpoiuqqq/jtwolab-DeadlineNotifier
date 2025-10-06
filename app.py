@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from datetime import date, timedelta
 import re
 
-from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency, mark_checked_for_agencies, list_sheet_tabs
+from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency, mark_checked_for_agencies, list_sheet_tabs, inspect_sheets_by_id
 from internal_manager import load_cache as internal_load_cache, refresh_cache as internal_refresh_cache
 
 
@@ -214,6 +214,15 @@ def create_app() -> Flask:
 		except Exception as e:
 			return jsonify({"error": str(e)}), 500
 		return jsonify({"ok": True}), 200
+
+	@app.route("/api/settlement/inspect", methods=["GET"])  # 결재선 시트 헤더 점검
+	def api_settlement_inspect():
+		try:
+			ssid = os.getenv("SETTLEMENT_SPREADSHEET_ID", "").strip()
+			info = inspect_sheets_by_id(ssid)
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify({"tabs": info}), 200
 
 	@app.route("/debug/headers")
 	def debug_headers():
