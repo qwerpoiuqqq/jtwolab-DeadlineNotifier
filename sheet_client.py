@@ -1036,11 +1036,11 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 			if qty_store == 0 and qty_traf == 0:
 				continue
 
-            # 자사건/관리형 판정: 상호명 셀 배경 노란색(자사) 또는 연녹색(관리형) → 매출 0 처리
+			# 자사건/관리형 판정: 상호명 셀 배경 노란색(자사) 또는 연녹색(관리형) → 매출 0 처리
 			is_internal = False
 			if ci_agency is not None:
 				rgb = bg.get((header_row + row_idx, ci_agency))
-                if _is_yellow(rgb) or _is_manage_green(rgb):
+				if _is_yellow(rgb) or _is_manage_green(rgb):
 					is_internal = True
 
 			# 저장 행
