@@ -123,6 +123,10 @@
                   <label>계좌</label>
                   <input id="pb-account" type="text" placeholder="선택" />
                 </div>
+                <div style="min-width:200px">
+                  <label>예금주</label>
+                  <input id="pb-holder" type="text" placeholder="예: ㈜제이티더블유랩" />
+                </div>
                 <div class="stack" style="gap:8px">
                   <label style="margin:0; color:var(--muted); font-size:12px">유형</label>
                   <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="공통" checked />공통</label>
@@ -148,6 +152,7 @@
                     <th>유형</th>
                     <th>단가</th>
                     <th>계좌</th>
+                    <th>예금주</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -406,24 +411,27 @@
       document.getElementById('pv-tab-agency').addEventListener('click', ()=>setPvTab('agency'));
 
       // 단가부: 추가/삭제/입출력 (로컬 메모리)
-      $('#btn-add-price').addEventListener('click', async()=>{
-        // 인라인 입력값 읽기
+      async function addOnePrice(){
         const client = (document.getElementById('pb-client')?.value||'').trim(); if(!client) return alert('거래처를 입력하세요');
         const product = (document.getElementById('pb-product')?.value||'').trim(); if(!product) return alert('상품명을 입력하세요');
         const price = Number((document.getElementById('pb-price')?.value||'0').replace(/,/g,''))||0;
         const account = (document.getElementById('pb-account')?.value||'').trim();
+        const holder = (document.getElementById('pb-holder')?.value||'').trim();
         const type = (document.querySelector('input[name="pb-type"]:checked')?.value)||'공통';
-        upsertPrice({ client, product, price, account, type });
+        upsertPrice({ client, product, price, account, holder, type });
         renderPriceBook();
         await savePriceBook();
-      });
+      }
+      $('#btn-add-price').addEventListener('click', addOnePrice);
+      document.getElementById('pb-add-one').addEventListener('click', addOnePrice);
       document.getElementById('pb-add-both').addEventListener('click', async()=>{
         const client = (document.getElementById('pb-client')?.value||'').trim(); if(!client) return alert('거래처를 입력하세요');
         const product = (document.getElementById('pb-product')?.value||'').trim(); if(!product) return alert('상품명을 입력하세요');
         const price = Number((document.getElementById('pb-price')?.value||'0').replace(/,/g,''))||0;
         const account = (document.getElementById('pb-account')?.value||'').trim();
-        upsertPrice({ client, product, price, account, type:'저장' });
-        upsertPrice({ client, product, price, account, type:'트래픽' });
+        const holder = (document.getElementById('pb-holder')?.value||'').trim();
+        upsertPrice({ client, product, price, account, holder, type:'저장' });
+        upsertPrice({ client, product, price, account, holder, type:'트래픽' });
         renderPriceBook();
         await savePriceBook();
       });
@@ -478,6 +486,7 @@
             <td>${it.type||'공통'}</td>
             <td>${it.price??''}</td>
             <td>${it.account||''}</td>
+            <td>${it.holder||''}</td>
             <td>
               <button class="btn" data-edit="${it.client}|||${it.product}|||${it.type||'공통'}">수정</button>
               <button class="btn" data-del="${it.client}|||${it.product}|||${it.type||'공통'}">삭제</button>
@@ -501,6 +510,7 @@
               document.getElementById('pb-product').value = it.product||'';
               document.getElementById('pb-price').value = it.price||'';
               document.getElementById('pb-account').value = it.account||'';
+              document.getElementById('pb-holder').value = it.holder||'';
               const r = document.querySelector(`input[name="pb-type"][value="${it.type||'공통'}"]`); if(r) r.checked = true;
             }
           });
@@ -572,5 +582,3 @@
     </script>
   </body>
   </html>
-
-
