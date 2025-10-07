@@ -215,6 +215,68 @@ def create_app() -> Flask:
 			return jsonify({"error": str(e)}), 500
 		return jsonify({"ok": True}), 200
 
+	@app.route("/api/settlement/pricebook/upload", methods=["POST"])  # XLSX 업로드 → 항목 파싱 반환
+	def api_settlement_pricebook_upload():
+		from io import BytesIO
+		from openpyxl import load_workbook
+		f = request.files.get("file")
+		if not f:
+			return jsonify({"error": "missing_file"}), 400
+		try:
+			buf = BytesIO(f.read())
+			wb = load_workbook(buf, data_only=True)
+			ws = wb.active
+		except Exception as e:
+			return jsonify({"error": f"xlsx_load_failed: {e}"}), 400
+		# 헤더 매핑: 거래처, 상품명, 유형, 단가, 계좌, 예금주
+		items = []
+		try:
+			headers = []
+			for cell in ws[1]:
+				headers.append(str(cell.value or "").strip())
+			def idx(name: str) -> int | None:
+				try:
+					return headers.index(name)
+				except ValueError:
+					return None
+			i_client = idx("거래처"); i_product = idx("상품명"); i_type = idx("유형"); i_price = idx("단가"); i_account = idx("계좌"); i_holder = idx("예금주")
+			if i_client is None or i_product is None or i_price is None:
+				return jsonify({"error": "missing_required_headers"}), 400
+			for r in ws.iter_rows(min_row=2):
+				def get(i):
+					if i is None: return ""
+					v = r[i].value if i < len(r) else ""
+					return str(v).strip() if v is not None else ""
+				client = get(i_client); product = get(i_product)
+				if not client and not product:
+					continue
+				type_s = get(i_type)
+				type_s = "공통" if type_s not in ("저장", "트래픽") else type_s
+				price_s = get(i_price)
+				try:
+					price = float(str(price_s).replace(",", "")) if price_s else 0.0
+				except Exception:
+					price = 0.0
+				account = get(i_account); holder = get(i_holder)
+				items.append({"client": client, "product": product, "type": type_s, "price": price, "account": account, "holder": holder})
+		except Exception as e:
+			return jsonify({"error": f"parse_failed: {e}"}), 400
+		return jsonify({"items": items, "count": len(items)}), 200
+
+	@app.route("/api/settlement/pricebook/template", methods=["GET"])  # 대량등록 XLSX 템플릿 다운로드
+	def api_settlement_pricebook_template():
+		from io import BytesIO
+		from openpyxl import Workbook
+		wb = Workbook()
+		ws = wb.active
+		ws.title = "pricebook"
+		ws.append(["거래처", "상품명", "유형", "단가", "계좌", "예금주"])
+		ws.append(["일류기획", "호올스", "저장", 32, "류준호", "류준호"])  # 샘플
+		buf = BytesIO()
+		wb.save(buf)
+		buf.seek(0)
+		return app.response_class(buf.getvalue(), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=pricebook_template.xlsx"})
+
 	@app.route("/api/settlement/inspect", methods=["GET"])  # 결재선 시트 헤더 점검
 	def api_settlement_inspect():
 		try:
