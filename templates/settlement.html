@@ -634,28 +634,21 @@
       document.getElementById('btn-bulk-toggle').addEventListener('click', ()=>{
         const el = document.getElementById('bulk-panel'); el.style.display = (el.style.display==='none'||!el.style.display)? 'block':'none';
       });
-      document.getElementById('bulk-preview').addEventListener('click', ()=>{
+      { const el=document.getElementById('bulk-preview'); if(el){ el.addEventListener('click', ()=>{
         const {items,error} = parseBulk(document.getElementById('bulk-text').value);
         if(error) { alert(error); return; }
         renderBulkPreview(items);
-      });
-      document.getElementById('bulk-apply').addEventListener('click', async()=>{
+      }); } }
+      { const el=document.getElementById('bulk-apply'); if(el){ el.addEventListener('click', async()=>{
         const {items,error} = parseBulk(document.getElementById('bulk-text').value);
         if(error){ alert(error); return; }
         for(const it of items){ upsertPrice(it); }
         renderPriceBook();
         await savePriceBook();
         document.getElementById('bulk-status').textContent = `${items.length}건 반영됨`;
-      });
+      }); } }
 
-      // 템플릿 다운로드
-      document.getElementById('btn-download-template').addEventListener('click', ()=>{
-        const headers = ['client','product','type','price','account','holder'];
-        const lines = [headers.join('\t'), '일류기획\t호올스\tboth\t32\t류준호\t류준호'];
-        const blob = new Blob([lines.join('\n')], {type:'text/tab-separated-values;charset=utf-8'});
-        const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='pricebook_template.tsv';
-        document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 0);
-      });
+      // 템플릿 다운로드는 앵커 링크(#bulk-download)로 처리
 
       function renderPreview(){
         const tb = document.querySelector('#tbl-preview tbody');
