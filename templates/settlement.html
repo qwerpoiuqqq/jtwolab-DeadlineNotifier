@@ -181,6 +181,7 @@
                     <th>유형</th>
                     <th>단가</th>
                     <th>계좌</th>
+                    <th>은행</th>
                     <th>예금주</th>
                     <th></th>
                   </tr>
@@ -446,8 +447,9 @@
         for(const it of state.priceBook){
           const c = (it.client||'').trim(); if(!c) continue;
           const key = c;
-          const rec = map[key]||{accountCount:{}, holderCount:{}};
+          const rec = map[key]||{accountCount:{}, bankCount:{}, holderCount:{}};
           if(it.account){ rec.accountCount[it.account] = 1 + (rec.accountCount[it.account]||0); }
+          if(it.bank){ rec.bankCount[it.bank] = 1 + (rec.bankCount[it.bank]||0); }
           if(it.holder){ rec.holderCount[it.holder] = 1 + (rec.holderCount[it.holder]||0); }
           map[key] = rec;
         }
@@ -456,14 +458,15 @@
           return bestK||'';
         };
         const out={};
-        for(const k in map){ out[k] = { account: pickTop(map[k].accountCount), holder: pickTop(map[k].holderCount) }; }
+        for(const k in map){ out[k] = { account: pickTop(map[k].accountCount), bank: pickTop(map[k].bankCount), holder: pickTop(map[k].holderCount) }; }
         clientDefaults = out;
       }
       function tryAutofillByClient(){
         const c = (document.getElementById('pb-client')?.value||'').trim(); if(!c) return;
         const def = clientDefaults[c]; if(!def) return;
-        const accEl = document.getElementById('pb-account'); const holdEl = document.getElementById('pb-holder');
+        const accEl = document.getElementById('pb-account'); const bankEl = document.getElementById('pb-bank'); const holdEl = document.getElementById('pb-holder');
         if(accEl && !accEl.value) accEl.value = def.account||'';
+        if(bankEl && !bankEl.value) bankEl.value = def.bank||'';
         if(holdEl && !holdEl.value) holdEl.value = def.holder||'';
       }
       document.getElementById('pb-client').addEventListener('change', tryAutofillByClient);
@@ -631,7 +634,7 @@
         const tb = document.querySelector('#tbl-bulk tbody'); tb.innerHTML='';
         list.forEach((it,idx)=>{
           const tr=document.createElement('tr');
-          tr.innerHTML = `<td>${idx+1}</td><td>${it.client}</td><td>${it.product}</td><td>${it.type}</td><td>${it.price}</td><td>${it.account||''}</td><td>${it.holder||''}</td><td></td>`;
+          tr.innerHTML = `<td>${idx+1}</td><td>${it.client}</td><td>${it.product}</td><td>${it.type}</td><td>${it.price}</td><td>${it.account||''}</td><td>${it.bank||''}</td><td>${it.holder||''}</td><td></td>`;
           tb.appendChild(tr);
         });
         document.getElementById('bulk-status').textContent = `${list.length}건 준비됨`;
