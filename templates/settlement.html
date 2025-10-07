@@ -25,7 +25,10 @@
       .grid{ display:grid; gap:12px; }
       @media(min-width:1100px){ .grid{ grid-template-columns: 1fr 1fr; } }
       .cards{ display:grid; gap:12px; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
-      .card{ border:1px solid var(--line); border-radius:10px; background:#fff; padding:12px; }
+      .card{ border:1px solid var(--line); border-radius:10px; background:#fff; }
+      .card .card-hd{ display:flex; justify-content:space-between; align-items:center; padding:10px 12px; cursor:pointer; }
+      .card .card-bd{ padding:0 12px 12px 12px; }
+      .card.collapsed .card-bd{ display:none; }
       table{ width:100%; border-collapse: collapse; }
       th, td{ border-bottom:1px solid var(--line); padding:8px 6px; text-align:left; }
       th{ font-size:12px; color:var(--muted); font-weight:600; }
@@ -202,6 +205,8 @@
                 <button id="pv-tab-agency" class="btn" type="button">대행사별</button>
               </div>
               <div class="stack" style="gap:8px">
+                <button id="btn-collapse-all" class="btn">전체 접기</button>
+                <button id="btn-expand-all" class="btn">전체 펼치기</button>
                 <button id="btn-export-excel" class="btn">엑셀 양식 복붙</button>
               </div>
             </div>
@@ -413,9 +418,13 @@
         const ids = ['rows','product','agency'];
         ids.forEach(id=>{
           document.getElementById('pv-tab-'+id)?.classList.toggle('btn-primary', id===name);
-          const el = document.getElementById('tbl-'+id);
-          if(el){ el.style.display = (id===name? 'table' : 'none'); if(id!=='rows') el.style.marginTop = '8px'; }
+          const tbl = document.getElementById('tbl-'+id); if(tbl){ tbl.style.display = (id===name? 'table':'none'); }
         });
+        // 행 보기 컨테이너 표시 제어
+        const cards = document.getElementById('cards-container'); if(cards){ cards.style.display = (name==='rows'? 'grid':'none'); }
+        // 정렬 컨트롤 표시 제어
+        document.getElementById('sort-product').style.display = (name==='product'? 'flex':'none');
+        document.getElementById('sort-agency').style.display = (name==='agency'? 'flex':'none');
       }
       document.getElementById('pv-tab-rows').addEventListener('click', ()=>setPvTab('rows'));
       document.getElementById('pv-tab-product').addEventListener('click', ()=>setPvTab('product'));
@@ -656,13 +665,10 @@
             subtotalE += (it.expense||0); subtotalI += (it.income||0); grand += (it.expense||0);
             return `<tr><td>${it.product}</td><td>${it.qty}</td><td>${it.price}</td><td>${it.expense||0}</td><td>${it.income||0}</td></tr>`;
           }).join('');
-          const card = document.createElement('div'); card.className='card';
+          const card = document.createElement('div'); card.className='card collapsed';
           card.innerHTML = `
-            <div class="stack" style="justify-content:space-between; margin-bottom:6px">
-              <div class="pill">${date}</div>
-              <div class="muted" style="font-weight:700">${client}</div>
-            </div>
-            <div style="overflow:auto">
+            <div class="card-hd"><div class="pill">${date}</div><div class="muted" style="font-weight:700">${client}</div></div>
+            <div class="card-bd" style="overflow:auto">
               <table style="width:100%">
                 <thead><tr><th>상품명</th><th>수량</th><th>단가</th><th>지출</th><th>매출</th></tr></thead>
                 <tbody>${tblRows}</tbody>
@@ -670,6 +676,7 @@
               </table>
             </div>
           `;
+          card.querySelector('.card-hd').addEventListener('click', ()=>{ card.classList.toggle('collapsed'); });
           cont.appendChild(card);
         });
         // 총계 뱃지
@@ -680,6 +687,14 @@
           badge.textContent = `총 지출 ${grand.toLocaleString()}`;
         }
       }
+
+      // 카드 전체 접기/펼치기
+      document.getElementById('btn-collapse-all').addEventListener('click', ()=>{
+        document.querySelectorAll('#cards-container .card').forEach(el=>el.classList.add('collapsed'));
+      });
+      document.getElementById('btn-expand-all').addEventListener('click', ()=>{
+        document.querySelectorAll('#cards-container .card').forEach(el=>el.classList.remove('collapsed'));
+      });
 
       // 4) 엑셀 양식 복붙용 생성 (간단 CSV 형태)
       document.getElementById('btn-export-excel').addEventListener('click', ()=>{
@@ -728,5 +743,3 @@
     </script>
   </body>
   </html>
-
-
