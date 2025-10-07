@@ -490,18 +490,18 @@
         renderPriceBook();
         await savePriceBook();
       });
-      $('#btn-export-price').addEventListener('click', ()=>{
+      { const el=document.getElementById('btn-export-price'); if(el){ el.addEventListener('click', ()=>{
         const json = JSON.stringify(state.priceBook, null, 2);
         navigator.clipboard?.writeText(json);
         alert('단가표 JSON을 클립보드로 복사했습니다.');
-      });
-      $('#btn-import-price').addEventListener('click', async()=>{
+      }); } }
+      { const el=document.getElementById('btn-import-price'); if(el){ el.addEventListener('click', async()=>{
         const json = prompt('단가표 JSON을 붙여넣으세요');
         if(!json) return;
         try{ const arr = JSON.parse(json); if(Array.isArray(arr)) state.priceBook = arr; }catch(e){ alert('JSON 파싱 실패'); }
         renderPriceBook();
         await savePriceBook();
-      });
+      }); } }
       $('#btn-save-price').addEventListener('click', savePriceBook);
 
       let pbEditingIndex = -1;
@@ -718,5 +718,3 @@
     </script>
   </body>
   </html>
-
-
