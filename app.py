@@ -239,7 +239,7 @@ def create_app() -> Flask:
 					return headers.index(name)
 				except ValueError:
 					return None
-			i_client = idx("거래처"); i_product = idx("상품명"); i_type = idx("유형"); i_price = idx("단가"); i_account = idx("계좌"); i_holder = idx("예금주")
+			i_client = idx("거래처"); i_product = idx("상품명"); i_type = idx("유형"); i_price = idx("단가"); i_account = idx("계좌"); i_bank = idx("은행"); i_holder = idx("예금주")
 			if i_client is None or i_product is None or i_price is None:
 				return jsonify({"error": "missing_required_headers"}), 400
 			for r in ws.iter_rows(min_row=2):
@@ -257,8 +257,8 @@ def create_app() -> Flask:
 					price = float(str(price_s).replace(",", "")) if price_s else 0.0
 				except Exception:
 					price = 0.0
-				account = get(i_account); holder = get(i_holder)
-				items.append({"client": client, "product": product, "type": type_s, "price": price, "account": account, "holder": holder})
+				account = get(i_account); bank = get(i_bank); holder = get(i_holder)
+				items.append({"client": client, "product": product, "type": type_s, "price": price, "account": account, "bank": bank, "holder": holder})
 		except Exception as e:
 			return jsonify({"error": f"parse_failed: {e}"}), 400
 		return jsonify({"items": items, "count": len(items)}), 200
@@ -270,8 +270,8 @@ def create_app() -> Flask:
 		wb = Workbook()
 		ws = wb.active
 		ws.title = "pricebook"
-		ws.append(["거래처", "상품명", "유형", "단가", "계좌", "예금주"])
-		ws.append(["일류기획", "호올스", "저장", 32, "류준호", "류준호"])  # 샘플
+		ws.append(["거래처", "상품명", "유형", "단가", "계좌", "은행", "예금주"])
+		ws.append(["일류기획", "호올스", "저장", 32, "123-45-67890", "국민", "류준호"])  # 샘플
 		buf = BytesIO()
 		wb.save(buf)
 		buf.seek(0)
