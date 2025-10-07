@@ -570,6 +570,9 @@
         try{ document.getElementById('side-tab-price')?.classList.toggle('active', !isSettle); }catch(e){}
         document.getElementById('price-panel').style.display = isSettle ? 'none' : 'block';
         document.getElementById('hero').style.display = isSettle ? 'block' : 'none';
+        // 미리보기 패널은 정산 탭에서만 표시
+        const rp = document.getElementById('results-panel');
+        if(rp){ rp.style.display = isSettle ? (Array.isArray(state.previewRows) && state.previewRows.length? 'block':'none') : 'none'; }
       }
       document.getElementById('tab-settle').addEventListener('click', ()=>{
         setTab('settle');
@@ -582,3 +585,5 @@
     </script>
   </body>
   </html>
+
+
