@@ -24,6 +24,8 @@
       .pill{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
       .grid{ display:grid; gap:12px; }
       @media(min-width:1100px){ .grid{ grid-template-columns: 1fr 1fr; } }
+      .cards{ display:grid; gap:12px; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
+      .card{ border:1px solid var(--line); border-radius:10px; background:#fff; padding:12px; }
       table{ width:100%; border-collapse: collapse; }
       th, td{ border-bottom:1px solid var(--line); padding:8px 6px; text-align:left; }
       th{ font-size:12px; color:var(--muted); font-weight:600; }
@@ -231,29 +233,8 @@
                 <option value="desc">내림차순</option>
               </select>
             </div>
-            <!-- 행 보기 -->
-            <div style="overflow:auto">
-              <table id="tbl-preview" style="width:100%">
-                <thead>
-                  <tr>
-                    <th>날짜</th>
-                    <th>대행사</th>
-                    <th>상품명</th>
-                    <th>수량</th>
-                    <th>단가</th>
-                    <th>지출</th>
-                    <th>매출</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-                <tfoot>
-                  <tr>
-                    <th colspan="6" style="text-align:right">총 지출</th>
-                    <th id="grand-total">0</th>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+            <!-- 행 보기: 날짜/대행사 카드로 그룹핑 -->
+            <div id="cards-container" class="cards"></div>
             <!-- 상품별 보기 -->
             <div style="overflow:auto">
               <table id="tbl-product" style="width:100%; display:none">
@@ -659,24 +640,45 @@
       // 템플릿 다운로드는 앵커 링크(#bulk-download)로 처리
 
       function renderPreview(){
-        const tb = document.querySelector('#tbl-preview tbody');
-        tb.innerHTML = '';
-        let total = 0;
+        const cont = document.getElementById('cards-container');
+        if(!cont) return; cont.innerHTML='';
+        const group = {};
         for(const r of state.previewRows){
-          total += (r.expense||0);
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td>${r.date}</td>
-            <td>${r.client}</td>
-            <td>${r.product}</td>
-            <td>${r.qty}</td>
-            <td>${r.price}</td>
-            <td>${r.expense||0}</td>
-            <td>${r.income||0}</td>
-          `;
-          tb.appendChild(tr);
+          const key = `${r.date}|||${r.client}`;
+          (group[key] = group[key]||[]).push(r);
         }
-        document.getElementById('grand-total').textContent = String(total);
+        let grand = 0;
+        Object.keys(group).sort().forEach(key=>{
+          const [date, client] = key.split('|||');
+          const rows = group[key];
+          let subtotalE=0, subtotalI=0;
+          const tblRows = rows.map(it=>{
+            subtotalE += (it.expense||0); subtotalI += (it.income||0); grand += (it.expense||0);
+            return `<tr><td>${it.product}</td><td>${it.qty}</td><td>${it.price}</td><td>${it.expense||0}</td><td>${it.income||0}</td></tr>`;
+          }).join('');
+          const card = document.createElement('div'); card.className='card';
+          card.innerHTML = `
+            <div class="stack" style="justify-content:space-between; margin-bottom:6px">
+              <div class="pill">${date}</div>
+              <div class="muted" style="font-weight:700">${client}</div>
+            </div>
+            <div style="overflow:auto">
+              <table style="width:100%">
+                <thead><tr><th>상품명</th><th>수량</th><th>단가</th><th>지출</th><th>매출</th></tr></thead>
+                <tbody>${tblRows}</tbody>
+                <tfoot><tr><th colspan="3" style="text-align:right">소계</th><th>${subtotalE}</th><th>${subtotalI}</th></tr></tfoot>
+              </table>
+            </div>
+          `;
+          cont.appendChild(card);
+        });
+        // 총계 뱃지
+        const headerArea = document.querySelector('#results-panel .stack');
+        if(headerArea){
+          let badge = document.getElementById('grand-badge');
+          if(!badge){ badge = document.createElement('span'); badge.id='grand-badge'; badge.className='pill'; headerArea.appendChild(badge); }
+          badge.textContent = `총 지출 ${grand.toLocaleString()}`;
+        }
       }
 
       // 4) 엑셀 양식 복붙용 생성 (간단 CSV 형태)
