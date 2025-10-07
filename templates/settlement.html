@@ -284,6 +284,30 @@
       function setProgress(pct, msg){ if(pbar){ pbar.style.width = Math.max(0, Math.min(100, pct))+'%'; } if(msg && ptxt){ ptxt.textContent = msg; } }
       function hideLoading(){ overlay.style.display='none'; if(pbar) pbar.style.width='0%'; }
 
+      // 간단 토스트
+      function toast(msg){
+        try{
+          const d=document.createElement('div');
+          d.textContent = msg||'저장됨';
+          d.style.position='fixed'; d.style.right='16px'; d.style.bottom='16px';
+          d.style.background='#111827'; d.style.color='#fff'; d.style.border='1px solid #111827';
+          d.style.padding='10px 12px'; d.style.borderRadius='10px'; d.style.zIndex='60';
+          document.body.appendChild(d);
+          setTimeout(()=>{ try{ document.body.removeChild(d);}catch(e){} }, 1200);
+        }catch(e){}
+      }
+
+      async function savePriceBook(){
+        showLoading('단가표 저장 중...');
+        try{
+          const res = await fetch('/api/settlement/pricebook', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items: state.priceBook }) });
+          const data = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(data?.error||'저장 실패');
+          toast('저장됨');
+        }catch(e){ alert(e.message||'저장 실패'); }
+        finally{ hideLoading(); }
+      }
+
       // 1) 탭 불러오기 (API 연동 예정)
       $('#load-tabs').addEventListener('click', async()=>{
         showLoading('탭 목록을 불러오는 중...');
@@ -382,7 +406,7 @@
       document.getElementById('pv-tab-agency').addEventListener('click', ()=>setPvTab('agency'));
 
       // 단가부: 추가/삭제/입출력 (로컬 메모리)
-      $('#btn-add-price').addEventListener('click', ()=>{
+      $('#btn-add-price').addEventListener('click', async()=>{
         // 인라인 입력값 읽기
         const client = (document.getElementById('pb-client')?.value||'').trim(); if(!client) return alert('거래처를 입력하세요');
         const product = (document.getElementById('pb-product')?.value||'').trim(); if(!product) return alert('상품명을 입력하세요');
@@ -391,8 +415,9 @@
         const type = (document.querySelector('input[name="pb-type"]:checked')?.value)||'공통';
         upsertPrice({ client, product, price, account, type });
         renderPriceBook();
+        await savePriceBook();
       });
-      document.getElementById('pb-add-both').addEventListener('click', ()=>{
+      document.getElementById('pb-add-both').addEventListener('click', async()=>{
         const client = (document.getElementById('pb-client')?.value||'').trim(); if(!client) return alert('거래처를 입력하세요');
         const product = (document.getElementById('pb-product')?.value||'').trim(); if(!product) return alert('상품명을 입력하세요');
         const price = Number((document.getElementById('pb-price')?.value||'0').replace(/,/g,''))||0;
@@ -400,6 +425,7 @@
         upsertPrice({ client, product, price, account, type:'저장' });
         upsertPrice({ client, product, price, account, type:'트래픽' });
         renderPriceBook();
+        await savePriceBook();
       });
       $('#btn-export-price').addEventListener('click', ()=>{
         const json = JSON.stringify(state.priceBook, null, 2);
@@ -411,17 +437,9 @@
         if(!json) return;
         try{ const arr = JSON.parse(json); if(Array.isArray(arr)) state.priceBook = arr; }catch(e){ alert('JSON 파싱 실패'); }
         renderPriceBook();
+        await savePriceBook();
       });
-      $('#btn-save-price').addEventListener('click', async()=>{
-        showLoading('단가표 저장 중...');
-        try{
-          const res = await fetch('/api/settlement/pricebook', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items: state.priceBook }) });
-          const data = await res.json().catch(()=>({}));
-          if(!res.ok) throw new Error(data?.error||'저장 실패');
-          alert('저장 완료');
-        }catch(e){ alert(e.message||'저장 실패'); }
-        finally{ hideLoading(); }
-      });
+      $('#btn-save-price').addEventListener('click', savePriceBook);
 
       let pbEditingIndex = -1;
       function upsertPrice(item){
@@ -468,9 +486,10 @@
           tb.appendChild(tr);
         }
         tb.querySelectorAll('button[data-del]')?.forEach(btn=>{
-          btn.addEventListener('click', ()=>{
+          btn.addEventListener('click', async()=>{
             const [c,p,t] = btn.getAttribute('data-del').split('|||');
             removePrice(c, p, t); renderPriceBook();
+            await savePriceBook();
           });
         });
         tb.querySelectorAll('button[data-edit]')?.forEach(btn=>{
@@ -553,3 +572,5 @@
     </script>
   </body>
   </html>
+
+
