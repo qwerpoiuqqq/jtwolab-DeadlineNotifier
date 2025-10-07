@@ -146,7 +146,7 @@
 
             <!-- 대량 등록 패널 -->
             <div id="bulk-panel" class="panel" style="margin-top:10px; display:none">
-              <div class="muted" style="margin-bottom:6px; font-size:12px">대량등록 엑셀을 업로드하세요. 헤더: 거래처, 상품명, 유형(공란/저장/트래픽), 단가, 계좌, 예금주</div>
+              <div class="muted" style="margin-bottom:6px; font-size:12px">대량등록 엑셀을 업로드하세요. 헤더: 거래처, 상품명, 유형(공란/저장/트래픽), 단가, 계좌, 은행, 예금주</div>
               <div class="stack" style="gap:10px; align-items:center; flex-wrap:wrap">
                 <input id="bulk-file" type="file" accept=".xlsx" />
                 <button id="bulk-upload" class="btn btn-primary">업로드 미리보기</button>
@@ -163,6 +163,7 @@
                       <th style="font-size:12px">유형</th>
                       <th style="font-size:12px">단가</th>
                       <th style="font-size:12px">계좌</th>
+                      <th style="font-size:12px">은행</th>
                       <th style="font-size:12px">예금주</th>
                       <th style="font-size:12px">상태</th>
                     </tr>
@@ -472,8 +473,9 @@
         const price = Number((document.getElementById('pb-price')?.value||'0').replace(/,/g,''))||0;
         const account = (document.getElementById('pb-account')?.value||'').trim();
         const holder = (document.getElementById('pb-holder')?.value||'').trim();
+        const bank = (document.getElementById('pb-bank')?.value||'').trim();
         const type = (document.querySelector('input[name="pb-type"]:checked')?.value)||'공통';
-        upsertPrice({ client, product, price, account, holder, type });
+        upsertPrice({ client, product, price, account, bank, holder, type });
         renderPriceBook();
         await savePriceBook();
       }
@@ -485,8 +487,9 @@
         const price = Number((document.getElementById('pb-price')?.value||'0').replace(/,/g,''))||0;
         const account = (document.getElementById('pb-account')?.value||'').trim();
         const holder = (document.getElementById('pb-holder')?.value||'').trim();
-        upsertPrice({ client, product, price, account, holder, type:'저장' });
-        upsertPrice({ client, product, price, account, holder, type:'트래픽' });
+        const bank = (document.getElementById('pb-bank')?.value||'').trim();
+        upsertPrice({ client, product, price, account, bank, holder, type:'저장' });
+        upsertPrice({ client, product, price, account, bank, holder, type:'트래픽' });
         renderPriceBook();
         await savePriceBook();
       });
@@ -542,6 +545,7 @@
             <td>${it.type||'공통'}</td>
             <td>${it.price??''}</td>
             <td>${it.account||''}</td>
+            <td>${it.bank||''}</td>
             <td>${it.holder||''}</td>
             <td>
               <button class="btn" data-edit="${it.client}|||${it.product}|||${it.type||'공통'}">수정</button>
@@ -566,6 +570,7 @@
               document.getElementById('pb-product').value = it.product||'';
               document.getElementById('pb-price').value = it.price||'';
               document.getElementById('pb-account').value = it.account||'';
+              const bankEl = document.getElementById('pb-bank'); if(bankEl) bankEl.value = it.bank||'';
               document.getElementById('pb-holder').value = it.holder||'';
               const r = document.querySelector(`input[name="pb-type"][value="${it.type||'공통'}"]`); if(r) r.checked = true;
             }
@@ -718,3 +723,5 @@
     </script>
   </body>
   </html>
+
+
