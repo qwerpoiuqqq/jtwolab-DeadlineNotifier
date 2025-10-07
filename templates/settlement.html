@@ -98,12 +98,10 @@
             <div class="stack" style="justify-content:space-between">
               <div class="muted">거래처별 계좌 · 상품별 단가</div>
               <div class="stack">
-                <button id="btn-add-price" class="btn">상품 추가</button>
-                <button id="btn-bulk-toggle" class="btn">대량등록</button>
-                <button id="btn-save-price" class="btn btn-primary">저장</button>
-                <button id="btn-import-price" class="btn">가져오기</button>
-                <button id="btn-export-price" class="btn">내보내기</button>
-                <button id="btn-download-template" class="btn">양식 다운</button>
+                <button id="btn-add-price" class="btn btn-primary">상품 추가</button>
+                <button id="btn-save-price" class="btn">저장</button>
+                <button id="btn-bulk-toggle" class="btn">엑셀 대량등록</button>
+                <a id="bulk-download" class="btn" href="/api/settlement/pricebook/template">대량등록 양식</a>
               </div>
             </div>
             <!-- 인라인 에디터 -->
@@ -139,38 +137,34 @@
                   <button id="pb-add-one" class="btn btn-primary" type="button">추가</button>
                   <button id="pb-add-both" class="btn" type="button">저장·트래픽 동시 추가</button>
                 </div>
-                <div style="margin-left:auto">
+                <div class="panel" style="margin-top:6px; width:100%">
                   <label>검색</label>
-                  <input id="pb-search" type="text" placeholder="거래처/상품 검색" />
+                  <input id="pb-search" type="text" placeholder="거래처/상품 검색" style="width:100%" />
                 </div>
               </div>
             </div>
 
             <!-- 대량 등록 패널 -->
             <div id="bulk-panel" class="panel" style="margin-top:10px; display:none">
-              <div class="muted" style="margin-bottom:6px; font-size:12px">
-                엑셀에서 복사한 표(탭 구분) 또는 CSV를 붙여넣어 주세요. 헤더는 다음 중 일부/전체를 지원합니다: client, product, type(공통/저장/트래픽/both), price, account, holder.
-              </div>
-              <div class="stack" style="gap:10px; align-items:flex-start; flex-wrap:wrap">
-                <textarea id="bulk-text" style="width:560px; height:120px; border:1px solid var(--line); border-radius:10px; padding:10px" placeholder="client	product	type	price	account	holder"></textarea>
-                <div class="stack" style="gap:8px; align-items:flex-start">
-                  <button id="bulk-preview" class="btn">미리보기</button>
-                  <button id="bulk-apply" class="btn btn-primary">일괄 추가/병합</button>
-                  <span id="bulk-status" class="muted" style="font-size:12px"></span>
-                </div>
+              <div class="muted" style="margin-bottom:6px; font-size:12px">대량등록 엑셀을 업로드하세요. 헤더: 거래처, 상품명, 유형(공란/저장/트래픽), 단가, 계좌, 예금주</div>
+              <div class="stack" style="gap:10px; align-items:center; flex-wrap:wrap">
+                <input id="bulk-file" type="file" accept=".xlsx" />
+                <button id="bulk-upload" class="btn btn-primary">업로드 미리보기</button>
+                <button id="bulk-apply-xlsx" class="btn">일괄 추가/병합</button>
+                <span id="bulk-status" class="muted" style="font-size:12px"></span>
               </div>
               <div style="overflow:auto; margin-top:8px">
                 <table id="tbl-bulk" style="width:100%">
                   <thead>
                     <tr>
-                      <th>#</th>
-                      <th>거래처</th>
-                      <th>상품명</th>
-                      <th>유형</th>
-                      <th>단가</th>
-                      <th>계좌</th>
-                      <th>예금주</th>
-                      <th>상태</th>
+                      <th style="font-size:12px">#</th>
+                      <th style="font-size:12px">거래처</th>
+                      <th style="font-size:12px">상품명</th>
+                      <th style="font-size:12px">유형</th>
+                      <th style="font-size:12px">단가</th>
+                      <th style="font-size:12px">계좌</th>
+                      <th style="font-size:12px">예금주</th>
+                      <th style="font-size:12px">상태</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
@@ -580,7 +574,30 @@
         rebuildClientDefaults();
       }
 
-      // 대량등록 파서/미리보기/적용
+      // 대량등록: XLSX 업로드 → 서버 파싱 결과를 미리보기/적용
+      const bulkState = { items: [] };
+      document.getElementById('bulk-upload').addEventListener('click', async()=>{
+        const inp = document.getElementById('bulk-file'); if(!inp.files || inp.files.length===0){ alert('엑셀 파일을 선택하세요'); return; }
+        const file = inp.files[0]; const fd = new FormData(); fd.append('file', file);
+        showLoading('엑셀 업로드 중...');
+        try{
+          const res = await fetch('/api/settlement/pricebook/upload', { method:'POST', body: fd });
+          const data = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(data?.error||'업로드 실패');
+          bulkState.items = Array.isArray(data.items)? data.items : [];
+          renderBulkPreview(bulkState.items);
+          document.getElementById('bulk-status').textContent = `${bulkState.items.length}건 준비됨`;
+        }catch(e){ alert(e.message||'업로드 실패'); }
+        finally{ hideLoading(); }
+      });
+      document.getElementById('bulk-apply-xlsx').addEventListener('click', async()=>{
+        if(!Array.isArray(bulkState.items) || bulkState.items.length===0){ alert('미리보기 후 적용하세요'); return; }
+        for(const it of bulkState.items){ upsertPrice(it); }
+        renderPriceBook(); await savePriceBook();
+        document.getElementById('bulk-status').textContent = `${bulkState.items.length}건 반영됨`;
+      });
+
+      // (과거 TSV 붙여넣기 파서는 유지 가능하나 UI에서 감춤)
       function parseBulk(text){
         const lines = (text||'').replace(/\r/g,'').split('\n').filter(x=>x.trim().length>0);
         if(lines.length===0) return {items:[], error:null};
