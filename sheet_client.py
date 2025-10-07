@@ -924,10 +924,23 @@ def _fetch_background_colors(spreadsheet_id: str, sheet_title: str, max_rows: in
 
 
 def _is_yellow(rgb: Tuple[float, float, float]) -> bool:
-	if not rgb or len(rgb) != 3:
-		return False
-	r, g, b = rgb
-	return (abs(r - 1.0) <= 0.05 and abs(g - 1.0) <= 0.05 and abs(b - 0.0) <= 0.05)
+    if not rgb or len(rgb) != 3:
+        return False
+    r, g, b = rgb
+    return (abs(r - 1.0) <= 0.05 and abs(g - 1.0) <= 0.05 and abs(b - 0.0) <= 0.05)
+
+
+def _is_manage_green(rgb: Tuple[float, float, float]) -> bool:
+    """연녹색(관리형) 감지: #d9ead3 (R=217,G=234,B=211) ≈ (0.851,0.918,0.827)
+
+    구글시트 API는 0~1 float을 반환하므로 근사치 범위로 판정한다.
+    """
+    if not rgb or len(rgb) != 3:
+        return False
+    r, g, b = rgb
+    target = (217.0/255.0, 234.0/255.0, 211.0/255.0)
+    tol = 0.06  # 허용 오차
+    return (abs(r - target[0]) <= tol and abs(g - target[1]) <= tol and abs(b - target[2]) <= tol)
 
 
 def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], pricebook: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1023,11 +1036,11 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 			if qty_store == 0 and qty_traf == 0:
 				continue
 
-			# 자사건 판정: 상호명 셀 배경이 노란색이면 자사건
+            # 자사건/관리형 판정: 상호명 셀 배경 노란색(자사) 또는 연녹색(관리형) → 매출 0 처리
 			is_internal = False
 			if ci_agency is not None:
 				rgb = bg.get((header_row + row_idx, ci_agency))
-				if _is_yellow(rgb):
+                if _is_yellow(rgb) or _is_manage_green(rgb):
 					is_internal = True
 
 			# 저장 행
