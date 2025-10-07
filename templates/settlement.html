@@ -99,9 +99,11 @@
               <div class="muted">거래처별 계좌 · 상품별 단가</div>
               <div class="stack">
                 <button id="btn-add-price" class="btn">상품 추가</button>
+                <button id="btn-bulk-toggle" class="btn">대량등록</button>
                 <button id="btn-save-price" class="btn btn-primary">저장</button>
                 <button id="btn-import-price" class="btn">가져오기</button>
                 <button id="btn-export-price" class="btn">내보내기</button>
+                <button id="btn-download-template" class="btn">양식 다운</button>
               </div>
             </div>
             <!-- 인라인 에디터 -->
@@ -141,6 +143,38 @@
                   <label>검색</label>
                   <input id="pb-search" type="text" placeholder="거래처/상품 검색" />
                 </div>
+              </div>
+            </div>
+
+            <!-- 대량 등록 패널 -->
+            <div id="bulk-panel" class="panel" style="margin-top:10px; display:none">
+              <div class="muted" style="margin-bottom:6px; font-size:12px">
+                엑셀에서 복사한 표(탭 구분) 또는 CSV를 붙여넣어 주세요. 헤더는 다음 중 일부/전체를 지원합니다: client, product, type(공통/저장/트래픽/both), price, account, holder.
+              </div>
+              <div class="stack" style="gap:10px; align-items:flex-start; flex-wrap:wrap">
+                <textarea id="bulk-text" style="width:560px; height:120px; border:1px solid var(--line); border-radius:10px; padding:10px" placeholder="client	product	type	price	account	holder"></textarea>
+                <div class="stack" style="gap:8px; align-items:flex-start">
+                  <button id="bulk-preview" class="btn">미리보기</button>
+                  <button id="bulk-apply" class="btn btn-primary">일괄 추가/병합</button>
+                  <span id="bulk-status" class="muted" style="font-size:12px"></span>
+                </div>
+              </div>
+              <div style="overflow:auto; margin-top:8px">
+                <table id="tbl-bulk" style="width:100%">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>거래처</th>
+                      <th>상품명</th>
+                      <th>유형</th>
+                      <th>단가</th>
+                      <th>계좌</th>
+                      <th>예금주</th>
+                      <th>상태</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
               </div>
             </div>
             <div style="overflow:auto; margin-top:8px">
@@ -411,6 +445,33 @@
       document.getElementById('pv-tab-agency').addEventListener('click', ()=>setPvTab('agency'));
 
       // 단가부: 추가/삭제/입출력 (로컬 메모리)
+      let clientDefaults = {};
+      function rebuildClientDefaults(){
+        const map = {};
+        for(const it of state.priceBook){
+          const c = (it.client||'').trim(); if(!c) continue;
+          const key = c;
+          const rec = map[key]||{accountCount:{}, holderCount:{}};
+          if(it.account){ rec.accountCount[it.account] = 1 + (rec.accountCount[it.account]||0); }
+          if(it.holder){ rec.holderCount[it.holder] = 1 + (rec.holderCount[it.holder]||0); }
+          map[key] = rec;
+        }
+        const pickTop = (countObj)=>{
+          let bestK='', bestV=0; for(const k in countObj){ if(countObj[k]>bestV){ bestV=countObj[k]; bestK=k; } }
+          return bestK||'';
+        };
+        const out={};
+        for(const k in map){ out[k] = { account: pickTop(map[k].accountCount), holder: pickTop(map[k].holderCount) }; }
+        clientDefaults = out;
+      }
+      function tryAutofillByClient(){
+        const c = (document.getElementById('pb-client')?.value||'').trim(); if(!c) return;
+        const def = clientDefaults[c]; if(!def) return;
+        const accEl = document.getElementById('pb-account'); const holdEl = document.getElementById('pb-holder');
+        if(accEl && !accEl.value) accEl.value = def.account||'';
+        if(holdEl && !holdEl.value) holdEl.value = def.holder||'';
+      }
+      document.getElementById('pb-client').addEventListener('change', tryAutofillByClient);
       async function addOnePrice(){
         const client = (document.getElementById('pb-client')?.value||'').trim(); if(!client) return alert('거래처를 입력하세요');
         const product = (document.getElementById('pb-product')?.value||'').trim(); if(!product) return alert('상품명을 입력하세요');
@@ -469,6 +530,7 @@
           const data = await res.json().catch(()=>({}));
           if(res.ok && Array.isArray(data.items)) state.priceBook = data.items; else state.priceBook = [];
         }catch(e){ state.priceBook = []; }
+        rebuildClientDefaults();
       }
 
       function renderPriceBook(){
@@ -515,7 +577,68 @@
             }
           });
         });
+        rebuildClientDefaults();
       }
+
+      // 대량등록 파서/미리보기/적용
+      function parseBulk(text){
+        const lines = (text||'').replace(/\r/g,'').split('\n').filter(x=>x.trim().length>0);
+        if(lines.length===0) return {items:[], error:null};
+        const sep = (lines[0].includes('\t')? '\t' : ',');
+        const cells0 = lines[0].split(sep).map(s=>s.trim().toLowerCase());
+        const hasHeader = ['client','product','type','price','account','holder'].some(h=>cells0.includes(h));
+        const startIdx = hasHeader?1:0;
+        const idxOf = (name) => cells0.indexOf(name);
+        const colMap = hasHeader? {
+          client: idxOf('client'), product: idxOf('product'), type: idxOf('type'), price: idxOf('price'), account: idxOf('account'), holder: idxOf('holder')
+        } : { client:0, product:1, type:2, price:3, account:4, holder:5 };
+        const out=[]; let err=null;
+        for(let i=startIdx;i<lines.length;i++){
+          const parts = lines[i].split(sep);
+          const get=(k)=>{ const idx=colMap[k]; return (idx>=0 && idx<parts.length)? parts[idx].trim():''; };
+          const client=get('client'), product=get('product');
+          let type=get('type')||'공통'; const priceRaw=get('price'); const account=get('account'); const holder=get('holder');
+          if(!client || !product){ err = `필수값 누락 (행 ${i+1}): client/product`; break; }
+          const price = Number((priceRaw||'').replace(/,/g,''))||0;
+          if(type.toLowerCase()==='both'){ out.push({client,product,price,account,holder,type:'저장'}); out.push({client,product,price,account,holder,type:'트래픽'}); }
+          else{ if(!['공통','저장','트래픽'].includes(type)) type='공통'; out.push({client,product,price,account,holder,type}); }
+        }
+        return {items: out, error: err};
+      }
+      function renderBulkPreview(list){
+        const tb = document.querySelector('#tbl-bulk tbody'); tb.innerHTML='';
+        list.forEach((it,idx)=>{
+          const tr=document.createElement('tr');
+          tr.innerHTML = `<td>${idx+1}</td><td>${it.client}</td><td>${it.product}</td><td>${it.type}</td><td>${it.price}</td><td>${it.account||''}</td><td>${it.holder||''}</td><td></td>`;
+          tb.appendChild(tr);
+        });
+        document.getElementById('bulk-status').textContent = `${list.length}건 준비됨`;
+      }
+      document.getElementById('btn-bulk-toggle').addEventListener('click', ()=>{
+        const el = document.getElementById('bulk-panel'); el.style.display = (el.style.display==='none'||!el.style.display)? 'block':'none';
+      });
+      document.getElementById('bulk-preview').addEventListener('click', ()=>{
+        const {items,error} = parseBulk(document.getElementById('bulk-text').value);
+        if(error) { alert(error); return; }
+        renderBulkPreview(items);
+      });
+      document.getElementById('bulk-apply').addEventListener('click', async()=>{
+        const {items,error} = parseBulk(document.getElementById('bulk-text').value);
+        if(error){ alert(error); return; }
+        for(const it of items){ upsertPrice(it); }
+        renderPriceBook();
+        await savePriceBook();
+        document.getElementById('bulk-status').textContent = `${items.length}건 반영됨`;
+      });
+
+      // 템플릿 다운로드
+      document.getElementById('btn-download-template').addEventListener('click', ()=>{
+        const headers = ['client','product','type','price','account','holder'];
+        const lines = [headers.join('\t'), '일류기획\t호올스\tboth\t32\t류준호\t류준호'];
+        const blob = new Blob([lines.join('\n')], {type:'text/tab-separated-values;charset=utf-8'});
+        const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='pricebook_template.tsv';
+        document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 0);
+      });
 
       function renderPreview(){
         const tb = document.querySelector('#tbl-preview tbody');
