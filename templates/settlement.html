@@ -20,6 +20,7 @@
       input[type="text"], input[type="date"], select{ background:#fff; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px 12px; min-width:200px; outline:none; }
       .btn{ border:1px solid var(--line); background:#fff; color:#111827; padding:10px 14px; border-radius:10px; cursor:pointer; }
       .btn-primary{ background:#111827; color:#fff; border-color:#111827; }
+      .btn-danger{ background:#b91c1c; color:#fff; border-color:#b91c1c; }
       .muted{ color:var(--muted); }
       .pill{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
       .grid{ display:grid; gap:12px; }
@@ -242,6 +243,7 @@
               </div>
               <div class="stack" style="gap:8px">
                 <button id="btn-toggle-collapse" class="btn">전체 접기</button>
+                <button id="btn-delete-toggle" class="btn" title="결재선 반영에서 특정 건 제외">삭제</button>
               </div>
             </div>
             <!-- 상품별 카드 그리드 -->
@@ -301,7 +303,8 @@
         previewRows: [], // { date, client, agency, product, qty, price, amount }
         lastAggregates: null, // 마지막 계산 aggregates 그대로 보관
         missingPrices: [], // compute 응답의 missing_prices
-        extraExpenses: [] // [{date,client,product,amount,report}]
+        extraExpenses: [], // [{date,client,product,amount,report}]
+        exclusions: { products: [], rows: [] } // 결재선 반영 제외 세트
       };
 
       const $ = (s)=>document.querySelector(s);
@@ -427,7 +430,9 @@
 
           // 2) 상품별 카드 생성 + 대행사별 상세(모든 날짜 포함)
           const byAgencyAllDates = aggs?.by_agency||{};
-              Object.keys(totalByProduct).sort().forEach(prod=>{
+          Object.keys(totalByProduct).sort().forEach(prod=>{
+            // 전체 상품 제외 처리
+            try{ if(Array.isArray(state.exclusions?.products) && state.exclusions.products.includes(prod)) { return; } }catch(e){}
             // 필터별 카드 재집계
             const rawS = totalByProduct[prod];
             let cardQty=0, cardExpense=0, cardIncome=0, hasMatch=false;
@@ -446,6 +451,11 @@
                       if(filterMincom && !isMincom) pass=false;
                       if(onlyMincomMode && !isGuarantee) pass=false; // 민컴 전용 모드에서는 보장형만 허용
                       if(filterGuarantee && isMincom) pass=false; // 보장형 모드에서는 민컴/궁서 제외
+                  // 행 단위 제외
+                  try{
+                    const rowKey = `${date}|||${client}|||${prod}|||${it.type||''}|||${Number(it.qty||0)}|||${Number(it.unit_price||0)}|||${Number(it.expense||0)}`;
+                    if(Array.isArray(state.exclusions?.rows) && state.exclusions.rows.includes(rowKey)) pass=false;
+                  }catch(e){}
                   if(!pass) return;
                   hasMatch=true; cardQty += it.qty||0; cardExpense += it.expense||0; cardIncome += it.income||0;
                 });
@@ -457,12 +467,16 @@
                 const showIncome = !(filterGuarantee || filterManage || filterMincom);
             const card=document.createElement('div'); card.className='card';
             card.innerHTML = `
-              <div class="card-hd mini"><div><b>${prod}</b></div>
+              <div class="card-hd mini">
+                <div style="display:flex; align-items:center; gap:8px">
+                  ${window.__deleteMode? `<input type="checkbox" class="chk-del-prod" data-del-prod data-product="${prod}">` : ''}
+                  <b>${prod}</b>
+                </div>
                 <div class="muted">총 세팅 ${Number(s.qty||0).toLocaleString()} · 지출 ${Number(s.expense||0).toLocaleString()}${showIncome? ' · 매출 '+Number(s.income||0).toLocaleString():''}</div>
               </div>
               <div class="card-bd" style="overflow:auto">
                 <table class="mini" style="width:100%">
-                  <thead><tr><th>날짜</th><th>대행사</th><th>유형</th><th>수량</th><th>단가</th><th>지출</th>${showIncome? '<th>매출</th>':''}</tr></thead>
+                  <thead><tr>${window.__deleteMode? '<th style="width:36px">제외</th>':''}<th>날짜</th><th>대행사</th><th>유형</th><th>수량</th><th>단가</th><th>지출</th>${showIncome? '<th>매출</th>':''}</tr></thead>
                   <tbody data-body></tbody>
                 </table>
               </div>`;
@@ -482,6 +496,9 @@
                       if(filterMincom && !isMincom) pass=false;
                       if(onlyMincomMode && !isGuarantee) pass=false; // 민컴 전용 모드에서는 보장형만 허용
                       if(filterGuarantee && isMincom) pass=false; // 보장형 모드에서는 민컴/궁서 제외
+                  // 행 단위 제외
+                  let rowKey = '';
+                  try{ rowKey = `${date}|||${client}|||${prod}|||${it.type||''}|||${Number(it.qty||0)}|||${Number(it.unit_price||0)}|||${Number(it.expense||0)}`; if(Array.isArray(state.exclusions?.rows) && state.exclusions.rows.includes(rowKey)) pass=false; }catch(e){}
                   if(!pass) return;
                   const tr=document.createElement('tr');
                       const incomeCell = it.income||0;
@@ -491,7 +508,7 @@
                       else if(isGuarantee) rowBg = '#fffbe6';
                       else if(isManage) rowBg = '#d9ead3';
                       if(rowBg) tr.style.background = rowBg;
-                      tr.innerHTML = `<td>${date}</td><td>${client}</td><td>${it.type||''}</td><td>${Number(it.qty||0).toLocaleString()}</td><td>${Number(it.unit_price||0).toLocaleString()}</td><td>${Number(it.expense||0).toLocaleString()}</td>${showIncome? `<td>${Number(incomeCell||0).toLocaleString()}</td>`:''}`;
+                  tr.innerHTML = `${window.__deleteMode? `<td style="text-align:center"><input type="checkbox" class="chk-del-row" data-del-row data-rowkey="${rowKey}"></td>`:''}<td>${date}</td><td>${client}</td><td>${it.type||''}</td><td>${Number(it.qty||0).toLocaleString()}</td><td>${Number(it.unit_price||0).toLocaleString()}</td><td>${Number(it.expense||0).toLocaleString()}</td>${showIncome? `<td>${Number(incomeCell||0).toLocaleString()}</td>`:''}`;
                   tbody.appendChild(tr);
                 });
               });
@@ -499,10 +516,21 @@
             // 추가 지출 행(보고 반영 true만) 표시
             (state.extraExpenses||[]).filter(ex=> ex && ex.report && String(ex.product||'')===String(prod||'')).forEach(ex=>{
               const tr=document.createElement('tr');
-              tr.innerHTML = `<td>${ex.date||''}</td><td>${ex.client||''}</td><td>추가</td><td>-</td><td>-</td><td>${Number(ex.amount||0).toLocaleString()}</td>${showIncome? `<td class="muted">0</td>`:''}`;
+              tr.innerHTML = `${window.__deleteMode? '<td></td>':''}<td>${ex.date||''}</td><td>${ex.client||''}</td><td>추가</td><td>-</td><td>-</td><td>${Number(ex.amount||0).toLocaleString()}</td>${showIncome? `<td class="muted">0</td>`:''}`;
               tbody.appendChild(tr);
             });
             cards.appendChild(card);
+
+            // 삭제 모드: 상품 전체 선택 → 행 전체 토글
+            if(window.__deleteMode){
+              try{
+                const prodChk = card.querySelector('input[data-del-prod]');
+                if(prodChk){ prodChk.addEventListener('change', ()=>{
+                  const rows = card.querySelectorAll('input[data-del-row]');
+                  rows.forEach(r=>{ r.checked = prodChk.checked; });
+                }); }
+              }catch(e){}
+            }
           });
           // 총계 뱃지 업데이트
           const badge = document.getElementById('agg-total-badge');
@@ -898,6 +926,33 @@
         document.querySelectorAll('#cards-container .card').forEach(el=>el.classList.toggle('collapsed', collapsed));
         btn.textContent = collapsed? '전체 펼치기' : '전체 접기';
       }; btn.addEventListener('click', ()=>{ collapsed=!collapsed; apply(); }); apply(); })();
+
+      // 삭제 모드 토글: 1) 첫 클릭 → 체크박스 표시 2) 두 번째 클릭 → 선택된 항목 제외 적용
+      (function(){
+        const btn = document.getElementById('btn-delete-toggle'); if(!btn) return;
+        function setBtnActive(on){ btn.classList.toggle('btn-danger', !!on); btn.textContent = on? '선택 삭제 적용' : '삭제'; }
+        async function reRender(){ if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); } }
+        btn.addEventListener('click', async()=>{
+          const active = window.__deleteMode===true;
+          if(!active){ // 활성화
+            window.__deleteMode = true; setBtnActive(true); await reRender();
+            return;
+          }
+          // 적용: 선택 수집
+          try{
+            const prodChks = Array.from(document.querySelectorAll('input[data-del-prod]'));
+            const rowChks = Array.from(document.querySelectorAll('input[data-del-row]'));
+            const selProds = prodChks.filter(c=>c.checked).map(c=> String(c.getAttribute('data-product')||''));
+            const selRows = rowChks.filter(c=>c.checked).map(c=> String(c.getAttribute('data-rowkey')||''));
+            // 중복 제거 및 병합
+            const prodSet = new Set([...(state.exclusions?.products||[]), ...selProds.filter(Boolean)]);
+            const rowSet = new Set([...(state.exclusions?.rows||[]), ...selRows.filter(Boolean)]);
+            state.exclusions = { products: Array.from(prodSet), rows: Array.from(rowSet) };
+          }catch(e){}
+          window.__deleteMode = false; setBtnActive(false);
+          await reRender();
+        });
+      })();
 
       // 4) 엑셀 양식 복붙용 생성 (버튼이 존재하는 경우에만 바인딩)
       { const btn = document.getElementById('btn-export-excel'); if(btn){ btn.addEventListener('click', ()=>{
