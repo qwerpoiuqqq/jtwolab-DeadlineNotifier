@@ -295,7 +295,7 @@
       }
 
       // 1) 탭 불러오기 (API 연동 예정)
-      $('#load-tabs').addEventListener('click', async()=>{
+      const loadTabsBtn = document.getElementById('load-tabs'); if(loadTabsBtn) loadTabsBtn.addEventListener('click', async()=>{
         showLoading('탭 목록을 불러오는 중...');
         try{
           const res = await fetch('/api/settlement/tabs');
@@ -329,18 +329,10 @@
         });
       }
 
-      // 기간 선택 (간단 데모)
-      $('#select-range').addEventListener('click', ()=>{
-        const opts = [...state.tabs].sort();
-        if(opts.length===0){ $('#selected-range').textContent=''; return; }
-        const first = opts[0], last = opts[opts.length-1];
-        $('#selected-range').textContent = `${first} ~ ${last}`;
-        state.selectedTabs = opts;
-        renderTabChips();
-      });
+      // 기간 선택 제거됨
 
       // 2) 데이터 가져오기
-      $('#fetch-data').addEventListener('click', async()=>{
+      const fetchBtn = document.getElementById('fetch-data'); if(fetchBtn) fetchBtn.addEventListener('click', async()=>{
         showLoading('정산 데이터를 준비 중...'); setProgress(25);
         try{
           const res = await fetch('/api/settlement/compute', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tabs: state.selectedTabs }) });
@@ -352,7 +344,7 @@
           renderPreview();
           renderAggregates(data?.aggregates||{});
           document.getElementById('results-panel').style.display = 'block';
-          setPvTab('rows');
+          setPvTab();
         }catch(e){ alert(e.message||'집계 실패'); }
         finally{ setProgress(100, '완료'); hideLoading(); }
       });
@@ -723,3 +715,5 @@
     </script>
   </body>
   </html>
+
+
