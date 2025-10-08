@@ -404,7 +404,7 @@
         finally{ setProgress(100, '완료'); hideLoading(); }
       });
 
-      function renderAggregates(aggs){
+          function renderAggregates(aggs){
         try{
           // 상품별 단일 뷰 카드 렌더링 (날짜 무시: 동일 상품은 합산)
           const cards = document.getElementById('cards-container');
@@ -414,6 +414,7 @@
           const filterManage = window.__filterManage===true;
           const filterMincom = window.__filterMincom===true;
           const mincomClients = ['민컴퍼니','궁서애드'];
+              const onlyMincomMode = filterMincom && !filterGuarantee && !filterManage;
           // 1) 상품별 총합 집계 (모든 날짜 합산)
           const totalByProduct = {}; let grandTotal=0;
           Object.entries(aggs?.by_product||{}).forEach(([date, prods])=>{
@@ -425,7 +426,7 @@
 
           // 2) 상품별 카드 생성 + 대행사별 상세(모든 날짜 포함)
           const byAgencyAllDates = aggs?.by_agency||{};
-          Object.keys(totalByProduct).sort().forEach(prod=>{
+              Object.keys(totalByProduct).sort().forEach(prod=>{
             // 필터별 카드 재집계
             const rawS = totalByProduct[prod];
             let cardQty=0, cardExpense=0, cardIncome=0, hasMatch=false;
@@ -441,7 +442,8 @@
                   let pass = true;
                   if(filterGuarantee && !isGuarantee) pass=false;
                   if(filterManage && !isManage) pass=false;
-                  if(filterMincom && !isMincom) pass=false;
+                      if(filterMincom && !isMincom) pass=false;
+                      if(onlyMincomMode && !isGuarantee) pass=false; // 민컴 전용 모드에서는 보장형만 허용
                   if(!pass) return;
                   hasMatch=true; cardQty += it.qty||0; cardExpense += it.expense||0; cardIncome += it.income||0;
                 });
@@ -450,7 +452,7 @@
             if((filterGuarantee||filterManage||filterMincom) && !hasMatch) return; // 필터 시 매칭 없으면 카드 숨김
             const s = (filterGuarantee||filterManage||filterMincom)? {qty:cardQty, expense:cardExpense, income:cardIncome} : rawS;
             grandTotal += s.expense||0;
-            const showIncome = !filterGuarantee && !filterManage;
+                const showIncome = !(filterGuarantee || filterManage || filterMincom);
             const card=document.createElement('div'); card.className='card';
             card.innerHTML = `
               <div class="card-hd mini"><div><b>${prod}</b></div>
@@ -475,14 +477,18 @@
                   let pass = true;
                   if(filterGuarantee && !isGuarantee) pass=false;
                   if(filterManage && !isManage) pass=false;
-                  if(filterMincom && !isMincom) pass=false;
+                      if(filterMincom && !isMincom) pass=false;
+                      if(onlyMincomMode && !isGuarantee) pass=false; // 민컴 전용 모드에서는 보장형만 허용
                   if(!pass) return;
                   const tr=document.createElement('tr');
-                  const incomeCell = it.income||0;
-                  let rowStyle = '';
-                  if(isGuarantee) rowStyle='style="background:#fffbe6"';
-                  else if(isManage) rowStyle='style="background:#d9ead3"';
-                  tr.innerHTML = `<td>${date}</td><td>${client}</td><td>${it.type||''}</td><td>${Number(it.qty||0).toLocaleString()}</td><td>${Number(it.unit_price||0).toLocaleString()}</td><td>${Number(it.expense||0).toLocaleString()}</td>${showIncome? `<td ${rowStyle}>${Number(incomeCell||0).toLocaleString()}</td>`:''}`;
+                      const incomeCell = it.income||0;
+                      // 행 전체 배경 처리: 민컴 모드 우선(파란색), 그 다음 보장형/관리형
+                      let rowBg = '';
+                      if(filterMincom) rowBg = '#e0f2fe';
+                      else if(isGuarantee) rowBg = '#fffbe6';
+                      else if(isManage) rowBg = '#d9ead3';
+                      if(rowBg) tr.style.background = rowBg;
+                      tr.innerHTML = `<td>${date}</td><td>${client}</td><td>${it.type||''}</td><td>${Number(it.qty||0).toLocaleString()}</td><td>${Number(it.unit_price||0).toLocaleString()}</td><td>${Number(it.expense||0).toLocaleString()}</td>${showIncome? `<td>${Number(incomeCell||0).toLocaleString()}</td>`:''}`;
                   tbody.appendChild(tr);
                 });
               });
@@ -505,20 +511,20 @@
         }catch(e){}
       }
 
-      // 필터 체크박스: 보장형/관리형/민컴&궁서
+      // 필터 체크박스: 보장형/관리형/민컴&궁서 (서로 배타적, 모두 해제 가능)
       (function(){
-        const cbG = document.getElementById('cb-guarantee'); if(cbG){ cbG.addEventListener('change', ()=>{
-          window.__filterGuarantee = !!cbG.checked;
+        function setFilters(mode){
+          const cbG = document.getElementById('cb-guarantee');
+          const cbM = document.getElementById('cb-manage');
+          const cbMin = document.getElementById('cb-mincom');
+          const g = (mode==='g'); const m = (mode==='m'); const min = (mode==='min');
+          window.__filterGuarantee = g; window.__filterManage = m; window.__filterMincom = min;
+          if(cbG) cbG.checked = g; if(cbM) cbM.checked = m; if(cbMin) cbMin.checked = min;
           if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); }
-        }); }
-        const cbM = document.getElementById('cb-manage'); if(cbM){ cbM.addEventListener('change', ()=>{
-          window.__filterManage = !!cbM.checked;
-          if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); }
-        }); }
-        const cbMin = document.getElementById('cb-mincom'); if(cbMin){ cbMin.addEventListener('change', ()=>{
-          window.__filterMincom = !!cbMin.checked;
-          if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); }
-        }); }
+        }
+        const cbG = document.getElementById('cb-guarantee'); if(cbG){ cbG.addEventListener('change', ()=>{ setFilters(cbG.checked? 'g' : null); }); }
+        const cbM = document.getElementById('cb-manage'); if(cbM){ cbM.addEventListener('change', ()=>{ setFilters(cbM.checked? 'm' : null); }); }
+        const cbMin = document.getElementById('cb-mincom'); if(cbMin){ cbMin.addEventListener('change', ()=>{ setFilters(cbMin.checked? 'min' : null); }); }
       })();
 
       // --- 사전 점검: 미정 단가 / 추가 지출 ---
@@ -937,3 +943,5 @@
     </script>
   </body>
   </html>
+
+
