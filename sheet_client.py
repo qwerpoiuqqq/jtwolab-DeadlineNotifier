@@ -1010,6 +1010,8 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 		ci_job = col_idx("상품명")
 		ci_store = col_idx("저장")
 		ci_traf = col_idx("트래픽")
+		ci_store_actual = col_idx("저장 감은타수")
+		ci_traf_actual = col_idx("트래픽 감은타수")
 		ci_amount = col_idx("금액(vat제외)")
 
 		for row_idx, r in enumerate(values[header_row:]):
@@ -1017,6 +1019,8 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 			job = str((r[ci_job] if (ci_job is not None and ci_job < len(r)) else "").strip()) if ci_job is not None else ""
 			store_s = str((r[ci_store] if (ci_store is not None and ci_store < len(r)) else "").strip()) if ci_store is not None else ""
 			traf_s = str((r[ci_traf] if (ci_traf is not None and ci_traf < len(r)) else "").strip()) if ci_traf is not None else ""
+			store_actual_s = str((r[ci_store_actual] if (ci_store_actual is not None and ci_store_actual < len(r)) else "").strip()) if ci_store_actual is not None else ""
+			traf_actual_s = str((r[ci_traf_actual] if (ci_traf_actual is not None and ci_traf_actual < len(r)) else "").strip()) if ci_traf_actual is not None else ""
 			amount_note_s = str((r[ci_amount] if (ci_amount is not None and ci_amount < len(r)) else "").strip()) if ci_amount is not None else ""
 
 			if not agency:
@@ -1030,8 +1034,13 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 				s_clean = (s or "").replace(",", "").strip()
 				m = re.search(r"-?[\d.]+", s_clean)
 				return float(m.group(0)) if m else 0.0
-			qty_store = to_int(store_s)
-			qty_traf = to_int(traf_s)
+			qty_store_raw = to_int(store_s)
+			qty_traf_raw = to_int(traf_s)
+			qty_store_act = to_int(store_actual_s)
+			qty_traf_act = to_int(traf_actual_s)
+			# 감은타수가 존재(>0)하면 그것을 우선 사용
+			qty_store = qty_store_act if qty_store_act > 0 else qty_store_raw
+			qty_traf = qty_traf_act if qty_traf_act > 0 else qty_traf_raw
 			income_noted = to_float(amount_note_s)  # 대행사건에만 매출 반영
 			if qty_store == 0 and qty_traf == 0:
 				continue
