@@ -415,6 +415,7 @@
           const filterMincom = window.__filterMincom===true;
           const mincomClients = ['민컴퍼니','궁서애드'];
               const onlyMincomMode = filterMincom && !filterGuarantee && !filterManage;
+              const noFilter = !filterGuarantee && !filterManage && !filterMincom;
           // 1) 상품별 총합 집계 (모든 날짜 합산)
           const totalByProduct = {}; let grandTotal=0;
           Object.entries(aggs?.by_product||{}).forEach(([date, prods])=>{
@@ -434,7 +435,7 @@
               const map = byAgencyAllDates[date]||{};
               Object.keys(map).forEach(client=>{
                 const arr = map[client]||[];
-                arr.filter(it=> (it.product||'')===prod).forEach(it=>{
+                    arr.filter(it=> (it.product||'')===prod).forEach(it=>{
                   const itype = it.internal_type||null;
                   const isGuarantee = itype==='guarantee';
                   const isManage = itype==='manage';
@@ -444,6 +445,7 @@
                   if(filterManage && !isManage) pass=false;
                       if(filterMincom && !isMincom) pass=false;
                       if(onlyMincomMode && !isGuarantee) pass=false; // 민컴 전용 모드에서는 보장형만 허용
+                      if(filterGuarantee && isMincom) pass=false; // 보장형 모드에서는 민컴/궁서 제외
                   if(!pass) return;
                   hasMatch=true; cardQty += it.qty||0; cardExpense += it.expense||0; cardIncome += it.income||0;
                 });
@@ -469,7 +471,7 @@
               const map = byAgencyAllDates[date]||{};
               Object.keys(map).sort().forEach(client=>{
                 const arr = map[client]||[];
-                arr.filter(it=> (it.product||'')===prod).forEach(it=>{
+                    arr.filter(it=> (it.product||'')===prod).forEach(it=>{
                   const itype = it.internal_type||null;
                   const isGuarantee = itype==='guarantee';
                   const isManage = itype==='manage';
@@ -479,12 +481,13 @@
                   if(filterManage && !isManage) pass=false;
                       if(filterMincom && !isMincom) pass=false;
                       if(onlyMincomMode && !isGuarantee) pass=false; // 민컴 전용 모드에서는 보장형만 허용
+                      if(filterGuarantee && isMincom) pass=false; // 보장형 모드에서는 민컴/궁서 제외
                   if(!pass) return;
                   const tr=document.createElement('tr');
                       const incomeCell = it.income||0;
-                      // 행 전체 배경 처리: 민컴 모드 우선(파란색), 그 다음 보장형/관리형
+                      // 행 전체 배경 처리: 민컴 전용 또는 기본(무필터)에서 민컴&궁서 보장형은 파란색
                       let rowBg = '';
-                      if(filterMincom) rowBg = '#e0f2fe';
+                      if((filterMincom || noFilter) && isMincom && isGuarantee) rowBg = '#e0f2fe';
                       else if(isGuarantee) rowBg = '#fffbe6';
                       else if(isManage) rowBg = '#d9ead3';
                       if(rowBg) tr.style.background = rowBg;
