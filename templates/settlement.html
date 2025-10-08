@@ -90,10 +90,7 @@
                 <label>탭(날짜) 선택</label>
                 <div id="tab-chips" class="chips"></div>
               </div>
-              <div class="stack">
-                <button id="select-range" class="btn">기간 선택</button>
-                <span id="selected-range" class="muted" style="font-size:12px"></span>
-              </div>
+              <!-- 기간 선택 제거 -->
               <button id="fetch-data" class="btn btn-primary">데이터 가져오기</button>
             </div>
             <div class="muted" style="margin-top:8px; font-size:12px">탭명은 날짜(예: 2025-10-06) 형식을 권장합니다.</div>
@@ -362,40 +359,49 @@
 
       function renderAggregates(aggs){
         try{
-          // 상품별 단일 뷰 카드 렌더링
+          // 상품별 단일 뷰 카드 렌더링 (날짜 무시: 동일 상품은 합산)
           const cards = document.getElementById('cards-container');
           if(!cards) return;
           cards.innerHTML='';
-          const byProduct = aggs?.by_product||{};
-          Object.keys(byProduct).sort().forEach(date=>{
-            const prods = byProduct[date]||{};
-            Object.keys(prods).sort().forEach(prod=>{
-              const v = prods[prod]||{};
-              const card=document.createElement('div'); card.className='card';
-              const totalQty = (v.qty||0); const totalExpense=(v.expense||0); const totalIncome=(v.income||0);
-              card.innerHTML = `
-                <div class="card-hd mini"><div>${date} · <b>${prod}</b></div>
-                  <div class="muted">총 세팅 ${totalQty} · 지출 ${totalExpense.toLocaleString()} · 매출 ${totalIncome.toLocaleString()}</div>
-                </div>
-                <div class="card-bd" style="overflow:auto">
-                  <table class="mini" style="width:100%">
-                    <thead><tr><th>대행사</th><th>상품명</th><th>유형</th><th>수량</th><th>단가</th><th>지출</th><th>매출</th></tr></thead>
-                    <tbody data-body></tbody>
-                  </table>
-                </div>`;
+          // 1) 상품별 총합 집계 (모든 날짜 합산)
+          const totalByProduct = {};
+          Object.entries(aggs?.by_product||{}).forEach(([date, prods])=>{
+            Object.entries(prods||{}).forEach(([prod, v])=>{
+              const acc = totalByProduct[prod]||{qty:0, expense:0, income:0};
+              acc.qty += v.qty||0; acc.expense += v.expense||0; acc.income += v.income||0; totalByProduct[prod]=acc;
+            });
+          });
 
-              // by_agency 정보에서 해당 날짜·상품만 추출하여 표 채우기
-              const byAgency = aggs?.by_agency?.[date]||{}; const tbody = card.querySelector('[data-body]');
-              Object.keys(byAgency).sort().forEach(client=>{
-                const arr = byAgency[client]||[];
+          // 2) 상품별 카드 생성 + 대행사별 상세(모든 날짜 포함)
+          const byAgencyAllDates = aggs?.by_agency||{};
+          Object.keys(totalByProduct).sort().forEach(prod=>{
+            const s = totalByProduct[prod];
+            const card=document.createElement('div'); card.className='card';
+            card.innerHTML = `
+              <div class="card-hd mini"><div><b>${prod}</b></div>
+                <div class="muted">총 세팅 ${s.qty} · 지출 ${s.expense.toLocaleString()} · 매출 ${s.income.toLocaleString()}</div>
+              </div>
+              <div class="card-bd" style="overflow:auto">
+                <table class="mini" style="width:100%">
+                  <thead><tr><th>날짜</th><th>대행사</th><th>유형</th><th>수량</th><th>단가</th><th>지출</th><th>매출</th></tr></thead>
+                  <tbody data-body></tbody>
+                </table>
+              </div>`;
+            const tbody = card.querySelector('[data-body]');
+            Object.keys(byAgencyAllDates).sort().forEach(date=>{
+              const map = byAgencyAllDates[date]||{};
+              Object.keys(map).sort().forEach(client=>{
+                const arr = map[client]||[];
                 arr.filter(it=> (it.product||'')===prod).forEach(it=>{
                   const tr=document.createElement('tr');
-                  tr.innerHTML = `<td>${client}</td><td>${it.product||''}</td><td>${it.type||''}</td><td>${it.qty||0}</td><td>${it.unit_price||0}</td><td>${it.expense||0}</td><td>${it.income||0}</td>`;
+                  const incomeCell = it.income||0;
+                  const rowStyle = (incomeCell===0? 'style="background:#fffbe6"' : ''); // 내부/관리형 강조
+                  tr.innerHTML = `<td>${date}</td><td>${client}</td><td>${it.type||''}</td><td>${it.qty||0}</td><td>${it.unit_price||0}</td><td>${it.expense||0}</td><td ${rowStyle}>${incomeCell}</td>`;
                   tbody.appendChild(tr);
                 });
               });
-              cards.appendChild(card);
             });
+            cards.appendChild(card);
           });
         }catch(e){}
       }
@@ -433,7 +439,7 @@
         if(bankEl && !bankEl.value) bankEl.value = def.bank||'';
         if(holdEl && !holdEl.value) holdEl.value = def.holder||'';
       }
-      document.getElementById('pb-client').addEventListener('change', tryAutofillByClient);
+      const pbClientEl = document.getElementById('pb-client'); if(pbClientEl){ pbClientEl.addEventListener('change', tryAutofillByClient); }
       async function addOnePrice(){
         const client = (document.getElementById('pb-client')?.value||'').trim(); if(!client) return alert('거래처를 입력하세요');
         const product = (document.getElementById('pb-product')?.value||'').trim(); if(!product) return alert('상품명을 입력하세요');
@@ -548,7 +554,7 @@
 
       // 대량등록: XLSX 업로드 → 서버 파싱 결과를 미리보기/적용
       const bulkState = { items: [] };
-      document.getElementById('bulk-upload').addEventListener('click', async()=>{
+      const bulkUploadBtn = document.getElementById('bulk-upload'); if(bulkUploadBtn){ bulkUploadBtn.addEventListener('click', async()=>{
         const inp = document.getElementById('bulk-file'); if(!inp.files || inp.files.length===0){ alert('엑셀 파일을 선택하세요'); return; }
         const file = inp.files[0]; const fd = new FormData(); fd.append('file', file);
         showLoading('엑셀 업로드 중...');
@@ -561,13 +567,13 @@
           document.getElementById('bulk-status').textContent = `${bulkState.items.length}건 준비됨`;
         }catch(e){ alert(e.message||'업로드 실패'); }
         finally{ hideLoading(); }
-      });
-      document.getElementById('bulk-apply-xlsx').addEventListener('click', async()=>{
+      }); }
+      const bulkApplyBtn = document.getElementById('bulk-apply-xlsx'); if(bulkApplyBtn){ bulkApplyBtn.addEventListener('click', async()=>{
         if(!Array.isArray(bulkState.items) || bulkState.items.length===0){ alert('미리보기 후 적용하세요'); return; }
         for(const it of bulkState.items){ upsertPrice(it); }
         renderPriceBook(); await savePriceBook();
         document.getElementById('bulk-status').textContent = `${bulkState.items.length}건 반영됨`;
-      });
+      }); }
 
       // (과거 TSV 붙여넣기 파서는 유지 가능하나 UI에서 감춤)
       function parseBulk(text){
@@ -717,5 +723,3 @@
     </script>
   </body>
   </html>
-
-
