@@ -671,8 +671,8 @@
         document.querySelectorAll('#cards-container .card').forEach(el=>el.classList.remove('collapsed'));
       });
 
-      // 4) 엑셀 양식 복붙용 생성 (간단 CSV 형태)
-      document.getElementById('btn-export-excel').addEventListener('click', ()=>{
+      // 4) 엑셀 양식 복붙용 생성 (버튼이 존재하는 경우에만 바인딩)
+      { const btn = document.getElementById('btn-export-excel'); if(btn){ btn.addEventListener('click', ()=>{
         const headers = ['날짜','대행사','상품명','수량','단가','지출','매출'];
         const lines = [headers.join('\t')];
         for(const r of state.previewRows){
@@ -681,7 +681,7 @@
         const text = lines.join('\n');
         navigator.clipboard?.writeText(text);
         alert('복사 완료! 엑셀에 붙여넣기 하세요.');
-      });
+      }); } }
 
       // 검색 렌더 업데이트
       document.getElementById('pb-search').addEventListener('input', renderPriceBook);
