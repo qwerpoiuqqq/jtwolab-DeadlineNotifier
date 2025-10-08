@@ -704,14 +704,10 @@
         const rp = document.getElementById('results-panel');
         if(rp){ rp.style.display = isSettle ? (Array.isArray(state.previewRows) && state.previewRows.length? 'block':'none') : 'none'; }
       }
-      document.getElementById('tab-settle').addEventListener('click', ()=>{
-        setTab('settle');
-      });
-      document.getElementById('tab-price').addEventListener('click', ()=>{
-        setTab('price');
-      });
-      document.getElementById('side-tab-settle').addEventListener('click', ()=>{ setTab('settle'); });
-      document.getElementById('side-tab-price').addEventListener('click', ()=>{ setTab('price'); });
+      const tSettle = document.getElementById('tab-settle'); if(tSettle){ tSettle.addEventListener('click', ()=> setTab('settle')); }
+      const tPrice = document.getElementById('tab-price'); if(tPrice){ tPrice.addEventListener('click', ()=> setTab('price')); }
+      const sSettle = document.getElementById('side-tab-settle'); if(sSettle){ sSettle.addEventListener('click', ()=> setTab('settle')); }
+      const sPrice = document.getElementById('side-tab-price'); if(sPrice){ sPrice.addEventListener('click', ()=> setTab('price')); }
     </script>
   </body>
   </html>
