@@ -203,7 +203,7 @@
               <div class="panel">
                 <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px">
                   <div class="muted">미정 단가</div>
-                  <button id="btn-apply-missing" class="btn btn-primary">미정 단가 저장·재계산</button>
+                  <button id="btn-apply-missing" class="btn btn-primary">추가</button>
                 </div>
                 <div style="overflow:auto">
                   <table class="mini" style="width:100%">
@@ -235,9 +235,11 @@
 
           <div id="results-panel" class="panel" style="display:none; margin-bottom:12px">
             <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
-              <div class="muted">지출건 정리</div>
+              <div class="stack" style="gap:10px; align-items:center">
+                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-internal"> 내부 보장건</label>
+                <span id="agg-total-badge" class="pill"></span>
+              </div>
               <div class="stack" style="gap:8px">
-                <button id="btn-toggle-internal" class="btn">내부 보장건</button>
                 <button id="btn-toggle-collapse" class="btn">전체 접기</button>
               </div>
             </div>
@@ -391,10 +393,11 @@
           renderPrecheck();
           renderPreview();
           renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses));
-          document.getElementById('results-panel').style.display = 'block';
+          // 최종 반영 전에는 결과 패널 숨김, 사전 점검만 노출
           const pre = document.getElementById('precheck-panel');
-          if(window.__finalizing===true){ pre.style.display='none'; window.__finalizing=false; }
-          else{ pre.style.display='block'; }
+          const rp = document.getElementById('results-panel');
+          if(window.__finalizing===true){ pre.style.display='none'; rp.style.display = 'block'; window.__finalizing=false; }
+          else{ pre.style.display='block'; rp.style.display = 'none'; }
           setPvTab();
         }catch(e){ alert(e.message||'집계 실패'); }
         finally{ setProgress(100, '완료'); hideLoading(); }
@@ -459,8 +462,9 @@
       }
 
       // 내부 보장건 토글 버튼
-      (function(){ const btn=document.getElementById('btn-toggle-internal'); if(!btn) return; btn.addEventListener('click', ()=>{
-        window.__onlyInternal = !window.__onlyInternal; btn.classList.toggle('btn-primary', window.__onlyInternal===true);
+      // 내부 보장건 체크박스
+      (function(){ const cb=document.getElementById('cb-internal'); if(!cb) return; cb.addEventListener('change', ()=>{
+        window.__onlyInternal = !!cb.checked;
         if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); }
       }); })();
 
@@ -820,9 +824,10 @@
         // 총계 뱃지
         const headerArea = document.querySelector('#results-panel .stack');
         if(headerArea){
-          let badge = document.getElementById('grand-badge');
-          if(!badge){ badge = document.createElement('span'); badge.id='grand-badge'; badge.className='pill'; headerArea.appendChild(badge); }
-          badge.textContent = `총 지출 ${grand.toLocaleString()}`;
+          const onlyInternal = window.__onlyInternal===true;
+          // 상단 총 지출 뱃지는 cb-internal 쪽으로 이동
+          const badge = document.getElementById('agg-total-badge');
+          if(badge){ badge.textContent = `${onlyInternal? '내부 총 지출':'총 지출'} ${grand.toLocaleString()}`; badge.style.background = onlyInternal? '#fde68a' : '#f6f8fa'; }
         }
       }
 
@@ -879,5 +884,4 @@
     </script>
   </body>
   </html>
-
 
