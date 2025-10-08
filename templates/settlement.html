@@ -198,11 +198,10 @@
           <!-- 3) 정산 미리보기(페이지 하단 표시) -->
           <!-- 사전 점검 패널: 미정 단가 / 추가 지출 -->
           <div id="precheck-panel" class="panel" style="display:none; margin-bottom:12px">
-            <div class="muted" style="margin-bottom:6px">사전 점검: 미정 단가와 추가 지출을 확인하고 적용하세요.</div>
             <div class="grid">
               <div class="panel">
                 <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px">
-                  <div class="muted">미정 단가</div>
+                  <div class="muted">신규 상품</div>
                   <button id="btn-apply-missing" class="btn btn-primary">추가</button>
                 </div>
                 <div style="overflow:auto">
@@ -236,7 +235,7 @@
           <div id="results-panel" class="panel" style="display:none; margin-bottom:12px">
             <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
               <div class="stack" style="gap:10px; align-items:center">
-                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-internal"> 내부 보장건</label>
+                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-internal"> 보장형</label>
                 <span id="agg-total-badge" class="pill"></span>
               </div>
               <div class="stack" style="gap:8px">
@@ -474,7 +473,8 @@
         const mb = document.getElementById('tbl-missing-body'); if(mb){ mb.innerHTML='';
           (state.missingPrices||[]).forEach(item=>{
             const tr=document.createElement('tr');
-            tr.innerHTML = `<td style="text-align:center"><input type="checkbox" data-apply checked></td><td>${item.client||''}</td><td>${item.job||''}</td><td>${item.type||''}</td><td>${Number(item.qty_sum||0).toLocaleString()}</td><td><input type="number" min="0" step="1" style="width:100px" data-mprice></td>`;
+            const defApply = !!(item && item.job);
+            tr.innerHTML = `<td style="text-align:center"><input type="checkbox" data-apply ${defApply? 'checked':''}></td><td>${item.client||''}</td><td>${item.job||''}</td><td>${item.type||''}</td><td>${Number(item.qty_sum||0).toLocaleString()}</td><td><input type="number" min="0" step="1" style="width:100px" data-mprice></td>`;
             tr.dataset.client = item.client||''; tr.dataset.product = item.job||''; tr.dataset.type = item.type||'';
             mb.appendChild(tr);
           });
@@ -522,11 +522,10 @@
         const rows = Array.from(mb.querySelectorAll('tr'));
         rows.forEach(tr=>{
           const price = Number(tr.querySelector('input[data-mprice]')?.value||0);
-          const apply = tr.querySelector('input[data-apply]')?.checked;
-          if(price>0 && apply){
+          const apply = tr.querySelector('input[data-apply]')?.checked === true;
+          if(!(price>0 && apply)) return;
             const client = tr.dataset.client||''; const product = tr.dataset.product||''; const type = tr.dataset.type||'공통';
             upsertPrice({ client, product, price, account:'', bank:'', holder:'', type });
-          }
         });
         renderPriceBook(); await savePriceBook();
         // 재계산
@@ -884,4 +883,5 @@
     </script>
   </body>
   </html>
+
 
