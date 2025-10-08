@@ -269,6 +269,9 @@
       function showLoading(msg){ overlay.style.display='flex'; if(ptxt) ptxt.textContent = msg||'불러오는 중...'; if(pbar) pbar.style.width='15%'; }
       function setProgress(pct, msg){ if(pbar){ pbar.style.width = Math.max(0, Math.min(100, pct))+'%'; } if(msg && ptxt){ ptxt.textContent = msg; } }
       function hideLoading(){ overlay.style.display='none'; if(pbar) pbar.style.width='0%'; }
+      // 전역 안전장치: 예외 발생/로드 완료 시 오버레이 강제 해제
+      window.addEventListener('error', ()=>{ try{ hideLoading(); }catch(e){} }, { once:false });
+      window.addEventListener('load', ()=>{ try{ hideLoading(); }catch(e){} });
 
       // 간단 토스트
       function toast(msg){
@@ -685,10 +688,14 @@
 
       // 초기화: 가격표 로드 및 렌더
       (async function init(){
-        showLoading('초기화 중...');
-        await loadPriceBook();
-        renderPriceBook();
-        hideLoading();
+        try{
+          showLoading('초기화 중...');
+          await loadPriceBook();
+          renderPriceBook();
+        }catch(e){ /* swallow */ }
+        finally{ hideLoading(); }
+        // 초기 탭 상태 강제
+        try{ setTab('settle'); }catch(e){}
       })();
 
       // 상단 탭 전환: 정산 / 단가 관리
