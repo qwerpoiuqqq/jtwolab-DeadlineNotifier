@@ -30,6 +30,7 @@
       .card .card-bd{ padding:0 12px 12px 12px; }
       .card.collapsed .card-bd{ display:none; }
       .mini{ font-size:12px; }
+      .mini th, .mini td{ padding:4px 6px; }
       table{ width:100%; border-collapse: collapse; }
       th, td{ border-bottom:1px solid var(--line); padding:8px 6px; text-align:left; }
       th{ font-size:12px; color:var(--muted); font-weight:600; }
@@ -206,7 +207,7 @@
                 </div>
                 <div style="overflow:auto">
                   <table class="mini" style="width:100%">
-                    <thead><tr><th>대행사</th><th>상품명</th><th>유형</th><th>수량 합계</th><th>단가(입력)</th><th>적용</th></tr></thead>
+                    <thead><tr><th>반영</th><th>대행사</th><th>상품명</th><th>유형</th><th>수량 합계</th><th>단가(입력)</th></tr></thead>
                     <tbody id="tbl-missing-body"></tbody>
                   </table>
                 </div>
@@ -221,11 +222,14 @@
                 </div>
                 <div style="overflow:auto">
                   <table class="mini" style="width:100%">
-                    <thead><tr><th>날짜</th><th>대행사</th><th>상품</th><th>금액</th><th>보고 반영</th><th></th></tr></thead>
+                    <thead><tr><th>반영</th><th>날짜</th><th>대행사</th><th>상품</th><th>금액</th><th></th></tr></thead>
                     <tbody id="tbl-extra-body"></tbody>
                   </table>
                 </div>
               </div>
+            </div>
+            <div class="stack" style="justify-content:flex-end; margin-top:8px">
+              <button id="btn-finalize" class="btn btn-primary">최종 반영</button>
             </div>
           </div>
 
@@ -388,7 +392,9 @@
           renderPreview();
           renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses));
           document.getElementById('results-panel').style.display = 'block';
-          document.getElementById('precheck-panel').style.display = 'block';
+          const pre = document.getElementById('precheck-panel');
+          if(window.__finalizing===true){ pre.style.display='none'; window.__finalizing=false; }
+          else{ pre.style.display='block'; }
           setPvTab();
         }catch(e){ alert(e.message||'집계 실패'); }
         finally{ setProgress(100, '완료'); hideLoading(); }
@@ -464,7 +470,7 @@
         const mb = document.getElementById('tbl-missing-body'); if(mb){ mb.innerHTML='';
           (state.missingPrices||[]).forEach(item=>{
             const tr=document.createElement('tr');
-            tr.innerHTML = `<td>${item.client||''}</td><td>${item.job||''}</td><td>${item.type||''}</td><td>${Number(item.qty_sum||0).toLocaleString()}</td><td><input type="number" min="0" step="1" style="width:100px" data-mprice></td><td><input type="checkbox" data-apply checked></td>`;
+            tr.innerHTML = `<td style="text-align:center"><input type="checkbox" data-apply checked></td><td>${item.client||''}</td><td>${item.job||''}</td><td>${item.type||''}</td><td>${Number(item.qty_sum||0).toLocaleString()}</td><td><input type="number" min="0" step="1" style="width:100px" data-mprice></td>`;
             tr.dataset.client = item.client||''; tr.dataset.product = item.job||''; tr.dataset.type = item.type||'';
             mb.appendChild(tr);
           });
@@ -474,11 +480,11 @@
           (state.extraExpenses||[]).forEach((ex,idx)=>{
             const tr=document.createElement('tr'); tr.dataset.idx = String(idx);
             tr.innerHTML = `
+              <td style="text-align:center"><input type="checkbox" ${ex.report? 'checked':''}></td>
               <td><input type="text" value="${ex.date||''}" style="width:110px"></td>
               <td><input type="text" value="${ex.client||''}" style="width:120px"></td>
               <td><input type="text" value="${ex.product||''}" style="width:140px"></td>
               <td><input type="number" step="1" value="${Number(ex.amount||0)}" style="width:100px"></td>
-              <td style="text-align:center"><input type="checkbox" ${ex.report? 'checked':''}></td>
               <td><button class="btn" data-del>삭제</button></td>`;
             eb.appendChild(tr);
           });
@@ -530,6 +536,14 @@
         const bAdd = document.getElementById('btn-add-extra'); if(bAdd){ bAdd.addEventListener('click', ()=>{ state.extraExpenses.push({ date:'', client:'', product:'', amount:0, report:true }); renderPrecheck(); }); }
         const bSave = document.getElementById('btn-save-extra'); if(bSave){ bSave.addEventListener('click', async()=>{ await saveExtras(); if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); } }); }
         const bApply = document.getElementById('btn-apply-missing'); if(bApply){ bApply.addEventListener('click', applyMissingPrices); }
+        const bFinal = document.getElementById('btn-finalize'); if(bFinal){ bFinal.addEventListener('click', async()=>{
+          // 저장 후 재계산, 사전 점검 숨기고 결과만
+          await saveExtras();
+          // 미정 단가에서 반영 체크된 항목만 적용 후 재계산
+          window.__finalizing = true;
+          await applyMissingPrices();
+          // applyMissingPrices가 재계산을 트리거(fetchBtn.click)하므로, fetch 완료 시 precheck를 숨김 처리
+        }); }
       })();
 
       // Aggregates + extraExpenses 합산 유틸
@@ -865,3 +879,5 @@
     </script>
   </body>
   </html>
+
+
