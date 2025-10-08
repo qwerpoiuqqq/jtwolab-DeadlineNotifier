@@ -195,12 +195,46 @@
           </div>
         
           <!-- 3) 정산 미리보기(페이지 하단 표시) -->
+          <!-- 사전 점검 패널: 미정 단가 / 추가 지출 -->
+          <div id="precheck-panel" class="panel" style="display:none; margin-bottom:12px">
+            <div class="muted" style="margin-bottom:6px">사전 점검: 미정 단가와 추가 지출을 확인하고 적용하세요.</div>
+            <div class="grid">
+              <div class="panel">
+                <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px">
+                  <div class="muted">미정 단가</div>
+                  <button id="btn-apply-missing" class="btn btn-primary">미정 단가 저장·재계산</button>
+                </div>
+                <div style="overflow:auto">
+                  <table class="mini" style="width:100%">
+                    <thead><tr><th>대행사</th><th>상품명</th><th>유형</th><th>수량 합계</th><th>단가(입력)</th><th>적용</th></tr></thead>
+                    <tbody id="tbl-missing-body"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="panel">
+                <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px">
+                  <div class="muted">추가 지출</div>
+                  <div class="stack" style="gap:6px">
+                    <button id="btn-add-extra" class="btn">행 추가</button>
+                    <button id="btn-save-extra" class="btn btn-primary">추가 지출 저장</button>
+                  </div>
+                </div>
+                <div style="overflow:auto">
+                  <table class="mini" style="width:100%">
+                    <thead><tr><th>날짜</th><th>대행사</th><th>상품</th><th>금액</th><th>보고 반영</th><th></th></tr></thead>
+                    <tbody id="tbl-extra-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div id="results-panel" class="panel" style="display:none; margin-bottom:12px">
             <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
-              <div class="muted">상품별 요약</div>
+              <div class="muted">지출건 정리</div>
               <div class="stack" style="gap:8px">
-                <button id="btn-collapse-all" class="btn">전체 접기</button>
-                <button id="btn-expand-all" class="btn">전체 펼치기</button>
+                <button id="btn-toggle-internal" class="btn">내부 보장건</button>
+                <button id="btn-toggle-collapse" class="btn">전체 접기</button>
               </div>
             </div>
             <!-- 상품별 카드 그리드 -->
@@ -257,7 +291,10 @@
         tabs: [], // 시트 탭명
         selectedTabs: [], // 선택된 탭
         priceBook: [], // { client, product, price, account }
-        previewRows: [] // { date, client, agency, product, qty, price, amount }
+        previewRows: [], // { date, client, agency, product, qty, price, amount }
+        lastAggregates: null, // 마지막 계산 aggregates 그대로 보관
+        missingPrices: [], // compute 응답의 missing_prices
+        extraExpenses: [] // [{date,client,product,amount,report}]
       };
 
       const $ = (s)=>document.querySelector(s);
@@ -344,9 +381,14 @@
           // data.rows: {date, client, job, type, qty, unit_price, expense, income}
           const rows = Array.isArray(data.rows) ? data.rows : [];
           state.previewRows = rows.map(r=>({ date: r.date, client: r.client, product: (r.type?`${r.job} ${r.type}`:r.job), qty: r.qty, price: r.unit_price, expense: r.expense||0, income: r.income||0 }));
+          state.lastAggregates = data?.aggregates||{};
+          state.missingPrices = Array.isArray(data?.missing_prices) ? data.missing_prices : [];
+          await loadExtras();
+          renderPrecheck();
           renderPreview();
-          renderAggregates(data?.aggregates||{});
+          renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses));
           document.getElementById('results-panel').style.display = 'block';
+          document.getElementById('precheck-panel').style.display = 'block';
           setPvTab();
         }catch(e){ alert(e.message||'집계 실패'); }
         finally{ setProgress(100, '완료'); hideLoading(); }
@@ -369,12 +411,13 @@
 
           // 2) 상품별 카드 생성 + 대행사별 상세(모든 날짜 포함)
           const byAgencyAllDates = aggs?.by_agency||{};
+          const onlyInternal = window.__onlyInternal===true;
           Object.keys(totalByProduct).sort().forEach(prod=>{
             const s = totalByProduct[prod];
             const card=document.createElement('div'); card.className='card';
             card.innerHTML = `
               <div class="card-hd mini"><div><b>${prod}</b></div>
-                <div class="muted">총 세팅 ${s.qty} · 지출 ${s.expense.toLocaleString()} · 매출 ${s.income.toLocaleString()}</div>
+                <div class="muted">총 세팅 ${Number(s.qty||0).toLocaleString()} · 지출 ${Number(s.expense||0).toLocaleString()} · 매출 ${Number(s.income||0).toLocaleString()}</div>
               </div>
               <div class="card-bd" style="overflow:auto">
                 <table class="mini" style="width:100%">
@@ -391,14 +434,120 @@
                   const tr=document.createElement('tr');
                   const incomeCell = it.income||0;
                   const rowStyle = (incomeCell===0? 'style="background:#fffbe6"' : ''); // 내부/관리형 강조
-                  tr.innerHTML = `<td>${date}</td><td>${client}</td><td>${it.type||''}</td><td>${it.qty||0}</td><td>${it.unit_price||0}</td><td>${it.expense||0}</td><td ${rowStyle}>${incomeCell}</td>`;
+                  const isInternal = incomeCell===0;
+                  if(onlyInternal && !isInternal) return; // 내부 필터 켜진 경우 외부는 숨김
+                  tr.innerHTML = `<td>${date}</td><td>${client}</td><td>${it.type||''}</td><td>${Number(it.qty||0).toLocaleString()}</td><td>${Number(it.unit_price||0).toLocaleString()}</td><td>${Number(it.expense||0).toLocaleString()}</td><td ${rowStyle}>${Number(incomeCell||0).toLocaleString()}</td>`;
                   tbody.appendChild(tr);
                 });
               });
             });
+            // 추가 지출 행(보고 반영 true만) 표시
+            (state.extraExpenses||[]).filter(ex=> ex && ex.report && String(ex.product||'')===String(prod||'')).forEach(ex=>{
+              const tr=document.createElement('tr');
+              tr.innerHTML = `<td>${ex.date||''}</td><td>${ex.client||''}</td><td>추가</td><td>-</td><td>-</td><td>${Number(ex.amount||0).toLocaleString()}</td><td class="muted">0</td>`;
+              tbody.appendChild(tr);
+            });
             cards.appendChild(card);
           });
         }catch(e){}
+      }
+
+      // 내부 보장건 토글 버튼
+      (function(){ const btn=document.getElementById('btn-toggle-internal'); if(!btn) return; btn.addEventListener('click', ()=>{
+        window.__onlyInternal = !window.__onlyInternal; btn.classList.toggle('btn-primary', window.__onlyInternal===true);
+        if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); }
+      }); })();
+
+      // --- 사전 점검: 미정 단가 / 추가 지출 ---
+      function renderPrecheck(){
+        // 미정 단가
+        const mb = document.getElementById('tbl-missing-body'); if(mb){ mb.innerHTML='';
+          (state.missingPrices||[]).forEach(item=>{
+            const tr=document.createElement('tr');
+            tr.innerHTML = `<td>${item.client||''}</td><td>${item.job||''}</td><td>${item.type||''}</td><td>${Number(item.qty_sum||0).toLocaleString()}</td><td><input type="number" min="0" step="1" style="width:100px" data-mprice></td><td><input type="checkbox" data-apply checked></td>`;
+            tr.dataset.client = item.client||''; tr.dataset.product = item.job||''; tr.dataset.type = item.type||'';
+            mb.appendChild(tr);
+          });
+        }
+        // 추가 지출
+        const eb = document.getElementById('tbl-extra-body'); if(eb){ eb.innerHTML='';
+          (state.extraExpenses||[]).forEach((ex,idx)=>{
+            const tr=document.createElement('tr'); tr.dataset.idx = String(idx);
+            tr.innerHTML = `
+              <td><input type="text" value="${ex.date||''}" style="width:110px"></td>
+              <td><input type="text" value="${ex.client||''}" style="width:120px"></td>
+              <td><input type="text" value="${ex.product||''}" style="width:140px"></td>
+              <td><input type="number" step="1" value="${Number(ex.amount||0)}" style="width:100px"></td>
+              <td style="text-align:center"><input type="checkbox" ${ex.report? 'checked':''}></td>
+              <td><button class="btn" data-del>삭제</button></td>`;
+            eb.appendChild(tr);
+          });
+          // 삭제 바인딩
+          eb.querySelectorAll('button[data-del]').forEach(btn=>{
+            btn.addEventListener('click', ()=>{ const tr=btn.closest('tr'); const i=Number(tr?.dataset.idx||-1); if(i>=0){ state.extraExpenses.splice(i,1); renderPrecheck(); } });
+          });
+        }
+      }
+
+      async function loadExtras(){
+        try{ const r=await fetch('/api/settlement/extra'); const d=await r.json().catch(()=>({})); if(r.ok && Array.isArray(d.items)) state.extraExpenses = d.items; else state.extraExpenses=[]; }
+        catch(e){ state.extraExpenses=[]; }
+      }
+      async function saveExtras(){
+        // 테이블의 현재 값을 state로 반영 후 저장
+        const eb = document.getElementById('tbl-extra-body'); if(eb){
+          const rows = Array.from(eb.querySelectorAll('tr'));
+          state.extraExpenses = rows.map(tr=>{
+            const inputs = tr.querySelectorAll('input');
+            return { date: inputs[0]?.value||'', client: inputs[1]?.value||'', product: inputs[2]?.value||'', amount: Number(inputs[3]?.value||0), report: !!inputs[4]?.checked };
+          });
+        }
+        try{ await fetch('/api/settlement/extra', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items: state.extraExpenses }) }); }
+        catch(e){}
+      }
+      // 미정 단가 저장 후 재계산
+      async function applyMissingPrices(){
+        const mb = document.getElementById('tbl-missing-body'); if(!mb) return;
+        // 입력된 단가만 pricebook에 추가/갱신
+        const rows = Array.from(mb.querySelectorAll('tr'));
+        rows.forEach(tr=>{
+          const price = Number(tr.querySelector('input[data-mprice]')?.value||0);
+          const apply = tr.querySelector('input[data-apply]')?.checked;
+          if(price>0 && apply){
+            const client = tr.dataset.client||''; const product = tr.dataset.product||''; const type = tr.dataset.type||'공통';
+            upsertPrice({ client, product, price, account:'', bank:'', holder:'', type });
+          }
+        });
+        renderPriceBook(); await savePriceBook();
+        // 재계산
+        if(state.selectedTabs?.length){
+          fetchBtn?.click();
+        }
+      }
+
+      // 버튼 바인딩: 사전 점검
+      (function(){
+        const bAdd = document.getElementById('btn-add-extra'); if(bAdd){ bAdd.addEventListener('click', ()=>{ state.extraExpenses.push({ date:'', client:'', product:'', amount:0, report:true }); renderPrecheck(); }); }
+        const bSave = document.getElementById('btn-save-extra'); if(bSave){ bSave.addEventListener('click', async()=>{ await saveExtras(); if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); } }); }
+        const bApply = document.getElementById('btn-apply-missing'); if(bApply){ bApply.addEventListener('click', applyMissingPrices); }
+      })();
+
+      // Aggregates + extraExpenses 합산 유틸
+      function augmentAggregatesWithExtras(aggs, extras){
+        try{
+          const A = JSON.parse(JSON.stringify(aggs||{}));
+          const byP = A.by_product = A.by_product||{}; const byA = A.by_agency = A.by_agency||{};
+          (extras||[]).filter(ex=>ex && ex.report).forEach(ex=>{
+            const date = ex.date||'추가'; const prod = ex.product||'추가지출'; const client = ex.client||'기타'; const amount = Number(ex.amount||0);
+            // by_product
+            const pmap = byP[date] = byP[date]||{}; const cur = pmap[prod] = pmap[prod]||{ qty:0, expense:0, income:0 };
+            cur.expense += amount;
+            // by_agency
+            const amap = byA[date] = byA[date]||{}; const arr = amap[client] = amap[client]||[];
+            arr.push({ product: prod, type: '추가', qty: 0, unit_price: 0, expense: amount, income: 0 });
+          });
+          return A;
+        }catch(e){ return aggs; }
       }
 
       // 모달 탭 전환
@@ -663,13 +812,11 @@
         }
       }
 
-      // 카드 전체 접기/펼치기
-      document.getElementById('btn-collapse-all').addEventListener('click', ()=>{
-        document.querySelectorAll('#cards-container .card').forEach(el=>el.classList.add('collapsed'));
-      });
-      document.getElementById('btn-expand-all').addEventListener('click', ()=>{
-        document.querySelectorAll('#cards-container .card').forEach(el=>el.classList.remove('collapsed'));
-      });
+      // 카드 접기/펼치기 토글 버튼(단일)
+      (function(){ const btn=document.getElementById('btn-toggle-collapse'); if(!btn) return; let collapsed=true; const apply=()=>{
+        document.querySelectorAll('#cards-container .card').forEach(el=>el.classList.toggle('collapsed', collapsed));
+        btn.textContent = collapsed? '전체 펼치기' : '전체 접기';
+      }; btn.addEventListener('click', ()=>{ collapsed=!collapsed; apply(); }); apply(); })();
 
       // 4) 엑셀 양식 복붙용 생성 (버튼이 존재하는 경우에만 바인딩)
       { const btn = document.getElementById('btn-export-excel'); if(btn){ btn.addEventListener('click', ()=>{
@@ -718,5 +865,3 @@
     </script>
   </body>
   </html>
-
-
