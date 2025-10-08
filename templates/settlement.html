@@ -24,11 +24,12 @@
       .pill{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
       .grid{ display:grid; gap:12px; }
       @media(min-width:1100px){ .grid{ grid-template-columns: 1fr 1fr; } }
-      .cards{ display:grid; gap:12px; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
+      .cards{ display:grid; gap:12px; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
       .card{ border:1px solid var(--line); border-radius:10px; background:#fff; }
       .card .card-hd{ display:flex; justify-content:space-between; align-items:center; padding:10px 12px; cursor:pointer; }
       .card .card-bd{ padding:0 12px 12px 12px; }
       .card.collapsed .card-bd{ display:none; }
+      .mini{ font-size:12px; }
       table{ width:100%; border-collapse: collapse; }
       th, td{ border-bottom:1px solid var(--line); padding:8px 6px; text-align:left; }
       th{ font-size:12px; color:var(--muted); font-weight:600; }
@@ -199,46 +200,13 @@
           <!-- 3) 정산 미리보기(페이지 하단 표시) -->
           <div id="results-panel" class="panel" style="display:none; margin-bottom:12px">
             <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
-              <div class="stack" style="gap:8px">
-                <button id="pv-tab-rows" class="btn btn-primary" type="button">행 보기</button>
-                <button id="pv-tab-product" class="btn" type="button">상품별</button>
-                <button id="pv-tab-agency" class="btn" type="button">대행사별</button>
-              </div>
+              <div class="muted">상품별 요약</div>
               <div class="stack" style="gap:8px">
                 <button id="btn-collapse-all" class="btn">전체 접기</button>
                 <button id="btn-expand-all" class="btn">전체 펼치기</button>
-                <button id="btn-export-excel" class="btn">엑셀 양식 복붙</button>
               </div>
             </div>
-            <!-- 정렬 컨트롤: 상품별 -->
-            <div id="sort-product" class="stack" style="gap:8px; margin-bottom:8px; display:none">
-              <label class="muted" style="margin:0">상품별 정렬</label>
-              <select id="sp-key">
-                <option value="qty">접수량</option>
-                <option value="expense">지출</option>
-                <option value="income">매출</option>
-              </select>
-              <select id="sp-order">
-                <option value="desc">내림차순</option>
-                <option value="asc">오름차순</option>
-              </select>
-            </div>
-            <!-- 정렬 컨트롤: 대행사별 -->
-            <div id="sort-agency" class="stack" style="gap:8px; margin-bottom:8px; display:none">
-              <label class="muted" style="margin:0">대행사별 정렬</label>
-              <select id="sa-key">
-                <option value="client">대행사</option>
-                <option value="product">상품명</option>
-                <option value="qty">수량</option>
-                <option value="expense">지출</option>
-                <option value="income">매출</option>
-              </select>
-              <select id="sa-order">
-                <option value="asc">오름차순</option>
-                <option value="desc">내림차순</option>
-              </select>
-            </div>
-            <!-- 행 보기: 날짜/대행사 카드로 그룹핑 -->
+            <!-- 상품별 카드 그리드 -->
             <div id="cards-container" class="cards"></div>
             <!-- 상품별 보기 -->
             <div style="overflow:auto">
@@ -394,41 +362,47 @@
 
       function renderAggregates(aggs){
         try{
-          const byProduct = aggs?.by_product||{}; const tb1 = document.querySelector('#tbl-product tbody'); tb1.innerHTML='';
+          // 상품별 단일 뷰 카드 렌더링
+          const cards = document.getElementById('cards-container');
+          if(!cards) return;
+          cards.innerHTML='';
+          const byProduct = aggs?.by_product||{};
           Object.keys(byProduct).sort().forEach(date=>{
-            const map = byProduct[date]||{}; Object.keys(map).sort().forEach(prod=>{
-              const v = map[prod]||{}; const tr=document.createElement('tr');
-              tr.innerHTML = `<td>${date}</td><td>${prod}</td><td>${v.qty||0}</td><td>${v.expense||0}</td><td>${v.income||0}</td>`; tb1.appendChild(tr);
-            });
-          });
-          const byAgency = aggs?.by_agency||{}; const tb2 = document.querySelector('#tbl-agency tbody'); tb2.innerHTML='';
-          Object.keys(byAgency).sort().forEach(date=>{
-            const map = byAgency[date]||{}; Object.keys(map).sort().forEach(client=>{
-              const arr = map[client]||[]; arr.forEach(it=>{
-                const tr=document.createElement('tr');
-                tr.innerHTML = `<td>${date}</td><td>${client}</td><td>${it.product||''}</td><td>${it.type||''}</td><td>${it.qty||0}</td><td>${it.unit_price||0}</td><td>${it.expense||0}</td><td>${it.income||0}</td>`; tb2.appendChild(tr);
+            const prods = byProduct[date]||{};
+            Object.keys(prods).sort().forEach(prod=>{
+              const v = prods[prod]||{};
+              const card=document.createElement('div'); card.className='card';
+              const totalQty = (v.qty||0); const totalExpense=(v.expense||0); const totalIncome=(v.income||0);
+              card.innerHTML = `
+                <div class="card-hd mini"><div>${date} · <b>${prod}</b></div>
+                  <div class="muted">총 세팅 ${totalQty} · 지출 ${totalExpense.toLocaleString()} · 매출 ${totalIncome.toLocaleString()}</div>
+                </div>
+                <div class="card-bd" style="overflow:auto">
+                  <table class="mini" style="width:100%">
+                    <thead><tr><th>대행사</th><th>상품명</th><th>유형</th><th>수량</th><th>단가</th><th>지출</th><th>매출</th></tr></thead>
+                    <tbody data-body></tbody>
+                  </table>
+                </div>`;
+
+              // by_agency 정보에서 해당 날짜·상품만 추출하여 표 채우기
+              const byAgency = aggs?.by_agency?.[date]||{}; const tbody = card.querySelector('[data-body]');
+              Object.keys(byAgency).sort().forEach(client=>{
+                const arr = byAgency[client]||[];
+                arr.filter(it=> (it.product||'')===prod).forEach(it=>{
+                  const tr=document.createElement('tr');
+                  tr.innerHTML = `<td>${client}</td><td>${it.product||''}</td><td>${it.type||''}</td><td>${it.qty||0}</td><td>${it.unit_price||0}</td><td>${it.expense||0}</td><td>${it.income||0}</td>`;
+                  tbody.appendChild(tr);
+                });
               });
+              cards.appendChild(card);
             });
           });
         }catch(e){}
       }
 
       // 모달 탭 전환
-      function setPvTab(name){
-        const ids = ['rows','product','agency'];
-        ids.forEach(id=>{
-          document.getElementById('pv-tab-'+id)?.classList.toggle('btn-primary', id===name);
-          const tbl = document.getElementById('tbl-'+id); if(tbl){ tbl.style.display = (id===name? 'table':'none'); }
-        });
-        // 행 보기 컨테이너 표시 제어
-        const cards = document.getElementById('cards-container'); if(cards){ cards.style.display = (name==='rows'? 'grid':'none'); }
-        // 정렬 컨트롤 표시 제어
-        document.getElementById('sort-product').style.display = (name==='product'? 'flex':'none');
-        document.getElementById('sort-agency').style.display = (name==='agency'? 'flex':'none');
-      }
-      document.getElementById('pv-tab-rows').addEventListener('click', ()=>setPvTab('rows'));
-      document.getElementById('pv-tab-product').addEventListener('click', ()=>setPvTab('product'));
-      document.getElementById('pv-tab-agency').addEventListener('click', ()=>setPvTab('agency'));
+      // 단일 상품별 뷰
+      function setPvTab(){ /* no-op: 단일 뷰 */ }
 
       // 단가부: 추가/삭제/입출력 (로컬 메모리)
       let clientDefaults = {};
@@ -743,3 +717,5 @@
     </script>
   </body>
   </html>
+
+
