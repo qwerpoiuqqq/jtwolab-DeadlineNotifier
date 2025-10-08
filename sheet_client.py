@@ -1036,51 +1036,51 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 			if qty_store == 0 and qty_traf == 0:
 				continue
 
-		# 자사건/관리형 판정: 상호명 셀 배경 노란색(자사) 또는 연녹색(관리형) → 매출 0 처리
-		is_internal = False
-		internal_type = None  # 'guarantee'(노란색) or 'manage'(연녹색)
-		if ci_agency is not None:
-			rgb = bg.get((header_row + row_idx, ci_agency))
-			if _is_yellow(rgb):
-				is_internal = True
-				internal_type = "guarantee"
-			elif _is_manage_green(rgb):
-				is_internal = True
-				internal_type = "manage"
+			# 자사건/관리형 판정: 상호명 셀 배경 노란색(자사) 또는 연녹색(관리형) → 매출 0 처리
+			is_internal = False
+			internal_type = None  # 'guarantee'(노란색) or 'manage'(연녹색)
+			if ci_agency is not None:
+				rgb = bg.get((header_row + row_idx, ci_agency))
+				if _is_yellow(rgb):
+					is_internal = True
+					internal_type = "guarantee"
+				elif _is_manage_green(rgb):
+					is_internal = True
+					internal_type = "manage"
 
-		# 저장 행
-		if qty_store:
-			unit = find_unit_price(agency, job, "저장")
-			expense = float(qty_store) * unit
-			income = 0.0 if is_internal else income_noted
-			rows_out.append({"date": tab, "client": agency, "job": job, "type": "저장", "qty": qty_store, "unit_price": unit, "expense": expense, "income": income, "is_internal": is_internal, "internal_type": internal_type})
-			by_client_expense[agency] = by_client_expense.get(agency, 0.0) + expense
-			if not is_internal:
-				by_client_income[agency] = by_client_income.get(agency, 0.0) + income
-			grand_expense += expense
-			grand_income += income
-			if unit == 0:
-				missing[(agency, job, "저장")] = missing.get((agency, job, "저장"), 0) + qty_store
-			# 집계: 상품명 기준(type을 붙이지 않음)
-			bp = by_product.setdefault(tab, {}).setdefault(job, {"qty": 0.0, "expense": 0.0, "income": 0.0})
-			bp["qty"] += float(qty_store); bp["expense"] += expense; bp["income"] += income
-			by_agency.setdefault(tab, {}).setdefault(agency, []).append({"product": job, "type": "저장", "qty": qty_store, "unit_price": unit, "expense": expense, "income": income, "internal_type": internal_type})
-		# 트래픽 행
-		if qty_traf:
-			unit = find_unit_price(agency, job, "트래픽")
-			expense = float(qty_traf) * unit
-			income = 0.0 if is_internal else income_noted
-			rows_out.append({"date": tab, "client": agency, "job": job, "type": "트래픽", "qty": qty_traf, "unit_price": unit, "expense": expense, "income": income, "is_internal": is_internal, "internal_type": internal_type})
-			by_client_expense[agency] = by_client_expense.get(agency, 0.0) + expense
-			if not is_internal:
-				by_client_income[agency] = by_client_income.get(agency, 0.0) + income
-			grand_expense += expense
-			grand_income += income
-			if unit == 0:
-				missing[(agency, job, "트래픽")] = missing.get((agency, job, "트래픽"), 0) + qty_traf
-			bp = by_product.setdefault(tab, {}).setdefault(job, {"qty": 0.0, "expense": 0.0, "income": 0.0})
-			bp["qty"] += float(qty_traf); bp["expense"] += expense; bp["income"] += income
-			by_agency.setdefault(tab, {}).setdefault(agency, []).append({"product": job, "type": "트래픽", "qty": qty_traf, "unit_price": unit, "expense": expense, "income": income, "internal_type": internal_type})
+			# 저장 행
+			if qty_store:
+				unit = find_unit_price(agency, job, "저장")
+				expense = float(qty_store) * unit
+				income = 0.0 if is_internal else income_noted
+				rows_out.append({"date": tab, "client": agency, "job": job, "type": "저장", "qty": qty_store, "unit_price": unit, "expense": expense, "income": income, "is_internal": is_internal, "internal_type": internal_type})
+				by_client_expense[agency] = by_client_expense.get(agency, 0.0) + expense
+				if not is_internal:
+					by_client_income[agency] = by_client_income.get(agency, 0.0) + income
+				grand_expense += expense
+				grand_income += income
+				if unit == 0:
+					missing[(agency, job, "저장")] = missing.get((agency, job, "저장"), 0) + qty_store
+				# 집계: 상품명 기준(type을 붙이지 않음)
+				bp = by_product.setdefault(tab, {}).setdefault(job, {"qty": 0.0, "expense": 0.0, "income": 0.0})
+				bp["qty"] += float(qty_store); bp["expense"] += expense; bp["income"] += income
+				by_agency.setdefault(tab, {}).setdefault(agency, []).append({"product": job, "type": "저장", "qty": qty_store, "unit_price": unit, "expense": expense, "income": income, "internal_type": internal_type})
+			# 트래픽 행
+			if qty_traf:
+				unit = find_unit_price(agency, job, "트래픽")
+				expense = float(qty_traf) * unit
+				income = 0.0 if is_internal else income_noted
+				rows_out.append({"date": tab, "client": agency, "job": job, "type": "트래픽", "qty": qty_traf, "unit_price": unit, "expense": expense, "income": income, "is_internal": is_internal, "internal_type": internal_type})
+				by_client_expense[agency] = by_client_expense.get(agency, 0.0) + expense
+				if not is_internal:
+					by_client_income[agency] = by_client_income.get(agency, 0.0) + income
+				grand_expense += expense
+				grand_income += income
+				if unit == 0:
+					missing[(agency, job, "트래픽")] = missing.get((agency, job, "트래픽"), 0) + qty_traf
+				bp = by_product.setdefault(tab, {}).setdefault(job, {"qty": 0.0, "expense": 0.0, "income": 0.0})
+				bp["qty"] += float(qty_traf); bp["expense"] += expense; bp["income"] += income
+				by_agency.setdefault(tab, {}).setdefault(agency, []).append({"product": job, "type": "트래픽", "qty": qty_traf, "unit_price": unit, "expense": expense, "income": income, "internal_type": internal_type})
 
 	# missing 리스트 가공
 	missing_list = [{"client": k[0], "job": k[1], "type": k[2], "qty_sum": v} for k, v in missing.items()]
