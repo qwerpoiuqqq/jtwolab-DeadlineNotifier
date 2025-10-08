@@ -235,7 +235,9 @@
           <div id="results-panel" class="panel" style="display:none; margin-bottom:12px">
             <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
               <div class="stack" style="gap:10px; align-items:center">
-                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-internal"> 보장형</label>
+                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-guarantee"> 보장형</label>
+                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-manage"> 관리형</label>
+                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-mincom"> 민컴&궁서</label>
                 <span id="agg-total-badge" class="pill"></span>
               </div>
               <div class="stack" style="gap:8px">
@@ -408,9 +410,12 @@
           const cards = document.getElementById('cards-container');
           if(!cards) return;
           cards.innerHTML='';
-          const onlyInternal = window.__onlyInternal===true;
+          const filterGuarantee = window.__filterGuarantee===true;
+          const filterManage = window.__filterManage===true;
+          const filterMincom = window.__filterMincom===true;
+          const mincomClients = ['민컴퍼니','궁서애드'];
           // 1) 상품별 총합 집계 (모든 날짜 합산)
-          const totalByProduct = {}; let grandTotal=0, grandInternalTotal=0;
+          const totalByProduct = {}; let grandTotal=0;
           Object.entries(aggs?.by_product||{}).forEach(([date, prods])=>{
             Object.entries(prods||{}).forEach(([prod, v])=>{
               const acc = totalByProduct[prod]||{qty:0, expense:0, income:0};
@@ -421,35 +426,39 @@
           // 2) 상품별 카드 생성 + 대행사별 상세(모든 날짜 포함)
           const byAgencyAllDates = aggs?.by_agency||{};
           Object.keys(totalByProduct).sort().forEach(prod=>{
-            // 보장형 체크 시: 카드별로 내부 접수만 집계하고, 없으면 카드 자체를 숨김
+            // 필터별 카드 재집계
             const rawS = totalByProduct[prod];
-            let cardQty=0, cardExpense=0, cardIncome=0, hasInternal=false;
+            let cardQty=0, cardExpense=0, cardIncome=0, hasMatch=false;
             Object.keys(byAgencyAllDates).forEach(date=>{
               const map = byAgencyAllDates[date]||{};
               Object.keys(map).forEach(client=>{
                 const arr = map[client]||[];
                 arr.filter(it=> (it.product||'')===prod).forEach(it=>{
-                  const isInt = (it.income||0)===0;
-                  if(onlyInternal){
-                    if(isInt){ hasInternal=true; cardQty += it.qty||0; cardExpense += it.expense||0; cardIncome += it.income||0; }
-                  }else{
-                    cardQty += it.qty||0; cardExpense += it.expense||0; cardIncome += it.income||0;
-                  }
+                  const itype = it.internal_type||null;
+                  const isGuarantee = itype==='guarantee';
+                  const isManage = itype==='manage';
+                  const isMincom = mincomClients.includes(client);
+                  let pass = true;
+                  if(filterGuarantee && !isGuarantee) pass=false;
+                  if(filterManage && !isManage) pass=false;
+                  if(filterMincom && !isMincom) pass=false;
+                  if(!pass) return;
+                  hasMatch=true; cardQty += it.qty||0; cardExpense += it.expense||0; cardIncome += it.income||0;
                 });
               });
             });
-            if(onlyInternal && !hasInternal) return; // 보장형 필터 시 카드 자체 숨김
-            const s = onlyInternal? {qty:cardQty, expense:cardExpense, income:cardIncome} : rawS;
+            if((filterGuarantee||filterManage||filterMincom) && !hasMatch) return; // 필터 시 매칭 없으면 카드 숨김
+            const s = (filterGuarantee||filterManage||filterMincom)? {qty:cardQty, expense:cardExpense, income:cardIncome} : rawS;
             grandTotal += s.expense||0;
-            if(onlyInternal) grandInternalTotal += s.expense||0;
+            const showIncome = !filterGuarantee && !filterManage;
             const card=document.createElement('div'); card.className='card';
             card.innerHTML = `
               <div class="card-hd mini"><div><b>${prod}</b></div>
-                <div class="muted">총 세팅 ${Number(s.qty||0).toLocaleString()} · 지출 ${Number(s.expense||0).toLocaleString()}${onlyInternal? '':' · 매출 '+Number(s.income||0).toLocaleString()}</div>
+                <div class="muted">총 세팅 ${Number(s.qty||0).toLocaleString()} · 지출 ${Number(s.expense||0).toLocaleString()}${showIncome? ' · 매출 '+Number(s.income||0).toLocaleString():''}</div>
               </div>
               <div class="card-bd" style="overflow:auto">
                 <table class="mini" style="width:100%">
-                  <thead><tr><th>날짜</th><th>대행사</th><th>유형</th><th>수량</th><th>단가</th><th>지출</th>${onlyInternal? '':'<th>매출</th>'}</tr></thead>
+                  <thead><tr><th>날짜</th><th>대행사</th><th>유형</th><th>수량</th><th>단가</th><th>지출</th>${showIncome? '<th>매출</th>':''}</tr></thead>
                   <tbody data-body></tbody>
                 </table>
               </div>`;
@@ -459,12 +468,21 @@
               Object.keys(map).sort().forEach(client=>{
                 const arr = map[client]||[];
                 arr.filter(it=> (it.product||'')===prod).forEach(it=>{
-                  const isInternal = (it.income||0)===0;
-                  if(onlyInternal && !isInternal) return;
+                  const itype = it.internal_type||null;
+                  const isGuarantee = itype==='guarantee';
+                  const isManage = itype==='manage';
+                  const isMincom = mincomClients.includes(client);
+                  let pass = true;
+                  if(filterGuarantee && !isGuarantee) pass=false;
+                  if(filterManage && !isManage) pass=false;
+                  if(filterMincom && !isMincom) pass=false;
+                  if(!pass) return;
                   const tr=document.createElement('tr');
                   const incomeCell = it.income||0;
-                  const rowStyle = (incomeCell===0? 'style="background:#fffbe6"' : ''); // 내부/관리형 강조
-                  tr.innerHTML = `<td>${date}</td><td>${client}</td><td>${it.type||''}</td><td>${Number(it.qty||0).toLocaleString()}</td><td>${Number(it.unit_price||0).toLocaleString()}</td><td>${Number(it.expense||0).toLocaleString()}</td>${onlyInternal? '':`<td ${rowStyle}>${Number(incomeCell||0).toLocaleString()}</td>`}`;
+                  let rowStyle = '';
+                  if(isGuarantee) rowStyle='style="background:#fffbe6"';
+                  else if(isManage) rowStyle='style="background:#d9ead3"';
+                  tr.innerHTML = `<td>${date}</td><td>${client}</td><td>${it.type||''}</td><td>${Number(it.qty||0).toLocaleString()}</td><td>${Number(it.unit_price||0).toLocaleString()}</td><td>${Number(it.expense||0).toLocaleString()}</td>${showIncome? `<td ${rowStyle}>${Number(incomeCell||0).toLocaleString()}</td>`:''}`;
                   tbody.appendChild(tr);
                 });
               });
@@ -472,24 +490,36 @@
             // 추가 지출 행(보고 반영 true만) 표시
             (state.extraExpenses||[]).filter(ex=> ex && ex.report && String(ex.product||'')===String(prod||'')).forEach(ex=>{
               const tr=document.createElement('tr');
-              tr.innerHTML = `<td>${ex.date||''}</td><td>${ex.client||''}</td><td>추가</td><td>-</td><td>-</td><td>${Number(ex.amount||0).toLocaleString()}</td>${onlyInternal? '':`<td class="muted">0</td>`}`;
+              tr.innerHTML = `<td>${ex.date||''}</td><td>${ex.client||''}</td><td>추가</td><td>-</td><td>-</td><td>${Number(ex.amount||0).toLocaleString()}</td>${showIncome? `<td class="muted">0</td>`:''}`;
               tbody.appendChild(tr);
             });
             cards.appendChild(card);
           });
           // 총계 뱃지 업데이트
           const badge = document.getElementById('agg-total-badge');
-          const finalExp = onlyInternal? grandInternalTotal : grandTotal;
-          if(badge){ badge.textContent = `${onlyInternal? '보장형 총 지출':'총 지출'} ${finalExp.toLocaleString()}`; badge.style.background = onlyInternal? '#fde68a':'#f6f8fa'; }
+          let badgeBg = '#f6f8fa';
+          if(filterGuarantee) badgeBg = '#fffbe6';
+          else if(filterManage) badgeBg = '#d9ead3';
+          else if(filterMincom) badgeBg = '#e0f2fe';
+          if(badge){ badge.textContent = `총 지출 ${grandTotal.toLocaleString()}`; badge.style.background = badgeBg; }
         }catch(e){}
       }
 
-      // 내부 보장건 토글 버튼
-      // 내부 보장건 체크박스
-      (function(){ const cb=document.getElementById('cb-internal'); if(!cb) return; cb.addEventListener('change', ()=>{
-        window.__onlyInternal = !!cb.checked;
-        if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); }
-      }); })();
+      // 필터 체크박스: 보장형/관리형/민컴&궁서
+      (function(){
+        const cbG = document.getElementById('cb-guarantee'); if(cbG){ cbG.addEventListener('change', ()=>{
+          window.__filterGuarantee = !!cbG.checked;
+          if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); }
+        }); }
+        const cbM = document.getElementById('cb-manage'); if(cbM){ cbM.addEventListener('change', ()=>{
+          window.__filterManage = !!cbM.checked;
+          if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); }
+        }); }
+        const cbMin = document.getElementById('cb-mincom'); if(cbMin){ cbMin.addEventListener('change', ()=>{
+          window.__filterMincom = !!cbMin.checked;
+          if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); }
+        }); }
+      })();
 
       // --- 사전 점검: 미정 단가 / 추가 지출 ---
       function renderPrecheck(){
