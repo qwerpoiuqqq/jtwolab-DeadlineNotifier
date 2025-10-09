@@ -173,9 +173,8 @@ def create_app() -> Flask:
 
 	@app.route("/settlement", methods=["GET"])  # 결재선 · 정산 페이지 (UI 스켈레톤)
 	def settlement():
-		return render_template(
-			"settlement.html",
-		)
+		html = render_template("settlement.html")
+		return app.response_class(html, mimetype="text/html; charset=utf-8")
 
 	# --- 결재선 보조 API들 ---
 	@app.route("/api/settlement/tabs", methods=["GET"])  # 시트 탭 제목 목록 (결재선 전용 시트)
@@ -311,6 +310,34 @@ def create_app() -> Flask:
 		except Exception as e:
 			return jsonify({"error": str(e)}), 500
 		return jsonify(result), 200
+
+	@app.route("/api/settlement/extra", methods=["GET", "POST"])  # 수기 추가 지출 저장소
+	def api_settlement_extra():
+		storage_path = os.getenv("EXTRA_EXPENSES_PATH", os.path.join(os.getcwd(), "extra_expenses.json"))
+		if request.method == "GET":
+			try:
+				if os.path.exists(storage_path):
+					with open(storage_path, "r", encoding="utf-8") as f:
+						data = json.load(f)
+				else:
+					data = []
+			except Exception as e:
+				return jsonify({"error": str(e)}), 500
+			return jsonify({"items": data}), 200
+		# POST 저장 (전체 치환 방식)
+		try:
+			payload = request.get_json(force=True, silent=False) or {}
+		except Exception:
+			return jsonify({"error": "invalid_json"}), 400
+		items = payload.get("items")
+		if not isinstance(items, list):
+			return jsonify({"error": "invalid_items"}), 400
+		try:
+			with open(storage_path, "w", encoding="utf-8") as f:
+				json.dump(items, f, ensure_ascii=False, indent=2)
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify({"ok": True}), 200
 
 	@app.route("/debug/headers")
 	def debug_headers():
