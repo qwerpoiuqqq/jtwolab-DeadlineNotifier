@@ -29,6 +29,8 @@
       .wizard{ border:1px solid var(--line); background:#fff; border-radius:12px; padding:16px; }
       .slide{ display:none; }
       .slide.active{ display:block; }
+      .two-col{ display:grid; gap:12px; }
+      @media(min-width:1100px){ .two-col{ grid-template-columns: 1fr 1fr; } }
       .muted{ color:var(--muted); }
       .pill{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
       .grid{ display:grid; gap:12px; }
@@ -1006,10 +1008,15 @@
                 <button id="wiz-preview" class="btn">완료</button>
               </div>
             </div>
-            <div id="kakao-list"></div>
-            <div class="panel" style="margin-top:10px">
-              <div class="stack" style="justify-content:space-between; align-items:center"><b>미리보기</b><div class="stack"><button id="copy-kakao" class="btn">복사</button></div></div>
-              <textarea id="kakao-text" style="width:100%; height:200px; margin-top:8px"></textarea>
+            <div class="two-col">
+              <div class="panel">
+                <div class="stack" style="justify-content:space-between; align-items:center"><b>미리보기</b><div class="stack"><button id="copy-kakao" class="btn">복사</button></div></div>
+                <textarea id="kakao-text" style="width:100%; height:320px; margin-top:8px"></textarea>
+              </div>
+              <div class="panel">
+                <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px"><b>상품 · 거래처 선택(부가세 포함)</b><span class="muted-sm">클릭하여 선택/해제</span></div>
+                <div id="pc-list" style="max-height:340px; overflow:auto"></div>
+              </div>
             </div>
             <div class="stack" style="justify-content:space-between; margin-top:8px">
               <button id="wiz-back-2" class="btn">이전</button>
@@ -1097,9 +1104,61 @@
         {key:'민컴', label:'민컴퍼니 정산'},
         {key:'궁서', label:'궁서애드 정산'},
       ];
+      // 부가세 포함 금액 계산 유틸 (x1.1, 반올림)
+      function withVAT(v){ return Math.round(Number(v||0) * 1.1); }
+
+      // 상품-거래처 리스트(부가세 포함) 구성
+      function renderProductClientList(){
+        const host = document.getElementById('pc-list'); if(!host) return; host.innerHTML='';
+        // 집계: product -> client -> sum(expense)
+        const aggs = augmentAggregatesWithExtras(state.lastAggregates||{}, state.extraExpenses||{});
+        const byA = aggs.by_agency||{}; const mincomClients=['민컴퍼니','궁서애드'];
+        const filterGuarantee = window.__filterGuarantee===true; const filterManage = window.__filterManage===true; const filterMincom = window.__filterMincom===true; const onlyMincomMode = filterMincom && !filterGuarantee && !filterManage;
+        const excludeP = new Set(state.exclusions?.products||[]); const excludeR = new Set(state.exclusions?.rows||[]);
+        const map = {}; // prod => client => sum
+        Object.keys(byA).forEach(date=>{
+          const cmap = byA[date]||{}; Object.keys(cmap).forEach(client=>{
+            (cmap[client]||[]).forEach(it=>{
+              if(excludeP.has(it.product||'')) return;
+              const rk = `${date}|||${client}|||${it.product||''}|||${it.type||''}|||${Number(it.qty||0)}|||${Number(it.unit_price||0)}|||${Number(it.expense||0)}`;
+              if(excludeR.has(rk)) return;
+              const itype=it.internal_type||null; const isG=itype==='guarantee'; const isM=itype==='manage'; const isMin=mincomClients.includes(client);
+              if(filterGuarantee && !isG) return; if(filterManage && !isM) return; if(filterMincom && !isMin) return; if(onlyMincomMode && !isG) return; if(filterGuarantee && isMin) return;
+              const prod = it.product||''; if(!map[prod]) map[prod]={}; map[prod][client] = (map[prod][client]||0) + Number(it.expense||0);
+            });
+          });
+        });
+        // 카드 그리드(세로·가로 모두 활용)
+        const grid=document.createElement('div'); grid.className='cards';
+        Object.keys(map).sort().forEach(prod=>{
+          const card=document.createElement('div'); card.className='card';
+          const inner=[];
+          Object.keys(map[prod]).sort().forEach(client=>{
+            const v = withVAT(map[prod][client]);
+            inner.push(`<div class="stack" style="justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--line)"><span class="home-link" data-pc="${prod}|||${client}|||${v}">[${client}]</span><b>${v.toLocaleString()}원</b></div>`);
+          });
+          card.innerHTML = `<div class="card-hd mini"><div><b>${prod}</b></div><div class="muted">부가세 포함</div></div><div class="card-bd">${inner.join('')}</div>`;
+          grid.appendChild(card);
+        });
+        host.appendChild(grid);
+        // 클릭 시 카톡 미리보기 실시간 갱신(해당 줄만 교체)
+        host.querySelectorAll('[data-pc]')?.forEach(el=>{
+          el.addEventListener('click', ()=>{
+            const payload = String(el.getAttribute('data-pc')||'');
+            const [prod, client, amountStr] = payload.split('|||');
+            // 해당 클라이언트 라인의 문구를 강조 표시(태그 선택 상태 기반)를 유지한 채 미리보기 갱신
+            // 카테고리 선택은 유지하고, 금액은 부가세 포함으로 반영
+            // 기존 buildKakaoText는 전체를 다시 만드니 그대로 호출
+            buildKakaoText();
+          });
+        });
+      }
       function renderKakaoList(){
         const cont = document.getElementById('kakao-list'); if(!cont) return; cont.innerHTML='';
-        const totals = computeClientTotals(); const clients = Object.keys(totals).sort();
+        const totalsSrc = computeClientTotals();
+        // 부가세 포함 금액으로 변환
+        const totals = Object.fromEntries(Object.entries(totalsSrc).map(([k,v])=>[k, withVAT(v)]));
+        const clients = Object.keys(totals).sort();
         clients.forEach(client=>{
           const amount = Number(totals[client]||0);
           const wrap = document.createElement('div'); wrap.className='panel'; wrap.style.marginBottom='8px';
@@ -1126,7 +1185,9 @@
       function buildKakaoText(){
         const txt = [];
         const dateStr = (document.getElementById('report-date')?.value||state.wizard.reportDate||'').trim(); if(dateStr){ txt.push(dateStr); txt.push(''); }
-        const totals = computeClientTotals(); const clients = Object.keys(totals).sort(); let totalSum=0;
+        const totalsSrc = computeClientTotals();
+        const totals = Object.fromEntries(Object.entries(totalsSrc).map(([k,v])=>[k, withVAT(v)]));
+        const clients = Object.keys(totals).sort(); let totalSum=0;
         clients.forEach(client=>{
           const amount = Number(totals[client]||0); totalSum += amount;
           txt.push(`[${client}]`);
@@ -1143,9 +1204,12 @@
       }
       (function(){ const dateEl=document.getElementById('report-date'); if(dateEl){ dateEl.addEventListener('input', ()=>{ state.wizard.reportDate = dateEl.value; buildKakaoText(); }); }
                  const prev=document.getElementById('wiz-back-2'); if(prev){ prev.addEventListener('click', ()=> setSlide(1)); }
-                 const preview=document.getElementById('wiz-preview'); if(preview){ preview.addEventListener('click', buildKakaoText); }
+                 const preview=document.getElementById('wiz-preview'); if(preview){ preview.addEventListener('click', ()=>{ buildKakaoText(); }); }
                  const copy=document.getElementById('copy-kakao'); if(copy){ copy.addEventListener('click', ()=>{ const t=document.getElementById('kakao-text')?.value||''; navigator.clipboard?.writeText(t); toast('복사됨'); }); }
-                 const next2=document.getElementById('wiz-next-2'); if(next2){ next2.addEventListener('click', ()=>{ setSlide(3); renderExcelTable(); }); } })();
+                 const next2=document.getElementById('wiz-next-2'); if(next2){ next2.addEventListener('click', ()=>{ setSlide(3); renderExcelTable(); }); }
+                 // 상품·거래처 보드 렌더
+                 renderProductClientList();
+                 })();
 
       // Step3: 엑셀 미리보기 (UI 스켈레톤)
       function gatherCurrentRows(){
