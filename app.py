@@ -173,8 +173,9 @@ def create_app() -> Flask:
 
 	@app.route("/settlement", methods=["GET"])  # 결재선 · 정산 페이지 (UI 스켈레톤)
 	def settlement():
-		html = render_template("settlement.html")
-		return app.response_class(html, mimetype="text/html; charset=utf-8")
+		from flask import send_file
+		# 템플릿 엔진 경유 대신 파일을 직접 서빙하여, 템플릿 로더/캐시 이슈를 우회한다.
+		return send_file(os.path.join(app.root_path, "templates", "settlement.html"), mimetype="text/html; charset=utf-8")
 
 	# --- 결재선 보조 API들 ---
 	@app.route("/api/settlement/tabs", methods=["GET"])  # 시트 탭 제목 목록 (결재선 전용 시트)
