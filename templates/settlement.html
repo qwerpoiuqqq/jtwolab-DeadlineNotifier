@@ -21,7 +21,7 @@
       .btn{ border:1px solid var(--line); background:#fff; color:#111827; padding:10px 14px; border-radius:10px; cursor:pointer; }
       .btn-primary{ background:#111827; color:#fff; border-color:#111827; }
       .btn-danger{ background:#b91c1c; color:#fff; border-color:#b91c1c; }
-      .btn-accent{ background:#2563eb; color:#fff; border-color:#2563eb; }
+      .btn-accent{ background:#2563eb; color:#fff; border-color:#2563eb; border-radius:12px; }
       .btn-ghost{ background:#fff; color:#2563eb; border-color:#2563eb; }
       .tag{ display:inline-block; padding:4px 8px; border:1px solid var(--line); border-radius:999px; background:var(--pill); font-size:12px; cursor:pointer; margin-right:6px; }
       .tag.active{ background:#111827; color:#fff; border-color:#111827; }
@@ -1011,11 +1011,11 @@
             <div class="two-col">
               <div class="panel">
                 <div class="stack" style="justify-content:space-between; align-items:center"><b>미리보기</b><div class="stack"><button id="copy-kakao" class="btn">복사</button></div></div>
-                <textarea id="kakao-text" style="width:100%; height:320px; margin-top:8px"></textarea>
+                <textarea id="kakao-text" style="width:100%; height:360px; margin-top:8px"></textarea>
               </div>
               <div class="panel">
-                <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px"><b>상품 · 거래처 선택(부가세 포함)</b><span class="muted-sm">클릭하여 선택/해제</span></div>
-                <div id="pc-list" style="max-height:340px; overflow:auto"></div>
+                <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px"><b>상품별 총 금액(부가세 포함)</b><span class="muted-sm">항목 선택으로 내용 수정</span></div>
+                <div id="pc-list" style="max-height:380px; overflow:auto"></div>
               </div>
             </div>
             <div class="stack" style="justify-content:space-between; margin-top:8px">
@@ -1175,32 +1175,32 @@
         const out={}; Object.keys(map).forEach(prod=>{ out[prod] = {}; Object.keys(map[prod]).forEach(client=>{ out[prod][client] = withVAT(map[prod][client]); }); });
         return out;
       }
+      function computeProductTotals(){
+        const pc = computeProductClientTotals();
+        const totals = {}; Object.keys(pc).forEach(prod=>{ totals[prod] = Object.values(pc[prod]).reduce((a,b)=>a+Number(b||0),0); });
+        return totals;
+      }
       function renderKakaoList(){
         const cont = document.getElementById('kakao-list'); if(!cont) return; cont.innerHTML='';
-        const totals = computeProductClientTotals();
+        const totals = computeProductTotals();
         Object.keys(totals).sort().forEach(prod=>{
           const wrap = document.createElement('div'); wrap.className='panel'; wrap.style.marginBottom='8px';
-          const inner=[];
-          Object.keys(totals[prod]).sort().forEach(client=>{
-            const amount = Number(totals[prod][client]||0);
-            const tags = (state.wizard.categories[client]||[]);
-            inner.push(`
-              <div class=\"stack\" style=\"justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--line)\">
-                <div class=\"muted\">[${client}]</div>
-                <div>
-                  ${(EXPENSE_TAGS||[]).map(tag=>`<span class=\"tag${tags.includes(tag.key)? ' active':''}\" data-tag data-client=\"${client}\" data-key=\"${tag.key}\">${tag.key}</span>`).join('')}
-                </div>
-                <b>${amount.toLocaleString()}원</b>
-              </div>`);
-          });
-          wrap.innerHTML = `<div><b>[${prod}]</b></div>${inner.join('')}`;
+          const amount = Number(totals[prod]||0);
+          wrap.innerHTML = `
+            <div class=\"stack\" style=\"justify-content:space-between; align-items:center\">
+              <div><b>[${prod}]</b></div>
+              <div>
+                ${(EXPENSE_TAGS||[]).map(tag=>`<span class=\"tag\" data-ptag data-product=\"${prod}\" data-key=\"${tag.key}\">${tag.key}</span>`).join('')}
+              </div>
+              <b>${amount.toLocaleString()}원</b>
+            </div>`;
           cont.appendChild(wrap);
         });
-        // 태그 토글 핸들러
-        cont.querySelectorAll('[data-tag]')?.forEach(el=>{
+        // 태그 토글 핸들러 (상품 단위)
+        cont.querySelectorAll('[data-ptag]')?.forEach(el=>{
           el.addEventListener('click', ()=>{
-            const client=String(el.getAttribute('data-client')||''); const key=String(el.getAttribute('data-key')||'');
-            const cur=new Set(state.wizard.categories[client]||[]); if(cur.has(key)) cur.delete(key); else cur.add(key); state.wizard.categories[client]=Array.from(cur);
+            const prod=String(el.getAttribute('data-product')||''); const key=String(el.getAttribute('data-key')||'');
+            const cur=new Set(state.wizard.categories[prod]||[]); if(cur.has(key)) cur.delete(key); else cur.add(key); state.wizard.categories[prod]=Array.from(cur);
             renderKakaoList(); buildKakaoText();
           });
         });
@@ -1209,16 +1209,14 @@
       function buildKakaoText(){
         const txt = [];
         const dateStr = (document.getElementById('report-date')?.value||state.wizard.reportDate||'').trim(); if(dateStr){ txt.push(dateStr); txt.push(''); }
-        const totals = computeProductClientTotals(); let totalSum=0;
+        const totals = computeProductTotals(); let totalSum=0;
         Object.keys(totals).sort().forEach(prod=>{
           txt.push(`[${prod}]`);
-          Object.keys(totals[prod]).sort().forEach(client=>{
-            const amount = Number(totals[prod][client]||0); totalSum += amount;
-            const tags = state.wizard.categories[client]||[]; const custom = (state.wizard.custom[client]||'').trim();
-            const pieces = []; tags.forEach(k=>{ const t=EXPENSE_TAGS.find(x=>x.key===k); if(t) pieces.push(t.label); }); if(custom) pieces.push(custom);
-            const label = pieces.length? pieces.join(', ') : '지출';
-            txt.push(`${amount.toLocaleString()}원 - ${label}`);
-          });
+          const amount = Number(totals[prod]||0); totalSum += amount;
+          const tags = state.wizard.categories[prod]||[]; const custom = (state.wizard.custom[prod]||'').trim();
+          const pieces = []; tags.forEach(k=>{ const t=EXPENSE_TAGS.find(x=>x.key===k); if(t) pieces.push(t.label); }); if(custom) pieces.push(custom);
+          const label = pieces.length? pieces.join(', ') : '지출';
+          txt.push(`${amount.toLocaleString()}원 - ${label}`);
           txt.push('');
         });
         if((state.wizard.receivables||[]).length){ txt.push('미수금'); (state.wizard.receivables||[]).forEach(it=>{ if(!it) return; const a=String(it.agency||'').trim(); const m=Number(it.amount||0); if(a && m){ txt.push(`${a} - ${m.toLocaleString()}원`); } }); txt.push(''); }
