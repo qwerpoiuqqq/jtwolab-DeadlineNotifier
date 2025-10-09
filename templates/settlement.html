@@ -1096,7 +1096,7 @@
         return out;
       }
 
-      // Step2: 카톡 보고용 UI
+      // Step2: 카톡 보고용 UI (상품별 → 거래처 목록, 금액은 VAT 포함)
       const EXPENSE_TAGS = [
         {key:'리워드', label:'리워드'},
         {key:'블로그', label:'블로그 배포'},
@@ -1153,49 +1153,73 @@
           });
         });
       }
+      function computeProductClientTotals(){
+        const aggs = augmentAggregatesWithExtras(state.lastAggregates||{}, state.extraExpenses||{});
+        const byA = aggs.by_agency||{}; const mincomClients=['민컴퍼니','궁서애드'];
+        const filterGuarantee = window.__filterGuarantee===true; const filterManage = window.__filterManage===true; const filterMincom = window.__filterMincom===true; const onlyMincomMode = filterMincom && !filterGuarantee && !filterManage;
+        const excludeP = new Set(state.exclusions?.products||[]); const excludeR = new Set(state.exclusions?.rows||[]);
+        const map = {}; // prod -> client -> sum(expense)
+        Object.keys(byA).forEach(date=>{
+          const cmap = byA[date]||{}; Object.keys(cmap).forEach(client=>{
+            (cmap[client]||[]).forEach(it=>{
+              if(excludeP.has(it.product||'')) return;
+              const rk = `${date}|||${client}|||${it.product||''}|||${it.type||''}|||${Number(it.qty||0)}|||${Number(it.unit_price||0)}|||${Number(it.expense||0)}`;
+              if(excludeR.has(rk)) return;
+              const itype=it.internal_type||null; const isG=itype==='guarantee'; const isM=itype==='manage'; const isMin=mincomClients.includes(client);
+              if(filterGuarantee && !isG) return; if(filterManage && !isM) return; if(filterMincom && !isMin) return; if(onlyMincomMode && !isG) return; if(filterGuarantee && isMin) return;
+              const prod = it.product||''; if(!map[prod]) map[prod]={}; map[prod][client] = (map[prod][client]||0) + Number(it.expense||0);
+            });
+          });
+        });
+        // VAT 포함 변환
+        const out={}; Object.keys(map).forEach(prod=>{ out[prod] = {}; Object.keys(map[prod]).forEach(client=>{ out[prod][client] = withVAT(map[prod][client]); }); });
+        return out;
+      }
       function renderKakaoList(){
         const cont = document.getElementById('kakao-list'); if(!cont) return; cont.innerHTML='';
-        const totalsSrc = computeClientTotals();
-        // 부가세 포함 금액으로 변환
-        const totals = Object.fromEntries(Object.entries(totalsSrc).map(([k,v])=>[k, withVAT(v)]));
-        const clients = Object.keys(totals).sort();
-        clients.forEach(client=>{
-          const amount = Number(totals[client]||0);
+        const totals = computeProductClientTotals();
+        Object.keys(totals).sort().forEach(prod=>{
           const wrap = document.createElement('div'); wrap.className='panel'; wrap.style.marginBottom='8px';
-          const tags = (state.wizard.categories[client]||[]);
-          const custom = state.wizard.custom[client]||'';
-          wrap.innerHTML = `
-            <div><b>[${client}]</b></div>
-            <div class="muted" style="margin:4px 0">${amount.toLocaleString()}원 - <span class="muted-sm">지출 항목 선택</span></div>
-            <div data-tags></div>
-            <div class="stack" style="margin-top:6px; align-items:center; gap:6px"><span class="muted-sm">기타</span><input data-custom type="text" placeholder="기타 내용" value="${custom}" style="flex:1; min-width:200px"></div>
-          `;
-          const tcont = wrap.querySelector('[data-tags]');
-          EXPENSE_TAGS.forEach(tag=>{
-            const el=document.createElement('span'); el.className = 'tag' + (tags.includes(tag.key)? ' active':''); el.textContent = tag.key; el.addEventListener('click', ()=>{
-              const cur = new Set(state.wizard.categories[client]||[]); if(cur.has(tag.key)) cur.delete(tag.key); else cur.add(tag.key); state.wizard.categories[client] = Array.from(cur); renderKakaoList(); buildKakaoText();
-            });
-            tcont.appendChild(el);
+          const inner=[];
+          Object.keys(totals[prod]).sort().forEach(client=>{
+            const amount = Number(totals[prod][client]||0);
+            const tags = (state.wizard.categories[client]||[]);
+            inner.push(`
+              <div class=\"stack\" style=\"justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--line)\">
+                <div class=\"muted\">[${client}]</div>
+                <div>
+                  ${(EXPENSE_TAGS||[]).map(tag=>`<span class=\"tag${tags.includes(tag.key)? ' active':''}\" data-tag data-client=\"${client}\" data-key=\"${tag.key}\">${tag.key}</span>`).join('')}
+                </div>
+                <b>${amount.toLocaleString()}원</b>
+              </div>`);
           });
-          const customEl = wrap.querySelector('input[data-custom]'); customEl?.addEventListener('input', (e)=>{ state.wizard.custom[client] = String(e.target.value||''); buildKakaoText(); });
+          wrap.innerHTML = `<div><b>[${prod}]</b></div>${inner.join('')}`;
           cont.appendChild(wrap);
+        });
+        // 태그 토글 핸들러
+        cont.querySelectorAll('[data-tag]')?.forEach(el=>{
+          el.addEventListener('click', ()=>{
+            const client=String(el.getAttribute('data-client')||''); const key=String(el.getAttribute('data-key')||'');
+            const cur=new Set(state.wizard.categories[client]||[]); if(cur.has(key)) cur.delete(key); else cur.add(key); state.wizard.categories[client]=Array.from(cur);
+            renderKakaoList(); buildKakaoText();
+          });
         });
       }
 
       function buildKakaoText(){
         const txt = [];
         const dateStr = (document.getElementById('report-date')?.value||state.wizard.reportDate||'').trim(); if(dateStr){ txt.push(dateStr); txt.push(''); }
-        const totalsSrc = computeClientTotals();
-        const totals = Object.fromEntries(Object.entries(totalsSrc).map(([k,v])=>[k, withVAT(v)]));
-        const clients = Object.keys(totals).sort(); let totalSum=0;
-        clients.forEach(client=>{
-          const amount = Number(totals[client]||0); totalSum += amount;
-          txt.push(`[${client}]`);
-          const tags = state.wizard.categories[client]||[]; const custom = (state.wizard.custom[client]||'').trim();
-          const pieces = [];
-          tags.forEach(k=>{ const t=EXPENSE_TAGS.find(x=>x.key===k); if(t) pieces.push(t.label); }); if(custom) pieces.push(custom);
-          const label = pieces.length? pieces.join(', ') : '지출';
-          txt.push(`${amount.toLocaleString()}원 - ${label}`); txt.push('');
+        const totals = computeProductClientTotals(); let totalSum=0;
+        Object.keys(totals).sort().forEach(prod=>{
+          txt.push(`[${prod}]`);
+          Object.keys(totals[prod]).sort().forEach(client=>{
+            const amount = Number(totals[prod][client]||0); totalSum += amount;
+            const tags = state.wizard.categories[client]||[]; const custom = (state.wizard.custom[client]||'').trim();
+            const pieces = []; tags.forEach(k=>{ const t=EXPENSE_TAGS.find(x=>x.key===k); if(t) pieces.push(t.label); }); if(custom) pieces.push(custom);
+            const label = pieces.length? pieces.join(', ') : '지출';
+            txt.push(`${amount.toLocaleString()}원 - ${label}`);
+          });
+          txt.push('');
         });
         if((state.wizard.receivables||[]).length){ txt.push('미수금'); (state.wizard.receivables||[]).forEach(it=>{ if(!it) return; const a=String(it.agency||'').trim(); const m=Number(it.amount||0); if(a && m){ txt.push(`${a} - ${m.toLocaleString()}원`); } }); txt.push(''); }
         if((state.wizard.payables||[]).length){ txt.push('미지급'); let subtotal=0; (state.wizard.payables||[]).forEach(it=>{ if(!it) return; const c=String(it.client||'').trim(); const p=String(it.product||'').trim(); const m=Number(it.amount||0); if(c && p && m){ txt.push(`[${c}]`); txt.push(`${p} - ${m.toLocaleString()}원`); subtotal+=m; } }); if(subtotal>0){ txt.push(''); txt.push(`총 - ${subtotal.toLocaleString()}원`); } txt.push(''); }
