@@ -1,1005 +1,1106 @@
-<!doctype html>
-<html lang="ko">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>결재선 · 정산</title>
-    <style>
-      :root{ --bg:#ffffff; --text:#1f2328; --muted:#6b778c; --line:#e5e7eb; --panel:#ffffff; --pill:#f6f8fa; --btn:#111827; }
-      html,body{ height:100% }
-      body{ margin:0; background:var(--bg); color:var(--text); font-family: ui-sans-serif, system-ui, "Noto Sans KR", Arial; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-      .content{ flex:1; padding:24px; }
-      .title{ font-weight:800; letter-spacing:.2px; font-size:18px; margin-bottom:16px; }
-      .home-link{ color:inherit; text-decoration:none; }
-      .home-link:hover{ text-decoration:underline; }
-      .nav a{ display:block; padding:10px 12px; border-radius:10px; color:inherit; text-decoration:none; margin-bottom:6px; border:1px solid var(--line); background:var(--pill); }
-      .nav a.active{ background:#111827; color:#fff; border-color:#111827; }
-      .panel{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
-      .stack{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-      label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
-      input[type="text"], input[type="date"], select{ background:#fff; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px 12px; min-width:200px; outline:none; }
-      .btn{ border:1px solid var(--line); background:#fff; color:#111827; padding:10px 14px; border-radius:10px; cursor:pointer; }
-      .btn-primary{ background:#111827; color:#fff; border-color:#111827; }
-      .btn-danger{ background:#b91c1c; color:#fff; border-color:#b91c1c; }
-      .muted{ color:var(--muted); }
-      .pill{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
-      .grid{ display:grid; gap:12px; }
-      @media(min-width:1100px){ .grid{ grid-template-columns: 1fr 1fr; } }
-      .cards{ display:grid; gap:12px; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
-      .card{ border:1px solid var(--line); border-radius:10px; background:#fff; }
-      .card .card-hd{ display:flex; justify-content:space-between; align-items:center; padding:10px 12px; cursor:pointer; }
-      .card .card-bd{ padding:0 12px 12px 12px; }
-      .card.collapsed .card-bd{ display:none; }
-      .mini{ font-size:12px; }
-      .mini th, .mini td{ padding:4px 6px; }
-      table{ width:100%; border-collapse: collapse; }
-      th, td{ border-bottom:1px solid var(--line); padding:8px 6px; text-align:left; }
-      th{ font-size:12px; color:var(--muted); font-weight:600; }
-      .chips{ display:flex; gap:8px; flex-wrap:wrap; }
-      .chip{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:8px 12px; border-radius:999px; cursor:pointer; font-size:12px; }
-      .chip.active{ background:#111827; color:#fff; border-color:#111827; }
-      .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.08); backdrop-filter: blur(2px); z-index:50; }
-      .spinner{ width:34px; height:34px; border:3px solid rgba(17,24,39,.18); border-top-color:#111827; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 10px; }
-      .progress{ width:260px; height:8px; background:#e5e7eb; border-radius:999px; overflow:hidden; margin:8px auto 0; }
-      .progress-bar{ height:100%; width:0%; background:#111827; transition:width .2s ease; }
-      @keyframes spin{ to{ transform:rotate(360deg); } }
-      /* 페이지 2열 레이아웃 */
-      .page{ display:flex; gap:16px; align-items:flex-start; }
-      .subnav{ width:220px; border:1px solid var(--line); background:#fff; border-radius:12px; padding:12px; }
-      .subnav .title-sm{ font-weight:700; margin-bottom:10px; }
-      .subnav .vtab{ display:block; width:100%; text-align:left; padding:10px 12px; border:1px solid var(--line); background:var(--pill); border-radius:10px; margin-bottom:8px; cursor:pointer; }
-      .subnav .vtab.active{ background:#111827; color:#fff; border-color:#111827; }
-      .maincol{ flex:1; min-width:0; }
-      /* 모바일: 좌측 탭 숨기고 상단 탭 표시 */
-      .tabbar{ display:none; }
-      @media(max-width:900px){
-        .page{ display:block; }
-        .subnav{ display:none; }
-        .tabbar{ display:block; }
-      }
-    </style>
-  </head>
-  <body>
-    <div class="content" style="max-width:1100px; margin:0 auto; padding:24px">
-      <div class="title"><a class="home-link" href="/">마감 안내 생성기</a> · <a class="home-link" href="/manage">보장 관리</a> · <a class="home-link" href="/settlement" style="font-weight:600">결재선 · 정산</a></div>
+import os
+import json
+import re
+import time
+import random
+from typing import Dict, List, Set, Any, Tuple, Callable
 
-      <div class="page">
-        <aside class="subnav">
-          <div class="title-sm">결재선</div>
-          <button id="side-tab-settle" class="vtab active" type="button">정산</button>
-          <button id="side-tab-price" class="vtab" type="button">단가 관리</button>
-        </aside>
-        <div class="maincol">
-          <!-- 모바일 상단 탭: 데스크톱에서는 숨김 -->
-          <div id="tabbar" class="panel tabbar" style="margin-bottom:12px">
-            <div class="stack" style="justify-content:flex-start">
-              <button id="tab-settle" class="btn btn-primary" type="button">정산</button>
-              <button id="tab-price" class="btn" type="button">단가 관리</button>
-            </div>
-          </div>
+import gspread
+from google.oauth2.service_account import Credentials
 
-          <!-- 1) 중앙 히어로: 탭 불러오기/기간/가져오기만 표시 (정산 탭에서만 보임) -->
-          <div id="hero" class="panel" style="margin-bottom:12px; display:block">
-            <div class="stack" style="align-items:flex-end">
-              <div>
-                <label>구글 시트 하단 탭</label>
-                <div class="stack">
-                  <button id="load-tabs" class="btn">탭 불러오기</button>
-                  <span id="tab-count" class="pill">0개</span>
-                </div>
-              </div>
-              <div style="flex:1; min-width:260px">
-                <label>탭(날짜) 선택</label>
-                <div id="tab-chips" class="chips"></div>
-              </div>
-              <!-- 기간 선택 제거 -->
-              <button id="fetch-data" class="btn btn-primary">데이터 가져오기</button>
-            </div>
-            <div class="muted" style="margin-top:8px; font-size:12px">탭명은 날짜(예: 2025-10-06) 형식을 권장합니다.</div>
-          </div>
+# 환경변수 기본 키
+DEFAULT_KEYS = {
+	"AGENCY_COLUMN": "대행사 명",
+	"INTERNAL_COLUMN": "내부 진행건",
+	"REMAINING_DAYS_COLUMN": "마감 잔여일",
+	"CHECKED_COLUMN": "마감 안내 체크",
+	"BIZNAME_COLUMN": "상호명",
+	"PRODUCT_COLUMN": "상품",
+	"PRODUCT_NAME_COLUMN": "상품 명",
+	"DAILY_WORKLOAD_COLUMN": "일작업량",
+}
 
-          <!-- 2) 단가 관리: 상단/좌측 탭에서 전환 시 표시 -->
-          <div id="price-panel" class="panel" style="display:none; margin-bottom:12px">
-            <div class="stack" style="justify-content:space-between">
-              <div class="muted">거래처별 계좌 · 상품별 단가</div>
-              <div class="stack">
-                <button id="btn-add-price" class="btn btn-primary">상품 추가</button>
-                <button id="btn-save-price" class="btn">저장</button>
-                <button id="btn-bulk-toggle" class="btn">엑셀 대량등록</button>
-                <a id="bulk-download" class="btn" href="/api/settlement/pricebook/template">대량등록 양식</a>
-              </div>
-            </div>
-            <!-- 인라인 에디터 -->
-            <div class="panel" style="margin-top:10px">
-              <div class="stack" style="align-items:flex-end; gap:10px; flex-wrap:wrap">
-                <div>
-                  <label>거래처</label>
-                  <input id="pb-client" type="text" placeholder="예: 레알마케팅" />
-                </div>
-                <div>
-                  <label>상품명</label>
-                  <input id="pb-product" type="text" placeholder="예: 일류1" />
-                </div>
-                <div>
-                  <label>단가</label>
-                  <input id="pb-price" type="text" placeholder="예: 1750" />
-                </div>
-                <div style="min-width:200px">
-                  <label>계좌</label>
-                  <input id="pb-account" type="text" placeholder="선택" />
-                </div>
-                <div style="min-width:200px">
-                  <label>예금주</label>
-                  <input id="pb-holder" type="text" placeholder="예: ㈜제이티더블유랩" />
-                </div>
-                <div class="stack" style="gap:8px">
-                  <label style="margin:0; color:var(--muted); font-size:12px">유형</label>
-                  <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="공통" checked />공통</label>
-                  <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="저장" />저장</label>
-                  <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="트래픽" />트래픽</label>
-                </div>
-                <div class="stack">
-                  <button id="pb-add-one" class="btn btn-primary" type="button">추가</button>
-                  <button id="pb-add-both" class="btn" type="button">저장·트래픽 동시 추가</button>
-                </div>
-                <div class="panel" style="margin-top:6px; width:100%">
-                  <label>검색</label>
-                  <input id="pb-search" type="text" placeholder="거래처/상품 검색" style="width:100%" />
-                </div>
-              </div>
-            </div>
+# header 동의어(공백 무시, 소문자 비교)
+SYNONYMS: Dict[str, List[str]] = {
+	"AGENCY_COLUMN": ["대행사", "대행사명", "광고대행사", "파트너", "파트너사"],
+	"BIZNAME_COLUMN": ["상호", "업체명", "매장명", "브랜드명", "점포명", "상호명"],
+	"INTERNAL_COLUMN": ["내부", "내부진행", "자체진행", "내부 진행건"],
+	"REMAINING_DAYS_COLUMN": ["잔여일", "마감잔여일", "d-day", "dday", "남은일", "남은 일"],
+	"CHECKED_COLUMN": ["마감안내", "안내체크", "공지여부", "발송완료", "완료체크", "안내 여부"],
+	"PRODUCT_COLUMN": ["상품", "유형", "type", "종류"],
+	"PRODUCT_NAME_COLUMN": ["상품 명", "상품명", "작업명", "작업 명"],
+	"DAILY_WORKLOAD_COLUMN": ["일 작업량", "일작업량"],
+}
 
-            <!-- 대량 등록 패널 -->
-            <div id="bulk-panel" class="panel" style="margin-top:10px; display:none">
-              <div class="muted" style="margin-bottom:6px; font-size:12px">대량등록 엑셀을 업로드하세요. 헤더: 거래처, 상품명, 유형(공란/저장/트래픽), 단가, 계좌, 은행, 예금주</div>
-              <div class="stack" style="gap:10px; align-items:center; flex-wrap:wrap">
-                <input id="bulk-file" type="file" accept=".xlsx" />
-                <button id="bulk-upload" class="btn btn-primary">업로드 미리보기</button>
-                <button id="bulk-apply-xlsx" class="btn">일괄 추가/병합</button>
-                <span id="bulk-status" class="muted" style="font-size:12px"></span>
-              </div>
-              <div style="overflow:auto; margin-top:8px">
-                <table id="tbl-bulk" style="width:100%">
-                  <thead>
-                    <tr>
-                      <th style="font-size:12px">#</th>
-                      <th style="font-size:12px">거래처</th>
-                      <th style="font-size:12px">상품명</th>
-                      <th style="font-size:12px">유형</th>
-                      <th style="font-size:12px">단가</th>
-                      <th style="font-size:12px">계좌</th>
-                      <th style="font-size:12px">은행</th>
-                      <th style="font-size:12px">예금주</th>
-                      <th style="font-size:12px">상태</th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </div>
-            <div style="overflow:auto; margin-top:8px">
-              <table id="tbl-price">
-                <thead>
-                  <tr>
-                    <th>거래처</th>
-                    <th>상품명</th>
-                    <th>유형</th>
-                    <th>단가</th>
-                    <th>계좌</th>
-                    <th>은행</th>
-                    <th>예금주</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-        
-          <!-- 3) 정산 미리보기(페이지 하단 표시) -->
-          <!-- 사전 점검 패널: 미정 단가 / 추가 지출 -->
-          <div id="precheck-panel" class="panel" style="display:none; margin-bottom:12px">
-            <div class="grid">
-              <div class="panel">
-                <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px">
-                  <div class="muted">신규 상품</div>
-                  <button id="btn-apply-missing" class="btn btn-primary">추가</button>
-                </div>
-                <div style="overflow:auto">
-                  <table class="mini" style="width:100%">
-                    <thead><tr><th>반영</th><th>대행사</th><th>상품명</th><th>유형</th><th>수량 합계</th><th>단가(입력)</th></tr></thead>
-                    <tbody id="tbl-missing-body"></tbody>
-                  </table>
-                </div>
-              </div>
-              <div class="panel">
-                <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px">
-                  <div class="muted">추가 지출</div>
-                  <div class="stack" style="gap:6px">
-                    <button id="btn-add-extra" class="btn">행 추가</button>
-                    <button id="btn-save-extra" class="btn btn-primary">추가 지출 저장</button>
-                  </div>
-                </div>
-                <div style="overflow:auto">
-                  <table class="mini" style="width:100%">
-                    <thead><tr><th>반영</th><th>날짜</th><th>대행사</th><th>상품</th><th>금액</th><th></th></tr></thead>
-                    <tbody id="tbl-extra-body"></tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-            <div class="stack" style="justify-content:flex-end; margin-top:8px">
-              <button id="btn-finalize" class="btn btn-primary">최종 반영</button>
-            </div>
-          </div>
-
-          <div id="results-panel" class="panel" style="display:none; margin-bottom:12px">
-            <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
-              <div class="stack" style="gap:10px; align-items:center">
-                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-guarantee"> 보장형</label>
-                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-manage"> 관리형</label>
-                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-mincom"> 민컴&궁서</label>
-                <span id="agg-total-badge" class="pill"></span>
-              </div>
-              <div class="stack" style="gap:8px">
-                <button id="btn-toggle-collapse" class="btn">전체 접기</button>
-                <button id="btn-delete-toggle" class="btn" title="결재선 반영에서 특정 건 제외">삭제</button>
-              </div>
-            </div>
-            <!-- 상품별 카드 그리드 -->
-            <div id="cards-container" class="cards"></div>
-            <!-- 상품별 보기 -->
-            <div style="overflow:auto">
-              <table id="tbl-product" style="width:100%; display:none">
-                <thead>
-                  <tr>
-                    <th>날짜</th>
-                    <th>상품명</th>
-                    <th>총 접수량</th>
-                    <th>지출</th>
-                    <th>매출</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-            <!-- 대행사별 보기 -->
-            <div style="overflow:auto">
-              <table id="tbl-agency" style="width:100%; display:none">
-                <thead>
-                  <tr>
-                    <th>날짜</th>
-                    <th>대행사</th>
-                    <th>상품명</th>
-                    <th>유형</th>
-                    <th>수량</th>
-                    <th>단가</th>
-                    <th>지출</th>
-                    <th>매출</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="overlay" id="overlay">
-      <div class="center">
-        <div class="spinner"></div>
-        <div class="muted" id="progress-text">불러오는 중...</div>
-        <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
-      </div>
-    </div>
-
-    <script>
-      // 상태 저장소 (임시: 클라이언트 메모리)
-      const state = {
-        tabs: [], // 시트 탭명
-        selectedTabs: [], // 선택된 탭
-        priceBook: [], // { client, product, price, account }
-        previewRows: [], // { date, client, agency, product, qty, price, amount }
-        lastAggregates: null, // 마지막 계산 aggregates 그대로 보관
-        missingPrices: [], // compute 응답의 missing_prices
-        extraExpenses: [], // [{date,client,product,amount,report}]
-        exclusions: { products: [], rows: [] } // 결재선 반영 제외 세트
-      };
-
-      const $ = (s)=>document.querySelector(s);
-      const overlay = document.getElementById('overlay');
-      const pbar = document.getElementById('progress-bar');
-      const ptxt = document.getElementById('progress-text');
-      // 미리보기는 하단 패널 사용
-
-      function showLoading(msg){ overlay.style.display='flex'; if(ptxt) ptxt.textContent = msg||'불러오는 중...'; if(pbar) pbar.style.width='15%'; }
-      function setProgress(pct, msg){ if(pbar){ pbar.style.width = Math.max(0, Math.min(100, pct))+'%'; } if(msg && ptxt){ ptxt.textContent = msg; } }
-      function hideLoading(){ overlay.style.display='none'; if(pbar) pbar.style.width='0%'; }
-      // 전역 안전장치: 예외 발생/로드 완료 시 오버레이 강제 해제
-      window.addEventListener('error', ()=>{ try{ hideLoading(); }catch(e){} }, { once:false });
-      window.addEventListener('load', ()=>{ try{ hideLoading(); }catch(e){} });
-
-      // 간단 토스트
-      function toast(msg){
-        try{
-          const d=document.createElement('div');
-          d.textContent = msg||'저장됨';
-          d.style.position='fixed'; d.style.right='16px'; d.style.bottom='16px';
-          d.style.background='#111827'; d.style.color='#fff'; d.style.border='1px solid #111827';
-          d.style.padding='10px 12px'; d.style.borderRadius='10px'; d.style.zIndex='60';
-          document.body.appendChild(d);
-          setTimeout(()=>{ try{ document.body.removeChild(d);}catch(e){} }, 1200);
-        }catch(e){}
-      }
-
-      async function savePriceBook(){
-        showLoading('단가표 저장 중...');
-        try{
-          const res = await fetch('/api/settlement/pricebook', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items: state.priceBook }) });
-          const data = await res.json().catch(()=>({}));
-          if(!res.ok) throw new Error(data?.error||'저장 실패');
-          toast('저장됨');
-        }catch(e){ alert(e.message||'저장 실패'); }
-        finally{ hideLoading(); }
-      }
-
-      // 1) 탭 불러오기 (API 연동 예정)
-      const loadTabsBtn = document.getElementById('load-tabs'); if(loadTabsBtn) loadTabsBtn.addEventListener('click', async()=>{
-        showLoading('탭 목록을 불러오는 중...');
-        try{
-          const res = await fetch('/api/settlement/tabs');
-          const data = await res.json().catch(()=>({}));
-          if(!res.ok) throw new Error(data?.error||'탭 조회 실패');
-          state.tabs = Array.isArray(data.tabs) ? data.tabs : [];
-          renderTabChips();
-          $('#tab-count').textContent = `${state.tabs.length}개`;
-          setProgress(100, '완료');
-        }catch(e){ alert(e.message||'탭 불러오기 실패'); }
-        finally{ hideLoading(); }
-      });
-
-      function renderTabChips(){
-        const wrap = document.getElementById('tab-chips');
-        if(!wrap) return;
-        wrap.innerHTML = '';
-        state.tabs.forEach(tab=>{
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'chip';
-          btn.textContent = tab;
-          const active = state.selectedTabs.includes(tab);
-          if(active) btn.classList.add('active');
-          btn.addEventListener('click', ()=>{
-            const i = state.selectedTabs.indexOf(tab);
-            if(i>=0) state.selectedTabs.splice(i,1); else state.selectedTabs.push(tab);
-            renderTabChips();
-          });
-          wrap.appendChild(btn);
-        });
-      }
-
-      // 기간 선택 제거됨
-
-      // 2) 데이터 가져오기
-      const fetchBtn = document.getElementById('fetch-data'); if(fetchBtn) fetchBtn.addEventListener('click', async()=>{
-        showLoading('정산 데이터를 준비 중...'); setProgress(25);
-        try{
-          const res = await fetch('/api/settlement/compute', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tabs: state.selectedTabs }) });
-          const data = await res.json().catch(()=>({}));
-          if(!res.ok) throw new Error(data?.error||'집계 실패');
-          // data.rows: {date, client, job, type, qty, unit_price, expense, income}
-          const rows = Array.isArray(data.rows) ? data.rows : [];
-          state.previewRows = rows.map(r=>({ date: r.date, client: r.client, product: (r.type?`${r.job} ${r.type}`:r.job), qty: r.qty, price: r.unit_price, expense: r.expense||0, income: r.income||0 }));
-          state.lastAggregates = data?.aggregates||{};
-          state.missingPrices = Array.isArray(data?.missing_prices) ? data.missing_prices : [];
-          await loadExtras();
-          renderPrecheck();
-          renderPreview();
-          renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses));
-          // 최종 반영 전에는 결과 패널 숨김, 사전 점검만 노출
-          const pre = document.getElementById('precheck-panel');
-          const rp = document.getElementById('results-panel');
-          if(window.__finalizing===true){ pre.style.display='none'; rp.style.display = 'block'; window.__finalizing=false; }
-          else{ pre.style.display='block'; rp.style.display = 'none'; }
-          setPvTab();
-        }catch(e){ alert(e.message||'집계 실패'); }
-        finally{ setProgress(100, '완료'); hideLoading(); }
-      });
-
-          function renderAggregates(aggs){
-        try{
-          // 상품별 단일 뷰 카드 렌더링 (날짜 무시: 동일 상품은 합산)
-          const cards = document.getElementById('cards-container');
-          if(!cards) return;
-          cards.innerHTML='';
-          const filterGuarantee = window.__filterGuarantee===true;
-          const filterManage = window.__filterManage===true;
-          const filterMincom = window.__filterMincom===true;
-          const mincomClients = ['민컴퍼니','궁서애드'];
-              const onlyMincomMode = filterMincom && !filterGuarantee && !filterManage;
-              const noFilter = !filterGuarantee && !filterManage && !filterMincom;
-          // 1) 상품별 총합 집계 (모든 날짜 합산)
-          const totalByProduct = {}; let grandTotal=0;
-          Object.entries(aggs?.by_product||{}).forEach(([date, prods])=>{
-            Object.entries(prods||{}).forEach(([prod, v])=>{
-              const acc = totalByProduct[prod]||{qty:0, expense:0, income:0};
-              acc.qty += v.qty||0; acc.expense += v.expense||0; acc.income += v.income||0; totalByProduct[prod]=acc;
-            });
-          });
-
-          // 2) 상품별 카드 생성 + 대행사별 상세(모든 날짜 포함)
-          const byAgencyAllDates = aggs?.by_agency||{};
-          Object.keys(totalByProduct).sort().forEach(prod=>{
-            // 전체 상품 제외 처리
-            try{ if(Array.isArray(state.exclusions?.products) && state.exclusions.products.includes(prod)) { return; } }catch(e){}
-            // 필터별 카드 재집계
-            const rawS = totalByProduct[prod];
-            let cardQty=0, cardExpense=0, cardIncome=0, hasMatch=false;
-            Object.keys(byAgencyAllDates).forEach(date=>{
-              const map = byAgencyAllDates[date]||{};
-              Object.keys(map).forEach(client=>{
-                const arr = map[client]||[];
-                    arr.filter(it=> (it.product||'')===prod).forEach(it=>{
-                  const itype = it.internal_type||null;
-                  const isGuarantee = itype==='guarantee';
-                  const isManage = itype==='manage';
-                  const isMincom = mincomClients.includes(client);
-                  let pass = true;
-                  if(filterGuarantee && !isGuarantee) pass=false;
-                  if(filterManage && !isManage) pass=false;
-                      if(filterMincom && !isMincom) pass=false;
-                      if(onlyMincomMode && !isGuarantee) pass=false; // 민컴 전용 모드에서는 보장형만 허용
-                      if(filterGuarantee && isMincom) pass=false; // 보장형 모드에서는 민컴/궁서 제외
-                  // 행 단위 제외
-                  try{
-                    const rowKey = `${date}|||${client}|||${prod}|||${it.type||''}|||${Number(it.qty||0)}|||${Number(it.unit_price||0)}|||${Number(it.expense||0)}`;
-                    if(Array.isArray(state.exclusions?.rows) && state.exclusions.rows.includes(rowKey)) pass=false;
-                  }catch(e){}
-                  if(!pass) return;
-                  hasMatch=true; cardQty += it.qty||0; cardExpense += it.expense||0; cardIncome += it.income||0;
-                });
-              });
-            });
-            if((filterGuarantee||filterManage||filterMincom) && !hasMatch) return; // 필터 시 매칭 없으면 카드 숨김
-            const s = (filterGuarantee||filterManage||filterMincom)? {qty:cardQty, expense:cardExpense, income:cardIncome} : rawS;
-            grandTotal += s.expense||0;
-                const showIncome = !(filterGuarantee || filterManage || filterMincom);
-            const card=document.createElement('div'); card.className='card';
-            card.innerHTML = `
-              <div class="card-hd mini">
-                <div style="display:flex; align-items:center; gap:8px">
-                  ${window.__deleteMode? `<input type="checkbox" class="chk-del-prod" data-del-prod data-product="${prod}">` : ''}
-                  <b>${prod}</b>
-                </div>
-                <div class="muted">총 세팅 ${Number(s.qty||0).toLocaleString()} · 지출 ${Number(s.expense||0).toLocaleString()}${showIncome? ' · 매출 '+Number(s.income||0).toLocaleString():''}</div>
-              </div>
-              <div class="card-bd" style="overflow:auto">
-                <table class="mini" style="width:100%">
-                  <thead><tr>${window.__deleteMode? '<th style="width:36px">제외</th>':''}<th>날짜</th><th>대행사</th><th>유형</th><th>수량</th><th>단가</th><th>지출</th>${showIncome? '<th>매출</th>':''}</tr></thead>
-                  <tbody data-body></tbody>
-                </table>
-              </div>`;
-            const tbody = card.querySelector('[data-body]');
-            Object.keys(byAgencyAllDates).sort().forEach(date=>{
-              const map = byAgencyAllDates[date]||{};
-              Object.keys(map).sort().forEach(client=>{
-                const arr = map[client]||[];
-                    arr.filter(it=> (it.product||'')===prod).forEach(it=>{
-                  const itype = it.internal_type||null;
-                  const isGuarantee = itype==='guarantee';
-                  const isManage = itype==='manage';
-                  const isMincom = mincomClients.includes(client);
-                  let pass = true;
-                  if(filterGuarantee && !isGuarantee) pass=false;
-                  if(filterManage && !isManage) pass=false;
-                      if(filterMincom && !isMincom) pass=false;
-                      if(onlyMincomMode && !isGuarantee) pass=false; // 민컴 전용 모드에서는 보장형만 허용
-                      if(filterGuarantee && isMincom) pass=false; // 보장형 모드에서는 민컴/궁서 제외
-                  // 행 단위 제외
-                  let rowKey = '';
-                  try{ rowKey = `${date}|||${client}|||${prod}|||${it.type||''}|||${Number(it.qty||0)}|||${Number(it.unit_price||0)}|||${Number(it.expense||0)}`; if(Array.isArray(state.exclusions?.rows) && state.exclusions.rows.includes(rowKey)) pass=false; }catch(e){}
-                  if(!pass) return;
-                  const tr=document.createElement('tr');
-                      const incomeCell = it.income||0;
-                      // 행 전체 배경 처리: 민컴 전용 또는 기본(무필터)에서 민컴&궁서 보장형은 파란색
-                      let rowBg = '';
-                      if((filterMincom || noFilter) && isMincom && isGuarantee) rowBg = '#e0f2fe';
-                      else if(isGuarantee) rowBg = '#fffbe6';
-                      else if(isManage) rowBg = '#d9ead3';
-                      if(rowBg) tr.style.background = rowBg;
-                  tr.innerHTML = `${window.__deleteMode? `<td style="text-align:center"><input type="checkbox" class="chk-del-row" data-del-row data-rowkey="${rowKey}"></td>`:''}<td>${date}</td><td>${client}</td><td>${it.type||''}</td><td>${Number(it.qty||0).toLocaleString()}</td><td>${Number(it.unit_price||0).toLocaleString()}</td><td>${Number(it.expense||0).toLocaleString()}</td>${showIncome? `<td>${Number(incomeCell||0).toLocaleString()}</td>`:''}`;
-                  tbody.appendChild(tr);
-                });
-              });
-            });
-            // 추가 지출 행(보고 반영 true만) 표시
-            (state.extraExpenses||[]).filter(ex=> ex && ex.report && String(ex.product||'')===String(prod||'')).forEach(ex=>{
-              const tr=document.createElement('tr');
-              tr.innerHTML = `${window.__deleteMode? '<td></td>':''}<td>${ex.date||''}</td><td>${ex.client||''}</td><td>추가</td><td>-</td><td>-</td><td>${Number(ex.amount||0).toLocaleString()}</td>${showIncome? `<td class="muted">0</td>`:''}`;
-              tbody.appendChild(tr);
-            });
-            cards.appendChild(card);
-
-            // 삭제 모드: 상품 전체 선택 → 행 전체 토글
-            if(window.__deleteMode){
-              try{
-                const prodChk = card.querySelector('input[data-del-prod]');
-                if(prodChk){ prodChk.addEventListener('change', ()=>{
-                  const rows = card.querySelectorAll('input[data-del-row]');
-                  rows.forEach(r=>{ r.checked = prodChk.checked; });
-                }); }
-              }catch(e){}
-            }
-          });
-          // 총계 뱃지 업데이트
-          const badge = document.getElementById('agg-total-badge');
-          let badgeBg = '#f6f8fa';
-          if(filterGuarantee) badgeBg = '#fffbe6';
-          else if(filterManage) badgeBg = '#d9ead3';
-          else if(filterMincom) badgeBg = '#e0f2fe';
-          if(badge){ badge.textContent = `총 지출 ${grandTotal.toLocaleString()}`; badge.style.background = badgeBg; }
-        }catch(e){}
-      }
-
-      // 필터 체크박스: 보장형/관리형/민컴&궁서 (서로 배타적, 모두 해제 가능)
-      (function(){
-        function setFilters(mode){
-          const cbG = document.getElementById('cb-guarantee');
-          const cbM = document.getElementById('cb-manage');
-          const cbMin = document.getElementById('cb-mincom');
-          const g = (mode==='g'); const m = (mode==='m'); const min = (mode==='min');
-          window.__filterGuarantee = g; window.__filterManage = m; window.__filterMincom = min;
-          if(cbG) cbG.checked = g; if(cbM) cbM.checked = m; if(cbMin) cbMin.checked = min;
-          if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); }
-        }
-        const cbG = document.getElementById('cb-guarantee'); if(cbG){ cbG.addEventListener('change', ()=>{ setFilters(cbG.checked? 'g' : null); }); }
-        const cbM = document.getElementById('cb-manage'); if(cbM){ cbM.addEventListener('change', ()=>{ setFilters(cbM.checked? 'm' : null); }); }
-        const cbMin = document.getElementById('cb-mincom'); if(cbMin){ cbMin.addEventListener('change', ()=>{ setFilters(cbMin.checked? 'min' : null); }); }
-      })();
-
-      // --- 사전 점검: 미정 단가 / 추가 지출 ---
-      function renderPrecheck(){
-        // 미정 단가
-        const mb = document.getElementById('tbl-missing-body'); if(mb){ mb.innerHTML='';
-          (state.missingPrices||[]).forEach(item=>{
-            const tr=document.createElement('tr');
-            const defApply = !!(item && item.job);
-            tr.innerHTML = `<td style="text-align:center"><input type="checkbox" data-apply ${defApply? 'checked':''}></td><td>${item.client||''}</td><td>${item.job||''}</td><td>${item.type||''}</td><td>${Number(item.qty_sum||0).toLocaleString()}</td><td><input type="number" min="0" step="1" style="width:100px" data-mprice></td>`;
-            tr.dataset.client = item.client||''; tr.dataset.product = item.job||''; tr.dataset.type = item.type||'';
-            mb.appendChild(tr);
-          });
-        }
-        // 추가 지출
-        const eb = document.getElementById('tbl-extra-body'); if(eb){ eb.innerHTML='';
-          (state.extraExpenses||[]).forEach((ex,idx)=>{
-            const tr=document.createElement('tr'); tr.dataset.idx = String(idx);
-            tr.innerHTML = `
-              <td style="text-align:center"><input type="checkbox" ${ex.report? 'checked':''}></td>
-              <td><input type="text" value="${ex.date||''}" style="width:110px"></td>
-              <td><input type="text" value="${ex.client||''}" style="width:120px"></td>
-              <td><input type="text" value="${ex.product||''}" style="width:140px"></td>
-              <td><input type="number" step="1" value="${Number(ex.amount||0)}" style="width:100px"></td>
-              <td><button class="btn" data-del>삭제</button></td>`;
-            eb.appendChild(tr);
-          });
-          // 삭제 바인딩
-          eb.querySelectorAll('button[data-del]').forEach(btn=>{
-            btn.addEventListener('click', ()=>{ const tr=btn.closest('tr'); const i=Number(tr?.dataset.idx||-1); if(i>=0){ state.extraExpenses.splice(i,1); renderPrecheck(); } });
-          });
-        }
-      }
-
-      async function loadExtras(){
-        try{ const r=await fetch('/api/settlement/extra'); const d=await r.json().catch(()=>({})); if(r.ok && Array.isArray(d.items)) state.extraExpenses = d.items; else state.extraExpenses=[]; }
-        catch(e){ state.extraExpenses=[]; }
-      }
-      async function saveExtras(){
-        // 테이블의 현재 값을 state로 반영 후 저장
-        const eb = document.getElementById('tbl-extra-body'); if(eb){
-          const rows = Array.from(eb.querySelectorAll('tr'));
-          state.extraExpenses = rows.map(tr=>{
-            const inputs = tr.querySelectorAll('input');
-            return { date: inputs[0]?.value||'', client: inputs[1]?.value||'', product: inputs[2]?.value||'', amount: Number(inputs[3]?.value||0), report: !!inputs[4]?.checked };
-          });
-        }
-        try{ await fetch('/api/settlement/extra', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items: state.extraExpenses }) }); }
-        catch(e){}
-      }
-      // 미정 단가 저장 후 재계산
-      async function applyMissingPrices(){
-        const mb = document.getElementById('tbl-missing-body'); if(!mb) return;
-        // 입력된 단가만 pricebook에 추가/갱신
-        const rows = Array.from(mb.querySelectorAll('tr'));
-        rows.forEach(tr=>{
-          const price = Number(tr.querySelector('input[data-mprice]')?.value||0);
-          const apply = tr.querySelector('input[data-apply]')?.checked === true;
-          if(!(price>0 && apply)) return;
-            const client = tr.dataset.client||''; const product = tr.dataset.product||''; const type = tr.dataset.type||'공통';
-            upsertPrice({ client, product, price, account:'', bank:'', holder:'', type });
-        });
-        renderPriceBook(); await savePriceBook();
-        // 재계산
-        if(state.selectedTabs?.length){
-          fetchBtn?.click();
-        }
-      }
-
-      // 버튼 바인딩: 사전 점검
-      (function(){
-        const bAdd = document.getElementById('btn-add-extra'); if(bAdd){ bAdd.addEventListener('click', ()=>{ state.extraExpenses.push({ date:'', client:'', product:'', amount:0, report:true }); renderPrecheck(); }); }
-        const bSave = document.getElementById('btn-save-extra'); if(bSave){ bSave.addEventListener('click', async()=>{ await saveExtras(); if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); } }); }
-        const bApply = document.getElementById('btn-apply-missing'); if(bApply){ bApply.addEventListener('click', applyMissingPrices); }
-        const bFinal = document.getElementById('btn-finalize'); if(bFinal){ bFinal.addEventListener('click', async()=>{
-          // 저장 후 재계산, 사전 점검 숨기고 결과만
-          await saveExtras();
-          // 미정 단가에서 반영 체크된 항목만 적용 후 재계산
-          window.__finalizing = true;
-          await applyMissingPrices();
-          // applyMissingPrices가 재계산을 트리거(fetchBtn.click)하므로, fetch 완료 시 precheck를 숨김 처리
-        }); }
-      })();
-
-      // Aggregates + extraExpenses 합산 유틸
-      function augmentAggregatesWithExtras(aggs, extras){
-        try{
-          const A = JSON.parse(JSON.stringify(aggs||{}));
-          const byP = A.by_product = A.by_product||{}; const byA = A.by_agency = A.by_agency||{};
-          (extras||[]).filter(ex=>ex && ex.report).forEach(ex=>{
-            const date = ex.date||'추가'; const prod = ex.product||'추가지출'; const client = ex.client||'기타'; const amount = Number(ex.amount||0);
-            // by_product
-            const pmap = byP[date] = byP[date]||{}; const cur = pmap[prod] = pmap[prod]||{ qty:0, expense:0, income:0 };
-            cur.expense += amount;
-            // by_agency
-            const amap = byA[date] = byA[date]||{}; const arr = amap[client] = amap[client]||[];
-            arr.push({ product: prod, type: '추가', qty: 0, unit_price: 0, expense: amount, income: 0 });
-          });
-          return A;
-        }catch(e){ return aggs; }
-      }
-
-      // 모달 탭 전환
-      // 단일 상품별 뷰
-      function setPvTab(){ /* no-op: 단일 뷰 */ }
-
-      // 단가부: 추가/삭제/입출력 (로컬 메모리)
-      let clientDefaults = {};
-      function rebuildClientDefaults(){
-        const map = {};
-        for(const it of state.priceBook){
-          const c = (it.client||'').trim(); if(!c) continue;
-          const key = c;
-          const rec = map[key]||{accountCount:{}, bankCount:{}, holderCount:{}};
-          if(it.account){ rec.accountCount[it.account] = 1 + (rec.accountCount[it.account]||0); }
-          if(it.bank){ rec.bankCount[it.bank] = 1 + (rec.bankCount[it.bank]||0); }
-          if(it.holder){ rec.holderCount[it.holder] = 1 + (rec.holderCount[it.holder]||0); }
-          map[key] = rec;
-        }
-        const pickTop = (countObj)=>{
-          let bestK='', bestV=0; for(const k in countObj){ if(countObj[k]>bestV){ bestV=countObj[k]; bestK=k; } }
-          return bestK||'';
-        };
-        const out={};
-        for(const k in map){ out[k] = { account: pickTop(map[k].accountCount), bank: pickTop(map[k].bankCount), holder: pickTop(map[k].holderCount) }; }
-        clientDefaults = out;
-      }
-      function tryAutofillByClient(){
-        const c = (document.getElementById('pb-client')?.value||'').trim(); if(!c) return;
-        const def = clientDefaults[c]; if(!def) return;
-        const accEl = document.getElementById('pb-account'); const bankEl = document.getElementById('pb-bank'); const holdEl = document.getElementById('pb-holder');
-        if(accEl && !accEl.value) accEl.value = def.account||'';
-        if(bankEl && !bankEl.value) bankEl.value = def.bank||'';
-        if(holdEl && !holdEl.value) holdEl.value = def.holder||'';
-      }
-      const pbClientEl = document.getElementById('pb-client'); if(pbClientEl){ pbClientEl.addEventListener('change', tryAutofillByClient); }
-      async function addOnePrice(){
-        const client = (document.getElementById('pb-client')?.value||'').trim(); if(!client) return alert('거래처를 입력하세요');
-        const product = (document.getElementById('pb-product')?.value||'').trim(); if(!product) return alert('상품명을 입력하세요');
-        const price = Number((document.getElementById('pb-price')?.value||'0').replace(/,/g,''))||0;
-        const account = (document.getElementById('pb-account')?.value||'').trim();
-        const holder = (document.getElementById('pb-holder')?.value||'').trim();
-        const bank = (document.getElementById('pb-bank')?.value||'').trim();
-        const type = (document.querySelector('input[name="pb-type"]:checked')?.value)||'공통';
-        upsertPrice({ client, product, price, account, bank, holder, type });
-        renderPriceBook();
-        await savePriceBook();
-      }
-      $('#btn-add-price').addEventListener('click', addOnePrice);
-      document.getElementById('pb-add-one').addEventListener('click', addOnePrice);
-      document.getElementById('pb-add-both').addEventListener('click', async()=>{
-        const client = (document.getElementById('pb-client')?.value||'').trim(); if(!client) return alert('거래처를 입력하세요');
-        const product = (document.getElementById('pb-product')?.value||'').trim(); if(!product) return alert('상품명을 입력하세요');
-        const price = Number((document.getElementById('pb-price')?.value||'0').replace(/,/g,''))||0;
-        const account = (document.getElementById('pb-account')?.value||'').trim();
-        const holder = (document.getElementById('pb-holder')?.value||'').trim();
-        const bank = (document.getElementById('pb-bank')?.value||'').trim();
-        upsertPrice({ client, product, price, account, bank, holder, type:'저장' });
-        upsertPrice({ client, product, price, account, bank, holder, type:'트래픽' });
-        renderPriceBook();
-        await savePriceBook();
-      });
-      { const el=document.getElementById('btn-export-price'); if(el){ el.addEventListener('click', ()=>{
-        const json = JSON.stringify(state.priceBook, null, 2);
-        navigator.clipboard?.writeText(json);
-        alert('단가표 JSON을 클립보드로 복사했습니다.');
-      }); } }
-      { const el=document.getElementById('btn-import-price'); if(el){ el.addEventListener('click', async()=>{
-        const json = prompt('단가표 JSON을 붙여넣으세요');
-        if(!json) return;
-        try{ const arr = JSON.parse(json); if(Array.isArray(arr)) state.priceBook = arr; }catch(e){ alert('JSON 파싱 실패'); }
-        renderPriceBook();
-        await savePriceBook();
-      }); } }
-      $('#btn-save-price').addEventListener('click', savePriceBook);
-
-      let pbEditingIndex = -1;
-      function upsertPrice(item){
-        if(pbEditingIndex>=0){ state.priceBook[pbEditingIndex] = item; pbEditingIndex=-1; return; }
-        const idx = state.priceBook.findIndex(x=>x.client===item.client && x.product===item.product && (String(x.type||'공통')===String(item.type||'공통')));
-        if(idx>=0){ state.priceBook[idx] = item; } else { state.priceBook.push(item); }
-      }
-      function removePrice(client, product, type){
-        state.priceBook = state.priceBook.filter(x=> !(x.client===client && x.product===product && String(x.type||'공통')===String(type||'공통')));
-      }
-      function lookupPrice(client, product){
-        const it = state.priceBook.find(x=>x.client===client && x.product===product);
-        return it ? it.price : null;
-      }
-
-      async function loadPriceBook(){
-        try{
-          const res = await fetch('/api/settlement/pricebook');
-          const data = await res.json().catch(()=>({}));
-          if(res.ok && Array.isArray(data.items)) state.priceBook = data.items; else state.priceBook = [];
-        }catch(e){ state.priceBook = []; }
-        rebuildClientDefaults();
-      }
-
-      function renderPriceBook(){
-        const tb = document.querySelector('#tbl-price tbody');
-        tb.innerHTML = '';
-        const q = (document.getElementById('pb-search')?.value||'').trim().toLowerCase();
-        const list = state.priceBook.filter(it=>{
-          if(!q) return true; const t=(it.client+' '+it.product).toLowerCase(); return t.includes(q);
-        });
-        for(const it of list){
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td>${it.client||''}</td>
-            <td>${it.product||''}</td>
-            <td>${it.type||'공통'}</td>
-            <td>${it.price??''}</td>
-            <td>${it.account||''}</td>
-            <td>${it.bank||''}</td>
-            <td>${it.holder||''}</td>
-            <td>
-              <button class="btn" data-edit="${it.client}|||${it.product}|||${it.type||'공통'}">수정</button>
-              <button class="btn" data-del="${it.client}|||${it.product}|||${it.type||'공통'}">삭제</button>
-            </td>
-          `;
-          tb.appendChild(tr);
-        }
-        tb.querySelectorAll('button[data-del]')?.forEach(btn=>{
-          btn.addEventListener('click', async()=>{
-            const [c,p,t] = btn.getAttribute('data-del').split('|||');
-            removePrice(c, p, t); renderPriceBook();
-            await savePriceBook();
-          });
-        });
-        tb.querySelectorAll('button[data-edit]')?.forEach(btn=>{
-          btn.addEventListener('click', ()=>{
-            const [c,p,t] = btn.getAttribute('data-edit').split('|||');
-            const idx = state.priceBook.findIndex(x=>x.client===c && x.product===p && String(x.type||'공통')===String(t||'공통'));
-            if(idx>=0){ pbEditingIndex=idx; const it=state.priceBook[idx];
-              document.getElementById('pb-client').value = it.client||'';
-              document.getElementById('pb-product').value = it.product||'';
-              document.getElementById('pb-price').value = it.price||'';
-              document.getElementById('pb-account').value = it.account||'';
-              const bankEl = document.getElementById('pb-bank'); if(bankEl) bankEl.value = it.bank||'';
-              document.getElementById('pb-holder').value = it.holder||'';
-              const r = document.querySelector(`input[name="pb-type"][value="${it.type||'공통'}"]`); if(r) r.checked = true;
-            }
-          });
-        });
-        rebuildClientDefaults();
-      }
-
-      // 대량등록: XLSX 업로드 → 서버 파싱 결과를 미리보기/적용
-      const bulkState = { items: [] };
-      const bulkUploadBtn = document.getElementById('bulk-upload'); if(bulkUploadBtn){ bulkUploadBtn.addEventListener('click', async()=>{
-        const inp = document.getElementById('bulk-file'); if(!inp.files || inp.files.length===0){ alert('엑셀 파일을 선택하세요'); return; }
-        const file = inp.files[0]; const fd = new FormData(); fd.append('file', file);
-        showLoading('엑셀 업로드 중...');
-        try{
-          const res = await fetch('/api/settlement/pricebook/upload', { method:'POST', body: fd });
-          const data = await res.json().catch(()=>({}));
-          if(!res.ok) throw new Error(data?.error||'업로드 실패');
-          bulkState.items = Array.isArray(data.items)? data.items : [];
-          renderBulkPreview(bulkState.items);
-          document.getElementById('bulk-status').textContent = `${bulkState.items.length}건 준비됨`;
-        }catch(e){ alert(e.message||'업로드 실패'); }
-        finally{ hideLoading(); }
-      }); }
-      const bulkApplyBtn = document.getElementById('bulk-apply-xlsx'); if(bulkApplyBtn){ bulkApplyBtn.addEventListener('click', async()=>{
-        if(!Array.isArray(bulkState.items) || bulkState.items.length===0){ alert('미리보기 후 적용하세요'); return; }
-        for(const it of bulkState.items){ upsertPrice(it); }
-        renderPriceBook(); await savePriceBook();
-        document.getElementById('bulk-status').textContent = `${bulkState.items.length}건 반영됨`;
-      }); }
-
-      // (과거 TSV 붙여넣기 파서는 유지 가능하나 UI에서 감춤)
-      function parseBulk(text){
-        const lines = (text||'').replace(/\r/g,'').split('\n').filter(x=>x.trim().length>0);
-        if(lines.length===0) return {items:[], error:null};
-        const sep = (lines[0].includes('\t')? '\t' : ',');
-        const cells0 = lines[0].split(sep).map(s=>s.trim().toLowerCase());
-        const hasHeader = ['client','product','type','price','account','holder'].some(h=>cells0.includes(h));
-        const startIdx = hasHeader?1:0;
-        const idxOf = (name) => cells0.indexOf(name);
-        const colMap = hasHeader? {
-          client: idxOf('client'), product: idxOf('product'), type: idxOf('type'), price: idxOf('price'), account: idxOf('account'), holder: idxOf('holder')
-        } : { client:0, product:1, type:2, price:3, account:4, holder:5 };
-        const out=[]; let err=null;
-        for(let i=startIdx;i<lines.length;i++){
-          const parts = lines[i].split(sep);
-          const get=(k)=>{ const idx=colMap[k]; return (idx>=0 && idx<parts.length)? parts[idx].trim():''; };
-          const client=get('client'), product=get('product');
-          let type=get('type')||'공통'; const priceRaw=get('price'); const account=get('account'); const holder=get('holder');
-          if(!client || !product){ err = `필수값 누락 (행 ${i+1}): client/product`; break; }
-          const price = Number((priceRaw||'').replace(/,/g,''))||0;
-          if(type.toLowerCase()==='both'){ out.push({client,product,price,account,holder,type:'저장'}); out.push({client,product,price,account,holder,type:'트래픽'}); }
-          else{ if(!['공통','저장','트래픽'].includes(type)) type='공통'; out.push({client,product,price,account,holder,type}); }
-        }
-        return {items: out, error: err};
-      }
-      function renderBulkPreview(list){
-        const tb = document.querySelector('#tbl-bulk tbody'); tb.innerHTML='';
-        list.forEach((it,idx)=>{
-          const tr=document.createElement('tr');
-          tr.innerHTML = `<td>${idx+1}</td><td>${it.client}</td><td>${it.product}</td><td>${it.type}</td><td>${it.price}</td><td>${it.account||''}</td><td>${it.bank||''}</td><td>${it.holder||''}</td><td></td>`;
-          tb.appendChild(tr);
-        });
-        document.getElementById('bulk-status').textContent = `${list.length}건 준비됨`;
-      }
-      document.getElementById('btn-bulk-toggle').addEventListener('click', ()=>{
-        const el = document.getElementById('bulk-panel'); el.style.display = (el.style.display==='none'||!el.style.display)? 'block':'none';
-      });
-      { const el=document.getElementById('bulk-preview'); if(el){ el.addEventListener('click', ()=>{
-        const {items,error} = parseBulk(document.getElementById('bulk-text').value);
-        if(error) { alert(error); return; }
-        renderBulkPreview(items);
-      }); } }
-      { const el=document.getElementById('bulk-apply'); if(el){ el.addEventListener('click', async()=>{
-        const {items,error} = parseBulk(document.getElementById('bulk-text').value);
-        if(error){ alert(error); return; }
-        for(const it of items){ upsertPrice(it); }
-        renderPriceBook();
-        await savePriceBook();
-        document.getElementById('bulk-status').textContent = `${items.length}건 반영됨`;
-      }); } }
-
-      // 템플릿 다운로드는 앵커 링크(#bulk-download)로 처리
-
-      function renderPreview(){
-        const cont = document.getElementById('cards-container');
-        if(!cont) return; cont.innerHTML='';
-        const group = {};
-        for(const r of state.previewRows){
-          const key = `${r.date}|||${r.client}`;
-          (group[key] = group[key]||[]).push(r);
-        }
-        let grand = 0;
-        Object.keys(group).sort().forEach(key=>{
-          const [date, client] = key.split('|||');
-          const rows = group[key];
-          let subtotalE=0, subtotalI=0;
-          const tblRows = rows.map(it=>{
-            subtotalE += (it.expense||0); subtotalI += (it.income||0); grand += (it.expense||0);
-            return `<tr><td>${it.product}</td><td>${it.qty}</td><td>${it.price}</td><td>${it.expense||0}</td><td>${it.income||0}</td></tr>`;
-          }).join('');
-          const card = document.createElement('div'); card.className='card collapsed';
-          card.innerHTML = `
-            <div class="card-hd"><div class="pill">${date}</div><div class="muted" style="font-weight:700">${client}</div></div>
-            <div class="card-bd" style="overflow:auto">
-              <table style="width:100%">
-                <thead><tr><th>상품명</th><th>수량</th><th>단가</th><th>지출</th><th>매출</th></tr></thead>
-                <tbody>${tblRows}</tbody>
-                <tfoot><tr><th colspan="3" style="text-align:right">소계</th><th>${subtotalE}</th><th>${subtotalI}</th></tr></tfoot>
-              </table>
-            </div>
-          `;
-          card.querySelector('.card-hd').addEventListener('click', ()=>{ card.classList.toggle('collapsed'); });
-          cont.appendChild(card);
-        });
-        // 총계 뱃지
-        const headerArea = document.querySelector('#results-panel .stack');
-        if(headerArea){
-          const onlyInternal = window.__onlyInternal===true;
-          // 상단 총 지출 뱃지는 cb-internal 쪽으로 이동
-          const badge = document.getElementById('agg-total-badge');
-          if(badge){ badge.textContent = `${onlyInternal? '내부 총 지출':'총 지출'} ${grand.toLocaleString()}`; badge.style.background = onlyInternal? '#fde68a' : '#f6f8fa'; }
-        }
-      }
-
-      // 카드 접기/펼치기 토글 버튼(단일)
-      (function(){ const btn=document.getElementById('btn-toggle-collapse'); if(!btn) return; let collapsed=true; const apply=()=>{
-        document.querySelectorAll('#cards-container .card').forEach(el=>el.classList.toggle('collapsed', collapsed));
-        btn.textContent = collapsed? '전체 펼치기' : '전체 접기';
-      }; btn.addEventListener('click', ()=>{ collapsed=!collapsed; apply(); }); apply(); })();
-
-      // 삭제 모드 토글: 1) 첫 클릭 → 체크박스 표시 2) 두 번째 클릭 → 선택된 항목 제외 적용
-      (function(){
-        const btn = document.getElementById('btn-delete-toggle'); if(!btn) return;
-        function setBtnActive(on){ btn.classList.toggle('btn-danger', !!on); btn.textContent = on? '선택 삭제 적용' : '삭제'; }
-        async function reRender(){ if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); } }
-        btn.addEventListener('click', async()=>{
-          const active = window.__deleteMode===true;
-          if(!active){ // 활성화
-            window.__deleteMode = true; setBtnActive(true); await reRender();
-            return;
-          }
-          // 적용: 선택 수집
-          try{
-            const prodChks = Array.from(document.querySelectorAll('input[data-del-prod]'));
-            const rowChks = Array.from(document.querySelectorAll('input[data-del-row]'));
-            const selProds = prodChks.filter(c=>c.checked).map(c=> String(c.getAttribute('data-product')||''));
-            const selRows = rowChks.filter(c=>c.checked).map(c=> String(c.getAttribute('data-rowkey')||''));
-            // 중복 제거 및 병합
-            const prodSet = new Set([...(state.exclusions?.products||[]), ...selProds.filter(Boolean)]);
-            const rowSet = new Set([...(state.exclusions?.rows||[]), ...selRows.filter(Boolean)]);
-            state.exclusions = { products: Array.from(prodSet), rows: Array.from(rowSet) };
-          }catch(e){}
-          window.__deleteMode = false; setBtnActive(false);
-          await reRender();
-        });
-      })();
-
-      // 4) 엑셀 양식 복붙용 생성 (버튼이 존재하는 경우에만 바인딩)
-      { const btn = document.getElementById('btn-export-excel'); if(btn){ btn.addEventListener('click', ()=>{
-        const headers = ['날짜','대행사','상품명','수량','단가','지출','매출'];
-        const lines = [headers.join('\t')];
-        for(const r of state.previewRows){
-          lines.push([r.date, r.client, r.product, r.qty, r.price, r.expense||0, r.income||0].join('\t'));
-        }
-        const text = lines.join('\n');
-        navigator.clipboard?.writeText(text);
-        alert('복사 완료! 엑셀에 붙여넣기 하세요.');
-      }); } }
-
-      // 검색 렌더 업데이트
-      document.getElementById('pb-search').addEventListener('input', renderPriceBook);
-
-      // 초기화: 가격표 로드 및 렌더
-      (async function init(){
-        try{
-          showLoading('초기화 중...');
-          await loadPriceBook();
-          renderPriceBook();
-        }catch(e){ /* swallow */ }
-        finally{ hideLoading(); }
-        // 초기 탭 상태 강제
-        try{ setTab('settle'); }catch(e){}
-      })();
-
-      // 상단 탭 전환: 정산 / 단가 관리
-      function setTab(mode){
-        const isSettle = mode==='settle';
-        try{ document.getElementById('tab-settle')?.classList.toggle('btn-primary', isSettle); }catch(e){}
-        try{ document.getElementById('tab-price')?.classList.toggle('btn-primary', !isSettle); }catch(e){}
-        try{ document.getElementById('side-tab-settle')?.classList.toggle('active', isSettle); }catch(e){}
-        try{ document.getElementById('side-tab-price')?.classList.toggle('active', !isSettle); }catch(e){}
-        document.getElementById('price-panel').style.display = isSettle ? 'none' : 'block';
-        document.getElementById('hero').style.display = isSettle ? 'block' : 'none';
-        // 미리보기 패널은 정산 탭에서만 표시
-        const rp = document.getElementById('results-panel');
-        if(rp){ rp.style.display = isSettle ? (Array.isArray(state.previewRows) && state.previewRows.length? 'block':'none') : 'none'; }
-      }
-      const tSettle = document.getElementById('tab-settle'); if(tSettle){ tSettle.addEventListener('click', ()=> setTab('settle')); }
-      const tPrice = document.getElementById('tab-price'); if(tPrice){ tPrice.addEventListener('click', ()=> setTab('price')); }
-      const sSettle = document.getElementById('side-tab-settle'); if(sSettle){ sSettle.addEventListener('click', ()=> setTab('settle')); }
-      const sPrice = document.getElementById('side-tab-price'); if(sPrice){ sPrice.addEventListener('click', ()=> setTab('price')); }
-    </script>
-  </body>
-  </html>
+TRUTHY_VALUES = {"true", "1", "yes", "y", "o", "ok", "checked", "done", "완료", "예", "y", "yy", "ㅇ", "ㅇㅇ", "o", "O", "✓", "✔"}
 
 
+class Settings:
+	def __init__(self, **kwargs: Any) -> None:
+		self.spreadsheet_id: str = kwargs.get("SPREADSHEET_ID", "").strip()
+		self.agency_col: str = kwargs.get("AGENCY_COLUMN", DEFAULT_KEYS["AGENCY_COLUMN"]).strip()
+		self.internal_col: str = kwargs.get("INTERNAL_COLUMN", DEFAULT_KEYS["INTERNAL_COLUMN"]).strip()
+		self.remaining_days_col: str = kwargs.get("REMAINING_DAYS_COLUMN", DEFAULT_KEYS["REMAINING_DAYS_COLUMN"]).strip()
+		self.checked_col: str = kwargs.get("CHECKED_COLUMN", DEFAULT_KEYS["CHECKED_COLUMN"]).strip()
+		self.bizname_col: str = kwargs.get("BIZNAME_COLUMN", DEFAULT_KEYS["BIZNAME_COLUMN"]).strip()
+		self.product_col: str = kwargs.get("PRODUCT_COLUMN", DEFAULT_KEYS["PRODUCT_COLUMN"]).strip()
+		self.product_name_col: str = kwargs.get("PRODUCT_NAME_COLUMN", DEFAULT_KEYS["PRODUCT_NAME_COLUMN"]).strip()
+		self.daily_workload_col: str = kwargs.get("DAILY_WORKLOAD_COLUMN", DEFAULT_KEYS["DAILY_WORKLOAD_COLUMN"]).strip()
+
+	def to_dict(self) -> Dict[str, str]:
+		return {
+			"SPREADSHEET_ID": self.spreadsheet_id,
+			"AGENCY_COLUMN": self.agency_col,
+			"INTERNAL_COLUMN": self.internal_col,
+			"REMAINING_DAYS_COLUMN": self.remaining_days_col,
+			"CHECKED_COLUMN": self.checked_col,
+			"BIZNAME_COLUMN": self.bizname_col,
+			"PRODUCT_COLUMN": self.product_col,
+			"PRODUCT_NAME_COLUMN": self.product_name_col,
+			"DAILY_WORKLOAD_COLUMN": self.daily_workload_col,
+		}
+
+
+def load_settings() -> Settings:
+	return Settings(
+		SPREADSHEET_ID=os.getenv("SPREADSHEET_ID", ""),
+		AGENCY_COLUMN=os.getenv("AGENCY_COLUMN", DEFAULT_KEYS["AGENCY_COLUMN"]),
+		INTERNAL_COLUMN=os.getenv("INTERNAL_COLUMN", DEFAULT_KEYS["INTERNAL_COLUMN"]),
+		REMAINING_DAYS_COLUMN=os.getenv("REMAINING_DAYS_COLUMN", DEFAULT_KEYS["REMAINING_DAYS_COLUMN"]),
+		CHECKED_COLUMN=os.getenv("CHECKED_COLUMN", DEFAULT_KEYS["CHECKED_COLUMN"]),
+		BIZNAME_COLUMN=os.getenv("BIZNAME_COLUMN", DEFAULT_KEYS["BIZNAME_COLUMN"]),
+		PRODUCT_COLUMN=os.getenv("PRODUCT_COLUMN", DEFAULT_KEYS["PRODUCT_COLUMN"]),
+		PRODUCT_NAME_COLUMN=os.getenv("PRODUCT_NAME_COLUMN", DEFAULT_KEYS["PRODUCT_NAME_COLUMN"]),
+		DAILY_WORKLOAD_COLUMN=os.getenv("DAILY_WORKLOAD_COLUMN", DEFAULT_KEYS["DAILY_WORKLOAD_COLUMN"]),
+	)
+
+
+def _build_credentials() -> Credentials:
+	service_account_json_inline = os.getenv("SERVICE_ACCOUNT_JSON", "").strip()
+	keyfile_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+
+	scopes = [
+		"https://www.googleapis.com/auth/spreadsheets",
+		"https://www.googleapis.com/auth/drive.readonly",
+	]
+
+	if service_account_json_inline:
+		try:
+			data = json.loads(service_account_json_inline)
+		except json.JSONDecodeError as e:
+			raise RuntimeError("SERVICE_ACCOUNT_JSON 환경변수가 유효한 JSON이 아닙니다.") from e
+		return Credentials.from_service_account_info(data, scopes=scopes)
+
+	if keyfile_path:
+		if not os.path.exists(keyfile_path):
+			raise FileNotFoundError(f"서비스 계정 키 파일을 찾을 수 없습니다: {keyfile_path}")
+		return Credentials.from_service_account_file(keyfile_path, scopes=scopes)
+
+	raise RuntimeError("서비스 계정 인증정보가 없습니다. SERVICE_ACCOUNT_JSON 또는 GOOGLE_APPLICATION_CREDENTIALS를 설정하세요.")
+
+
+def _get_client() -> gspread.Client:
+	creds = _build_credentials()
+	return gspread.authorize(creds)
+
+
+# -----------------------
+# 읽기 요청 최소화를 위한 간단 캐시
+# 환경변수 READ_CACHE_TTL_SECS (기본 120초)
+# -----------------------
+_WS_CACHE: Dict[int, Dict[str, Any]] = {}
+
+def _now() -> float:
+	return time.time()
+
+def _get_cache_ttl_secs() -> int:
+	try:
+		return int(os.getenv("READ_CACHE_TTL_SECS", "120").strip())
+	except Exception:
+		return 120
+
+def _with_retry(func: Callable, *args: Any, **kwargs: Any) -> Any:
+	"""지수 백오프 재시도 (429/5xx 완화). 환경변수로 조정 가능.
+
+	- RETRY_MAX_ATTEMPTS (기본 6)
+	- RETRY_BASE_DELAY (초, 기본 0.8)
+	"""
+	try:
+		max_attempts = int(os.getenv("RETRY_MAX_ATTEMPTS", "6").strip())
+	except Exception:
+		max_attempts = 6
+	try:
+		base = float(os.getenv("RETRY_BASE_DELAY", "0.8").strip())
+	except Exception:
+		base = 0.8
+	for attempt in range(max_attempts):
+		try:
+			return func(*args, **kwargs)
+		except Exception:
+			if attempt == max_attempts - 1:
+				raise
+			delay = base * (2 ** attempt) + random.uniform(0, 0.4)
+			time.sleep(delay)
+
+def _get_all_values_full_cached(ws: gspread.Worksheet) -> List[List[str]]:
+	"""워크시트 전체 값을 읽는다. 캐시를 우선 사용하고, 필요 시 배치 스캔으로 폴백.
+
+	반환 형태는 get_all_values와 동일.
+	"""
+	try:
+		ws_id = int(getattr(ws, 'id', 0) or 0)
+	except Exception:
+		ws_id = 0
+	entry = _WS_CACHE.get(ws_id)
+	if entry and (_now() - entry.get('ts', 0)) <= _get_cache_ttl_secs():
+		values = entry.get('values')
+		if isinstance(values, list):
+			return values
+
+	# 1) 단일 호출 우선
+	try:
+		values = _with_retry(ws.get_all_values)
+		_WS_CACHE[ws_id] = {"values": values, "ts": _now()}
+		return values
+	except Exception:
+		pass
+
+	# 2) 폴백: row_count 기반 청크 스캔
+	try:
+		total = int(getattr(ws, "row_count", 0) or 0)
+	except Exception:
+		total = 0
+	if total <= 0:
+		_WS_CACHE[ws_id] = {"values": [], "ts": _now()}
+		return []
+
+	all_values: List[List[str]] = []
+	chunk = 5000
+	try:
+		chunk_sleep = float(os.getenv("CHUNK_SLEEP_SECS", "0.25").strip())
+	except Exception:
+		chunk_sleep = 0.25
+	last_non_empty_row = 0
+	for start in range(1, total + 1, chunk):
+		end = min(total, start + chunk - 1)
+		try:
+			part = _with_retry(ws.get_values, f"{start}:{end}")
+		except Exception:
+			part = []
+		if part:
+			all_values.extend(part)
+			for i, r in enumerate(part, start=start):
+				if any(str(c).strip() != "" for c in r):
+					last_non_empty_row = i
+		else:
+			if start > max(1, last_non_empty_row) + chunk:
+				break
+		# 청크 간 대기 (RPM 완화)
+		time.sleep(chunk_sleep)
+
+	_WS_CACHE[ws_id] = {"values": all_values, "ts": _now()}
+	return all_values
+
+
+def _normalize_key(key: str) -> str:
+	return (key or "").strip()
+
+
+def _collapse_spaces(s: str) -> str:
+	return re.sub(r"\s+", "", s or "").strip().lower()
+
+
+def _parse_int_maybe(value: Any) -> int | None:
+	if value is None:
+		return None
+	s = str(value).strip()
+	if s == "":
+		return None
+	m = re.search(r"-?\d+", s)
+	if not m:
+		return None
+	try:
+		return int(m.group(0))
+	except ValueError:
+		return None
+
+
+def _is_truthy(value: Any) -> bool:
+	if value is None:
+		return False
+	s = str(value).strip().lower()
+	return s in TRUTHY_VALUES
+
+
+def _matches(header: str, preferred_key: str, key_id: str) -> bool:
+	h = _collapse_spaces(header)
+	p = _collapse_spaces(preferred_key)
+	if h == p:
+		return True
+	for syn in SYNONYMS.get(key_id, []):
+		if h == _collapse_spaces(syn):
+			return True
+	return False
+
+
+def _get_value_flexible(row: Dict[str, Any], preferred_key: str, key_id: str) -> Any:
+	# 직접 키
+	if preferred_key in row:
+		return row.get(preferred_key)
+	# 공백/소문자 동치
+	pref_norm = _collapse_spaces(preferred_key)
+	for k in row.keys():
+		if _collapse_spaces(k) == pref_norm:
+			return row.get(k)
+	# 동의어
+	for syn in SYNONYMS.get(key_id, []):
+		syn_norm = _collapse_spaces(syn)
+		for k in row.keys():
+			if _collapse_spaces(k) == syn_norm:
+				return row.get(k)
+	return None
+
+
+def _find_header_row(ws: gspread.Worksheet, settings: Settings) -> Tuple[int, List[str]]:
+	required_map = {
+		"AGENCY_COLUMN": settings.agency_col,
+		"INTERNAL_COLUMN": settings.internal_col,
+		"REMAINING_DAYS_COLUMN": settings.remaining_days_col,
+		"CHECKED_COLUMN": settings.checked_col,
+		"BIZNAME_COLUMN": settings.bizname_col,
+		"PRODUCT_COLUMN": settings.product_col,
+		"PRODUCT_NAME_COLUMN": settings.product_name_col,
+		"DAILY_WORKLOAD_COLUMN": settings.daily_workload_col,
+	}
+	try:
+		candidates = _with_retry(ws.get_values, '1:100')  # 상단 100행 탐색 (재시도 적용)
+	except Exception:
+		candidates = []
+
+	def score_headers(headers: List[str]) -> tuple[int, int]:
+		has_remaining = any(_matches(h, settings.remaining_days_col, "REMAINING_DAYS_COLUMN") for h in headers)
+		has_bizname = any(_matches(h, settings.bizname_col, "BIZNAME_COLUMN") for h in headers)
+		essentials = int(has_remaining) + int(has_bizname)
+		total = 0
+		for header in headers:
+			for key_id, pref in required_map.items():
+				if _matches(header, pref, key_id):
+					total += 1
+					break
+		return essentials, total
+
+	best_idx = 1
+	best_headers: List[str] = []
+	best_tuple = (-1, -1)
+	for idx, row in enumerate(candidates, start=1):
+		headers = [str(h).strip() for h in row]
+		s = score_headers(headers)
+		if s > best_tuple:
+			best_tuple = s
+			best_idx = idx
+			best_headers = headers
+	if best_tuple == (-1, -1):
+		try:
+			best_headers = [h.strip() for h in _with_retry(ws.row_values, 1)]
+		except Exception:
+			best_headers = []
+		best_idx = 1
+	return best_idx, best_headers
+
+
+
+def _build_records(ws: gspread.Worksheet, header_row: int, headers: List[str]) -> List[Dict[str, Any]]:
+	try:
+		values = _get_all_values_full_cached(ws)
+	except Exception:
+		return []
+	if header_row - 1 >= len(values):
+		return []
+	data_rows = values[header_row:]
+	records: List[Dict[str, Any]] = []
+	for row in data_rows:
+		if all((str(c).strip() == "" for c in row)):
+			continue
+		row_dict: Dict[str, Any] = {}
+		for i, h in enumerate(headers):
+			key = _normalize_key(h)
+			val = row[i] if i < len(row) else ""
+			row_dict[key] = val
+		records.append(row_dict)
+	return records
+
+
+def fetch_grouped_messages(selected_days: List[int], settings: Settings | None = None) -> Dict[str, Dict[str, List[str]]]:
+	if settings is None:
+		settings = load_settings()
+	if not settings.spreadsheet_id:
+		raise RuntimeError("SPREADSHEET_ID 환경변수를 설정하세요.")
+
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+
+	agency_to_task_to_names: Dict[str, Dict[str, List[str]]] = {}
+	# 중복 상호명 병합을 위한 임시 집계: agency -> task -> bizname -> sum(workload)
+	aggregator: Dict[str, Dict[str, Dict[str, int]]] = {}
+	selected_set: Set[int] = set(selected_days)
+
+	for ws in ss.worksheets():
+		task_name = ws.title
+		header_row, headers = _find_header_row(ws, settings)
+		records = _build_records(ws, header_row, headers)
+		for row in records:
+			row_norm = { _normalize_key(k): v for k, v in row.items() }
+			agency = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip() or "미지정 대행사"
+			is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
+			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
+			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+			workload_raw = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
+			workload_num = _parse_int_maybe(workload_raw) or 0
+
+			if is_checked:
+				continue
+			if is_internal:
+				continue
+			if remain is None or remain not in selected_set:
+				continue
+			if not bizname:
+				continue
+
+			by_task = aggregator.setdefault(agency, {}).setdefault(task_name, {})
+			by_task[bizname] = by_task.get(bizname, 0) + workload_num
+	# 집계 결과를 출력 포맷으로 변환
+	for agency, tasks in aggregator.items():
+		out_task_map: Dict[str, List[str]] = {}
+		for task, name_to_wl in tasks.items():
+			names: List[str] = []
+			for name, wl_sum in sorted(name_to_wl.items(), key=lambda kv: kv[0]):
+				names.append(f"{name} (일작업량 {wl_sum})" if wl_sum > 0 else name)
+			out_task_map[task] = names
+		agency_to_task_to_names[agency] = out_task_map
+
+	return agency_to_task_to_names
+
+
+def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings | None = None, filter_mode: str = "agency") -> Dict[str, Dict[int, Dict[str, List[str]]]]:
+	"""대행사 -> 남은일수 -> 작업명(상품 포함 규칙) -> [상호명]
+	- '기타' 탭: '상품 명' 열 값을 작업명으로 사용
+	- 그 외 탭: 작업명(=탭명) 뒤에 '상품' 열 값이 있으면 공백으로 이어붙여 표시
+	filter_mode: 'agency' | 'internal'
+	"""
+	if settings is None:
+		settings = load_settings()
+	if not settings.spreadsheet_id:
+		raise RuntimeError("SPREADSHEET_ID 환경변수를 설정하세요.")
+
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+
+	selected_set: Set[int] = set(selected_days)
+	# 임시 집계: agency -> day -> task -> bizname -> sum(workload)
+	aggregator: Dict[str, Dict[int, Dict[str, Dict[str, int]]]] = {}
+
+	for ws in ss.worksheets():
+		tab_title = (ws.title or "").strip()
+		header_row, headers = _find_header_row(ws, settings)
+		records = _build_records(ws, header_row, headers)
+		for row in records:
+			row_norm = { _normalize_key(k): v for k, v in row.items() }
+			agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
+			is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
+			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
+			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+			product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
+			product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
+			workload = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
+
+			# 필터 모드 적용
+			if filter_mode == "agency":
+				if is_internal:
+					continue
+			elif filter_mode == "internal":
+				if not is_internal:
+					continue
+			else:
+				if is_internal:
+					continue
+
+			# 공통 필터
+			if is_checked or remain is None or remain not in selected_set or not bizname:
+				continue
+
+			# 작업명 생성 규칙
+			base_task = tab_title
+			is_misc = _collapse_spaces(tab_title) == _collapse_spaces("기타")
+			if is_misc:
+				display_task = product_name if product_name else base_task
+			else:
+				display_task = f"{base_task} {product}".strip() if product else base_task
+
+			agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
+			# 집계 업데이트
+			try:
+				wl_num = _parse_int_maybe(workload) or 0
+			except Exception:
+				wl_num = 0
+			dict_by_day = aggregator.setdefault(agency_label, {})
+			dict_by_task = dict_by_day.setdefault(remain, {})
+			by_name = dict_by_task.setdefault(display_task, {})
+			by_name[bizname] = by_name.get(bizname, 0) + wl_num
+
+	# 집계를 최종 출력 포맷으로 변환: List[str]
+	result: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
+	for agency, by_day in aggregator.items():
+		day_out: Dict[int, Dict[str, List[str]]] = {}
+		for day_key, by_task in by_day.items():
+			task_out: Dict[str, List[str]] = {}
+			for task, name_to_wl in by_task.items():
+				names: List[str] = []
+				for name, wl_sum in sorted(name_to_wl.items(), key=lambda kv: kv[0]):
+					names.append(f"{name} (일작업량 {wl_sum})" if wl_sum > 0 else name)
+				task_out[task] = names
+			day_out[day_key] = task_out
+		result[agency] = day_out
+
+	return result
+
+
+def stream_grouped_messages_by_date(selected_days: List[int], settings: Settings | None = None, filter_mode: str = "agency"):
+	"""워크시트 단위로 진행률을 스트리밍하기 위한 제너레이터.
+	각 워크시트 처리 후 진행 이벤트를 yield 하고, 마지막에 최종 결과를 yield 한다.
+	이 함수는 SSE 라우트에서 사용된다.
+	"""
+	if settings is None:
+		settings = load_settings()
+	if not settings.spreadsheet_id:
+		raise RuntimeError("SPREADSHEET_ID 환경변수를 설정하세요.")
+
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+	worksheets = ss.worksheets()
+	total = len(worksheets)
+	processed = 0
+
+	selected_set: Set[int] = set(selected_days)
+	# 임시 집계 저장
+	aggregator: Dict[str, Dict[int, Dict[str, Dict[str, int]]]] = {}
+
+	# 시작 이벤트
+	yield {"type": "start", "total": total}
+
+	for ws in worksheets:
+		tab_title = (ws.title or "").strip()
+		try:
+			header_row, headers = _find_header_row(ws, settings)
+			records = _build_records(ws, header_row, headers)
+			for row in records:
+				row_norm = { _normalize_key(k): v for k, v in row.items() }
+				agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
+				is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
+				is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+				remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
+				bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+				product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
+				product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
+				workload = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
+
+				# 필터 모드 적용
+				if filter_mode == "agency":
+					if is_internal:
+						continue
+				elif filter_mode == "internal":
+					if not is_internal:
+						continue
+				else:
+					if is_internal:
+						continue
+
+				# 공통 필터
+				if is_checked or remain is None or remain not in selected_set or not bizname:
+					continue
+
+				# 작업명 생성 규칙
+				base_task = tab_title
+				is_misc = _collapse_spaces(tab_title) == _collapse_spaces("기타")
+				if is_misc:
+					display_task = product_name if product_name else base_task
+				else:
+					display_task = f"{base_task} {product}".strip() if product else base_task
+
+				agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
+				dict_by_day = aggregator.setdefault(agency_label, {})
+				dict_by_task = dict_by_day.setdefault(remain, {})
+				by_name = dict_by_task.setdefault(display_task, {})
+				wl_num = _parse_int_maybe(workload) or 0
+				by_name[bizname] = by_name.get(bizname, 0) + wl_num
+		except Exception as e:
+			# 워크시트 처리 실패도 진행률로 보고
+			yield {"type": "progress", "processed": processed, "total": total, "tab": tab_title, "error": str(e)}
+		else:
+			processed += 1
+			yield {"type": "progress", "processed": processed, "total": total, "tab": tab_title}
+
+	# 완료 시 집계를 최종 포맷으로 변환
+	final_map: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
+	for agency, by_day in aggregator.items():
+		day_out: Dict[int, Dict[str, List[str]]] = {}
+		for day_key, by_task in by_day.items():
+			task_out: Dict[str, List[str]] = {}
+			for task, name_to_wl in by_task.items():
+				names: List[str] = []
+				for name, wl_sum in sorted(name_to_wl.items(), key=lambda kv: kv[0]):
+					names.append(f"{name} (일작업량 {wl_sum})" if wl_sum > 0 else name)
+				task_out[task] = names
+			day_out[day_key] = task_out
+		final_map[agency] = day_out
+
+	# 완료 이벤트
+	yield {"type": "result", "total": total, "grouped": final_map}
+
+
+def _find_checked_col_index(headers: List[str], settings: Settings) -> int | None:
+	"""헤더들에서 체크 컬럼의 1-based 인덱스를 찾는다."""
+	for idx, h in enumerate(headers, start=1):
+		if _matches(h, settings.checked_col, "CHECKED_COLUMN"):
+			return idx
+	return None
+
+
+def mark_checked_for_agency(selected_days: List[int], agency_label: str, filter_mode: str = "agency", settings: Settings | None = None) -> Dict[str, Any]:
+	"""선택한 일수/보기 모드에서 특정 카드(agency_label)에 포함되는 모든 행의
+	'마감 안내 체크' 값을 TRUE로 업데이트한다.
+
+	반환: { updated: int, details: [{worksheet: str, updated: int}] }
+	"""
+	if settings is None:
+		settings = load_settings()
+	if not settings.spreadsheet_id:
+		raise RuntimeError("SPREADSHEET_ID 환경변수를 설정하세요.")
+
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+
+	selected_set: Set[int] = set(selected_days)
+	results: List[Dict[str, Any]] = []
+	total_updated = 0
+
+	for ws in ss.worksheets():
+		# 헤더 및 컬럼 인덱스 파악
+		header_row, headers = _find_header_row(ws, settings)
+		checked_col = _find_checked_col_index(headers, settings)
+		if checked_col is None:
+			results.append({"worksheet": ws.title, "updated": 0, "reason": "no_checked_col"})
+			continue
+
+		# 전체 값 읽고 레코드 + 실제 행번호 생성
+		try:
+			values = _get_all_values_full_cached(ws)
+		except Exception as e:
+			results.append({"worksheet": ws.title, "updated": 0, "reason": f"read_failed:{e}"})
+			continue
+		if header_row - 1 >= len(values):
+			results.append({"worksheet": ws.title, "updated": 0, "reason": "no_data"})
+			continue
+		data_rows = values[header_row:]
+
+		update_targets: List[int] = []  # 실제 시트 행 번호(1-based)
+		for idx, row in enumerate(data_rows):
+			# dict 구성
+			row_dict: Dict[str, Any] = {}
+			for i, h in enumerate(headers):
+				key = _normalize_key(h)
+				val = row[i] if i < len(row) else ""
+				row_dict[key] = val
+			row_norm = { _normalize_key(k): v for k, v in row_dict.items() }
+
+			agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
+			is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
+			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
+			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+
+			# 필터 모드 적용 (리스트 뷰와 동일 규칙)
+			if filter_mode == "agency":
+				if is_internal:
+					continue
+			elif filter_mode == "internal":
+				if not is_internal:
+					continue
+			else:
+				if is_internal:
+					continue
+
+			# 공통 필터 (리스트 뷰와 동일)
+			if is_checked or remain is None or remain not in selected_set or not bizname:
+				continue
+
+			# 에이전시 라벨 계산 (뷰와 동일)
+			computed_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
+			if computed_label != agency_label:
+				continue
+
+			# 실제 시트 상의 행 번호 계산: header_row는 헤더가 있는 1-based 라인
+			# data_rows는 header_row 바로 다음 줄부터 시작이므로 + (header_row + idx + 1)
+			real_row_num = header_row + idx + 1
+			update_targets.append(real_row_num)
+
+		# 업데이트 수행 (개별 업데이트: 신뢰성 우선)
+		updated_here = 0
+		for r in update_targets:
+			try:
+				ws.update_cell(r, checked_col, "TRUE")
+			except Exception:
+				continue
+			else:
+				updated_here += 1
+
+		results.append({"worksheet": ws.title, "updated": updated_here})
+		total_updated += updated_here
+
+	return {"updated": total_updated, "details": results}
+
+
+def mark_checked_for_agencies(selected_days: List[int], agency_labels: List[str], filter_mode: str = "agency", settings: Settings | None = None) -> Dict[str, Any]:
+	"""선택한 일수/보기 모드에서 여러 카드(agency_labels)에 포함되는 모든 행의
+	'마감 안내 체크' 값을 TRUE로 일괄 업데이트한다.
+
+	반환: { updated: int, details: [{worksheet: str, updated: int}], per_agency: {label: int} }
+	"""
+	if settings is None:
+		settings = load_settings()
+	if not settings.spreadsheet_id:
+		raise RuntimeError("SPREADSHEET_ID 환경변수를 설정하세요.")
+
+	# 타겟 라벨 집합 정리
+	target_labels: Set[str] = set([str(a or "").strip() for a in agency_labels if str(a or "").strip()])
+	if not target_labels:
+		return {"updated": 0, "details": [], "per_agency": {}}
+
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+
+	selected_set: Set[int] = set(selected_days)
+	results: List[Dict[str, Any]] = []
+	total_updated = 0
+	per_agency: Dict[str, int] = {label: 0 for label in target_labels}
+
+	for ws in ss.worksheets():
+		# 헤더 및 컬럼 인덱스 파악
+		header_row, headers = _find_header_row(ws, settings)
+		checked_col = _find_checked_col_index(headers, settings)
+		if checked_col is None:
+			results.append({"worksheet": ws.title, "updated": 0, "reason": "no_checked_col"})
+			continue
+
+		# 전체 값 읽고 레코드 + 실제 행번호 생성 (캐시 활용)
+		try:
+			values = _get_all_values_full_cached(ws)
+		except Exception as e:
+			results.append({"worksheet": ws.title, "updated": 0, "reason": f"read_failed:{e}"})
+			continue
+		if header_row - 1 >= len(values):
+			results.append({"worksheet": ws.title, "updated": 0, "reason": "no_data"})
+			continue
+		data_rows = values[header_row:]
+
+		# 업데이트 대상 수집
+		update_targets: List[int] = []  # 실제 시트 행 번호(1-based)
+		labels_for_row: List[str] = []  # 행별 라벨(통계용)
+		for idx, row in enumerate(data_rows):
+			row_dict: Dict[str, Any] = {}
+			for i, h in enumerate(headers):
+				key = _normalize_key(h)
+				val = row[i] if i < len(row) else ""
+				row_dict[key] = val
+			row_norm = { _normalize_key(k): v for k, v in row_dict.items() }
+
+			agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
+			is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
+			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
+			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+
+			# 필터 모드 적용
+			if filter_mode == "agency":
+				if is_internal:
+					continue
+			elif filter_mode == "internal":
+				if not is_internal:
+					continue
+			else:
+				if is_internal:
+					continue
+
+			# 공통 필터
+			if is_checked or remain is None or remain not in selected_set or not bizname:
+				continue
+
+			computed_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
+			if computed_label not in target_labels:
+				continue
+
+			real_row_num = header_row + idx + 1
+			update_targets.append(real_row_num)
+			labels_for_row.append(computed_label)
+
+		# 업데이트 수행 (개별 업데이트: 신뢰성 우선)
+		updated_here = 0
+		for r, label in zip(update_targets, labels_for_row):
+			try:
+				ws.update_cell(r, checked_col, "TRUE")
+			except Exception:
+				continue
+			else:
+				updated_here += 1
+				per_agency[label] = per_agency.get(label, 0) + 1
+
+		results.append({"worksheet": ws.title, "updated": updated_here})
+		total_updated += updated_here
+
+	return {"updated": total_updated, "details": results, "per_agency": per_agency}
+
+def inspect_sheets(settings: Settings | None = None) -> List[Dict[str, Any]]:
+	if settings is None:
+		settings = load_settings()
+	if not settings.spreadsheet_id:
+		raise RuntimeError("SPREADSHEET_ID 환경변수를 설정하세요.")
+
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+
+	results: List[Dict[str, Any]] = []
+	for ws in ss.worksheets():
+		header_row, headers = _find_header_row(ws, settings)
+		results.append({
+			"title": ws.title,
+			"header_row": header_row,
+			"headers": headers,
+			"has_agency": any(_matches(h, settings.agency_col, "AGENCY_COLUMN") for h in headers),
+			"has_internal": any(_matches(h, settings.internal_col, "INTERNAL_COLUMN") for h in headers),
+			"has_remaining": any(_matches(h, settings.remaining_days_col, "REMAINING_DAYS_COLUMN") for h in headers),
+			"has_checked": any(_matches(h, settings.checked_col, "CHECKED_COLUMN") for h in headers),
+			"has_bizname": any(_matches(h, settings.bizname_col, "BIZNAME_COLUMN") for h in headers),
+		})
+	return results
+
+
+def diagnose_matches(selected_days: List[int], settings: Settings | None = None, limit: int = 50) -> Dict[str, Any]:
+	"""탭별 매칭된 항목과 제외 사유 샘플, 사유별 카운트를 반환한다."""
+	if settings is None:
+		settings = load_settings()
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+
+	selected_set: Set[int] = set(selected_days)
+	report: Dict[str, Any] = {}
+	for ws in ss.worksheets():
+		task_name = ws.title
+		header_row, headers = _find_header_row(ws, settings)
+		records = _build_records(ws, header_row, headers)
+		matched: List[Dict[str, Any]] = []
+		excluded: List[Dict[str, Any]] = []
+		reason_counts: Dict[str, int] = {}
+		for row in records:
+			row_norm = { _normalize_key(k): v for k, v in row.items() }
+			agency = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
+			is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
+			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			remain_val_raw = _get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN")
+			remain = _parse_int_maybe(remain_val_raw)
+			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+
+			reason = None
+			if is_checked:
+				reason = "checked"
+			elif is_internal:
+				reason = "internal"
+			elif remain is None:
+				reason = f"remain_parse_failed:{remain_val_raw}"
+			elif remain not in selected_set:
+				reason = f"remain_not_selected:{remain}"
+			elif not bizname:
+				reason = "no_bizname"
+
+			if reason is None:
+				matched.append({"agency": agency or "", "bizname": bizname, "remain": remain})
+			else:
+				excluded.append({"agency": agency or "", "bizname": bizname, "remain_raw": remain_val_raw, "reason": reason})
+				reason_counts[reason] = reason_counts.get(reason, 0) + 1
+
+		report[task_name] = {
+			"header_row": header_row,
+			"matched_count": len(matched),
+			"matched_sample": matched[:limit],
+			"excluded_sample": excluded[:limit],
+			"excluded_reason_counts": reason_counts,
+		}
+	return report
+
+
+def list_sheet_tabs(spreadsheet_id: str | None = None) -> List[str]:
+	"""스프레드시트의 워크시트 탭 제목 목록을 반환한다.
+	spreadsheet_id를 명시하면 그것을 사용하고, 없으면 기본 설정의 SPREADSHEET_ID를 사용한다.
+	"""
+	if not spreadsheet_id:
+		settings = load_settings()
+		spreadsheet_id = settings.spreadsheet_id
+	if not spreadsheet_id:
+		raise RuntimeError("스프레드시트 ID가 비어 있습니다.")
+	client = _get_client()
+	ss = client.open_by_key(spreadsheet_id)
+	return [str((ws.title or "").strip()) for ws in ss.worksheets()]
+
+
+def inspect_sheets_by_id(spreadsheet_id: str) -> List[Dict[str, Any]]:
+	"""지정된 스프레드시트 ID에 대해 탭별 헤더 정보를 반환한다."""
+	if not spreadsheet_id:
+		raise RuntimeError("스프레드시트 ID가 비어 있습니다.")
+	client = _get_client()
+	ss = client.open_by_key(spreadsheet_id)
+	settings = load_settings()
+	results: List[Dict[str, Any]] = []
+	for ws in ss.worksheets():
+		header_row, headers = _find_header_row(ws, settings)
+		results.append({
+			"title": ws.title,
+			"header_row": header_row,
+			"headers": headers,
+		})
+	return results
+
+
+def _find_header_row_simple(values: List[List[str]]) -> int:
+	"""상단 20행 내에서 '상호명/상품명/저장/트래픽' 중 하나 이상이 있는 첫 행을 헤더로 간주한다.
+	반환: 1-based 행 번호(없으면 1)
+	"""
+	max_scan = min(len(values), 20)
+	keys = {"상호명", "상품명", "저장", "트래픽"}
+	for idx in range(max_scan):
+		row = [str(c or "").strip() for c in values[idx]]
+		row_set = set(row)
+		if any(k in row_set for k in keys):
+			return idx + 1
+	return 1
+
+
+
+def _authed_session():
+	"""Google API Authorized session 생성"""
+	from google.auth.transport.requests import AuthorizedSession
+	creds = _build_credentials()
+	return AuthorizedSession(creds)
+
+
+def _fetch_background_colors(spreadsheet_id: str, sheet_title: str, max_rows: int) -> Dict[Tuple[int, int], Tuple[float, float, float]]:
+	"""지정 탭의 A1:Z{max_rows} 배경색을 조회한다.
+	반환: {(row0,col0): (r,g,b)} 0-based
+	"""
+	sess = _authed_session()
+	url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
+	params = {
+		"includeGridData": "true",
+		"ranges": f"{sheet_title}!A1:Z{max_rows}",
+		"fields": "sheets(data(rowData(values(effectiveFormat(backgroundColor)))))",
+	}
+	try:
+		resp = sess.get(url, params=params)
+		resp.raise_for_status()
+		data = resp.json()
+	except Exception:
+		return {}
+	colors: Dict[Tuple[int, int], Tuple[float, float, float]] = {}
+	try:
+		row_data = data.get("sheets", [{}])[0].get("data", [{}])[0].get("rowData", [])
+		for r_idx, row in enumerate(row_data):
+			cells = row.get("values", [])
+			for c_idx, cell in enumerate(cells):
+				bg = cell.get("effectiveFormat", {}).get("backgroundColor", {})
+				r, g, b = bg.get("red", 0.0), bg.get("green", 0.0), bg.get("blue", 0.0)
+				colors[(r_idx, c_idx)] = (float(r or 0.0), float(g or 0.0), float(b or 0.0))
+	except Exception:
+		return {}
+	return colors
+
+
+def _is_yellow(rgb: Tuple[float, float, float]) -> bool:
+    if not rgb or len(rgb) != 3:
+        return False
+    r, g, b = rgb
+    return (abs(r - 1.0) <= 0.05 and abs(g - 1.0) <= 0.05 and abs(b - 0.0) <= 0.05)
+
+
+def _is_manage_green(rgb: Tuple[float, float, float]) -> bool:
+    """연녹색(관리형) 감지: #d9ead3 (R=217,G=234,B=211) ≈ (0.851,0.918,0.827)
+
+    구글시트 API는 0~1 float을 반환하므로 근사치 범위로 판정한다.
+    """
+    if not rgb or len(rgb) != 3:
+        return False
+    r, g, b = rgb
+    target = (217.0/255.0, 234.0/255.0, 211.0/255.0)
+    tol = 0.06  # 허용 오차
+    return (abs(r - target[0]) <= tol and abs(g - target[1]) <= tol and abs(b - target[2]) <= tol)
+
+
+def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], pricebook: List[Dict[str, Any]]) -> Dict[str, Any]:
+	"""결재선 시트에서 선택 탭의 행을 읽어 정산 행 + 집계를 생성한다.
+
+	- 단가 레코드 예: { client, product, price, account, type? }  // type 미지정=공통
+	- 자사건: 배경 노란색(#ffff00) → 지출만 산출
+	- 대행사건: 지출 + 매출(금액[vAT제외]) 산출
+	"""
+	if not spreadsheet_id:
+		raise RuntimeError("스프레드시트 ID가 비어 있습니다.")
+	client = _get_client()
+	ss = client.open_by_key(spreadsheet_id)
+	wanted = set([str(t).strip() for t in (selected_tabs or []) if str(t).strip()])
+
+	# 단가 조회: (client, product, type) → (client, product, 공통) → (product, type) → (product, 공통)
+	def find_unit_price(client_name: str, product_name: str, qty_type: str) -> float:
+		client_name = (client_name or "").strip()
+		product_name = (product_name or "").strip()
+		qty_type = (qty_type or "").strip()
+		for it in pricebook:
+			it_type = str(it.get("type") or "공통").strip()
+			if str(it.get("client") or "").strip() == client_name and str(it.get("product") or "").strip() == product_name and it_type == qty_type:
+				return float(it.get("price") or 0)
+		for it in pricebook:
+			it_type = str(it.get("type") or "공통").strip()
+			if str(it.get("client") or "").strip() == client_name and str(it.get("product") or "").strip() == product_name and it_type == "공통":
+				return float(it.get("price") or 0)
+		for it in pricebook:
+			it_type = str(it.get("type") or "공통").strip()
+			if str(it.get("product") or "").strip() == product_name and it_type == qty_type:
+				return float(it.get("price") or 0)
+		for it in pricebook:
+			it_type = str(it.get("type") or "공통").strip()
+			if str(it.get("product") or "").strip() == product_name and it_type == "공통":
+				return float(it.get("price") or 0)
+		return 0.0
+
+	rows_out: List[Dict[str, Any]] = []
+	missing: Dict[Tuple[str, str, str], int] = {}
+	by_client_expense: Dict[str, float] = {}
+	by_client_income: Dict[str, float] = {}
+	grand_expense = 0.0
+	grand_income = 0.0
+	by_product: Dict[str, Dict[str, Dict[str, float]]] = {}
+	by_agency: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+
+	for ws in ss.worksheets():
+		tab = (ws.title or "").strip()
+		if wanted and tab not in wanted:
+			continue
+		# 전체 값
+		values = _get_all_values_full_cached(ws)
+		if not values:
+			continue
+		header_row = _find_header_row_simple(values)
+		headers = [str(c or "").strip() for c in (values[header_row-1] if header_row-1 < len(values) else [])]
+		# 배경색 조회
+		bg = _fetch_background_colors(spreadsheet_id, tab, max_rows=len(values))
+		# 컬럼 인덱스
+		def col_idx(name: str) -> int | None:
+			try:
+				return headers.index(name)
+			except ValueError:
+				return None
+		ci_agency = col_idx("상호명")
+		ci_job = col_idx("상품명")
+		ci_store = col_idx("저장")
+		ci_traf = col_idx("트래픽")
+		ci_store_actual = col_idx("저장 감은타수")
+		ci_traf_actual = col_idx("트래픽 감은타수")
+		ci_amount = col_idx("금액(vat제외)")
+
+		for row_idx, r in enumerate(values[header_row:]):
+			agency = str((r[ci_agency] if (ci_agency is not None and ci_agency < len(r)) else "").strip()) if ci_agency is not None else ""
+			job = str((r[ci_job] if (ci_job is not None and ci_job < len(r)) else "").strip()) if ci_job is not None else ""
+			store_s = str((r[ci_store] if (ci_store is not None and ci_store < len(r)) else "").strip()) if ci_store is not None else ""
+			traf_s = str((r[ci_traf] if (ci_traf is not None and ci_traf < len(r)) else "").strip()) if ci_traf is not None else ""
+			store_actual_s = str((r[ci_store_actual] if (ci_store_actual is not None and ci_store_actual < len(r)) else "").strip()) if ci_store_actual is not None else ""
+			traf_actual_s = str((r[ci_traf_actual] if (ci_traf_actual is not None and ci_traf_actual < len(r)) else "").strip()) if ci_traf_actual is not None else ""
+			amount_note_s = str((r[ci_amount] if (ci_amount is not None and ci_amount < len(r)) else "").strip()) if ci_amount is not None else ""
+
+			if not agency:
+				continue
+			# 수량 파싱
+			def to_int(s: str) -> int:
+				s_clean = (s or "").replace(",", "").strip()
+				m = re.search(r"-?\d+", s_clean)
+				return int(m.group(0)) if m else 0
+			def to_float(s: str) -> float:
+				s_clean = (s or "").replace(",", "").strip()
+				m = re.search(r"-?[\d.]+", s_clean)
+				return float(m.group(0)) if m else 0.0
+			qty_store_raw = to_int(store_s)
+			qty_traf_raw = to_int(traf_s)
+			qty_store_act = to_int(store_actual_s)
+			qty_traf_act = to_int(traf_actual_s)
+			# 감은타수가 존재(>0)하면 그것을 우선 사용
+			qty_store = qty_store_act if qty_store_act > 0 else qty_store_raw
+			qty_traf = qty_traf_act if qty_traf_act > 0 else qty_traf_raw
+			income_noted = to_float(amount_note_s)  # 대행사건에만 매출 반영
+			if qty_store == 0 and qty_traf == 0:
+				continue
+
+			# 자사건/관리형 판정: 상호명 셀 배경 노란색(자사) 또는 연녹색(관리형) → 매출 0 처리
+			is_internal = False
+			internal_type = None  # 'guarantee'(노란색) or 'manage'(연녹색)
+			if ci_agency is not None:
+				rgb = bg.get((header_row + row_idx, ci_agency))
+				if _is_yellow(rgb):
+					is_internal = True
+					internal_type = "guarantee"
+				elif _is_manage_green(rgb):
+					is_internal = True
+					internal_type = "manage"
+
+			# 저장 행
+			if qty_store:
+				unit = find_unit_price(agency, job, "저장")
+				expense = float(qty_store) * unit
+				income = 0.0 if is_internal else income_noted
+				rows_out.append({"date": tab, "client": agency, "job": job, "type": "저장", "qty": qty_store, "unit_price": unit, "expense": expense, "income": income, "is_internal": is_internal, "internal_type": internal_type})
+				by_client_expense[agency] = by_client_expense.get(agency, 0.0) + expense
+				if not is_internal:
+					by_client_income[agency] = by_client_income.get(agency, 0.0) + income
+				grand_expense += expense
+				grand_income += income
+				if unit == 0:
+					missing[(agency, job, "저장")] = missing.get((agency, job, "저장"), 0) + qty_store
+				# 집계: 상품명 기준(type을 붙이지 않음)
+				bp = by_product.setdefault(tab, {}).setdefault(job, {"qty": 0.0, "expense": 0.0, "income": 0.0})
+				bp["qty"] += float(qty_store); bp["expense"] += expense; bp["income"] += income
+				by_agency.setdefault(tab, {}).setdefault(agency, []).append({"product": job, "type": "저장", "qty": qty_store, "unit_price": unit, "expense": expense, "income": income, "internal_type": internal_type})
+			# 트래픽 행
+			if qty_traf:
+				unit = find_unit_price(agency, job, "트래픽")
+				expense = float(qty_traf) * unit
+				income = 0.0 if is_internal else income_noted
+				rows_out.append({"date": tab, "client": agency, "job": job, "type": "트래픽", "qty": qty_traf, "unit_price": unit, "expense": expense, "income": income, "is_internal": is_internal, "internal_type": internal_type})
+				by_client_expense[agency] = by_client_expense.get(agency, 0.0) + expense
+				if not is_internal:
+					by_client_income[agency] = by_client_income.get(agency, 0.0) + income
+				grand_expense += expense
+				grand_income += income
+				if unit == 0:
+					missing[(agency, job, "트래픽")] = missing.get((agency, job, "트래픽"), 0) + qty_traf
+				bp = by_product.setdefault(tab, {}).setdefault(job, {"qty": 0.0, "expense": 0.0, "income": 0.0})
+				bp["qty"] += float(qty_traf); bp["expense"] += expense; bp["income"] += income
+				by_agency.setdefault(tab, {}).setdefault(agency, []).append({"product": job, "type": "트래픽", "qty": qty_traf, "unit_price": unit, "expense": expense, "income": income, "internal_type": internal_type})
+
+	# missing 리스트 가공
+	missing_list = [{"client": k[0], "job": k[1], "type": k[2], "qty_sum": v} for k, v in missing.items()]
+	return {
+		"rows": rows_out,
+		"totals": {
+			"by_client_expense": by_client_expense,
+			"by_client_income": by_client_income,
+			"grand_expense": grand_expense,
+			"grand_income": grand_income,
+		},
+		"aggregates": {"by_product": by_product, "by_agency": by_agency},
+		"missing_prices": missing_list,
+	}
