@@ -1180,6 +1180,30 @@
         const totals = {}; Object.keys(pc).forEach(prod=>{ totals[prod] = Object.values(pc[prod]).reduce((a,b)=>a+Number(b||0),0); });
         return totals;
       }
+      // 거래처별 합계(VAT 포함): 모든 상품을 거래처 기준으로 병합
+      function computeVendorTotals(){
+        const aggs = augmentAggregatesWithExtras(state.lastAggregates||{}, state.extraExpenses||{});
+        const byA = aggs.by_agency||{}; const mincomClients=['민컴퍼니','궁서애드'];
+        const filterGuarantee = window.__filterGuarantee===true; const filterManage = window.__filterManage===true; const filterMincom = window.__filterMincom===true; const onlyMincomMode = filterMincom && !filterGuarantee && !filterManage;
+        const excludeP = new Set(state.exclusions?.products||[]); const excludeR = new Set(state.exclusions?.rows||[]);
+        const map = {}; // vendor -> sum(expense)
+        Object.keys(byA).forEach(date=>{
+          const cmap = byA[date]||{}; Object.keys(cmap).forEach(client=>{
+            (cmap[client]||[]).forEach(it=>{
+              if(excludeP.has(it.product||'')) return;
+              const rk = `${date}|||${client}|||${it.product||''}|||${it.type||''}|||${Number(it.qty||0)}|||${Number(it.unit_price||0)}|||${Number(it.expense||0)}`;
+              if(excludeR.has(rk)) return;
+              const itype=it.internal_type||null; const isG=itype==='guarantee'; const isM=itype==='manage'; const isMin=mincomClients.includes(client);
+              if(filterGuarantee && !isG) return; if(filterManage && !isM) return; if(filterMincom && !isMin) return; if(onlyMincomMode && !isG) return; if(filterGuarantee && isMin) return;
+              const vendor = getVendorNameForProduct(it.product||'');
+              map[vendor] = (map[vendor]||0) + Number(it.expense||0);
+            });
+          });
+        });
+        // VAT 포함 변환
+        const out={}; Object.keys(map).forEach(v=>{ out[v] = withVAT(map[v]); });
+        return out;
+      }
       // 상품 → 거래처명 매핑: priceBook에서 해당 상품의 대표 거래처명을 추정
       function getVendorNameForProduct(prod){
         try{
@@ -1190,25 +1214,25 @@
       }
       function renderKakaoList(){
         const cont = document.getElementById('kakao-list'); if(!cont) return; cont.innerHTML='';
-        const totals = computeProductTotals();
-        Object.keys(totals).sort().forEach(prod=>{
+        const totals = computeVendorTotals();
+        Object.keys(totals).sort().forEach(vendor=>{
           const wrap = document.createElement('div'); wrap.className='panel'; wrap.style.marginBottom='8px';
-          const amount = Number(totals[prod]||0);
+          const amount = Number(totals[vendor]||0);
           wrap.innerHTML = `
             <div class=\"stack\" style=\"justify-content:space-between; align-items:center\">
-              <div><b>[${getVendorNameForProduct(prod)}]</b></div>
+              <div><b>[${vendor}]</b></div>
               <div>
-                ${(EXPENSE_TAGS||[]).map(tag=>`<span class=\"tag\" data-ptag data-product=\"${prod}\" data-key=\"${tag.key}\">${tag.key}</span>`).join('')}
+                ${(EXPENSE_TAGS||[]).map(tag=>`<span class=\"tag\" data-vtag data-vendor=\"${vendor}\" data-key=\"${tag.key}\">${tag.key}</span>`).join('')}
               </div>
               <b>${amount.toLocaleString()}원</b>
             </div>`;
           cont.appendChild(wrap);
         });
-        // 태그 토글 핸들러 (상품 단위)
-        cont.querySelectorAll('[data-ptag]')?.forEach(el=>{
+        // 태그 토글 핸들러 (거래처 단위)
+        cont.querySelectorAll('[data-vtag]')?.forEach(el=>{
           el.addEventListener('click', ()=>{
-            const prod=String(el.getAttribute('data-product')||''); const key=String(el.getAttribute('data-key')||'');
-            const cur=new Set(state.wizard.categories[prod]||[]); if(cur.has(key)) cur.delete(key); else cur.add(key); state.wizard.categories[prod]=Array.from(cur);
+            const vendor=String(el.getAttribute('data-vendor')||''); const key=String(el.getAttribute('data-key')||'');
+            const cur=new Set(state.wizard.categories[vendor]||[]); if(cur.has(key)) cur.delete(key); else cur.add(key); state.wizard.categories[vendor]=Array.from(cur);
             renderKakaoList(); buildKakaoText();
           });
         });
@@ -1217,11 +1241,11 @@
       function buildKakaoText(){
         const txt = [];
         const dateStr = (document.getElementById('report-date')?.value||state.wizard.reportDate||'').trim(); if(dateStr){ txt.push(dateStr); txt.push(''); }
-        const totals = computeProductTotals(); let totalSum=0;
-        Object.keys(totals).sort().forEach(prod=>{
-          txt.push(`[${getVendorNameForProduct(prod)}]`);
-          const amount = Number(totals[prod]||0); totalSum += amount;
-          const tags = state.wizard.categories[prod]||[]; const custom = (state.wizard.custom[prod]||'').trim();
+        const totals = computeVendorTotals(); let totalSum=0;
+        Object.keys(totals).sort().forEach(vendor=>{
+          txt.push(`[${vendor}]`);
+          const amount = Number(totals[vendor]||0); totalSum += amount;
+          const tags = state.wizard.categories[vendor]||[]; const custom = (state.wizard.custom[vendor]||'').trim();
           const pieces = []; tags.forEach(k=>{ const t=EXPENSE_TAGS.find(x=>x.key===k); if(t) pieces.push(t.label); }); if(custom) pieces.push(custom);
           const label = pieces.length? pieces.join(', ') : '지출';
           txt.push(`${amount.toLocaleString()}원 - ${label}`);
