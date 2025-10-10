@@ -1214,7 +1214,7 @@
         }catch(e){ return String(prod||''); }
       }
       function renderKakaoList(){
-        const cont = document.getElementById('kakao-list'); if(!cont) return; cont.innerHTML='';
+        const cont = document.getElementById('pc-list'); if(!cont) return; cont.innerHTML='';
         const totals = computeVendorTotals();
         const keys = Object.keys(totals).sort((a,b)=>{
           const A = (a==='일류기획')? '\\x00'+a : a;
@@ -1246,7 +1246,17 @@
 
       function buildKakaoText(){
         const txt = [];
-        const dateStr = (document.getElementById('report-date')?.value||state.wizard.reportDate||'').trim(); if(dateStr){ txt.push(dateStr); txt.push(''); }
+        // 날짜 자동 생성: 선택한 탭(날짜들)에서 최소~최대를 MM/DD 형식으로 표기. 입력값이 있으면 우선
+        let dateStr = (document.getElementById('report-date')?.value||state.wizard.reportDate||'').trim();
+        try{
+          if(!dateStr && Array.isArray(state.selectedTabs) && state.selectedTabs.length){
+            const toMMDD = (s)=>{ const t=String(s||''); const m=t.slice(0,2), d=t.slice(2); return `${m}/${d}`; };
+            const nums = state.selectedTabs.map(t=> Number(String(t).replace(/\D/g,''))).filter(n=>!isNaN(n));
+            if(nums.length){ nums.sort((a,b)=>a-b); const first=String(nums[0]).padStart(4,'0'); const last=String(nums[nums.length-1]).padStart(4,'0');
+              const fst=toMMDD(first), lst=toMMDD(last); dateStr = (fst===lst)? fst : `${fst} ~ ${lst}`; }
+          }
+        }catch(e){}
+        if(dateStr){ txt.push(dateStr); txt.push(''); }
         const totals = computeVendorTotals(); let totalSum=0;
         Object.keys(totals).sort().forEach(vendor=>{
           txt.push(`[${vendor}]`);
@@ -1267,8 +1277,8 @@
                  const preview=document.getElementById('wiz-preview'); if(preview){ preview.addEventListener('click', ()=>{ buildKakaoText(); }); }
                  const copy=document.getElementById('copy-kakao'); if(copy){ copy.addEventListener('click', ()=>{ const t=document.getElementById('kakao-text')?.value||''; navigator.clipboard?.writeText(t); toast('복사됨'); }); }
                  const next2=document.getElementById('wiz-next-2'); if(next2){ next2.addEventListener('click', ()=>{ setSlide(3); renderExcelTable(); }); }
-                 // 상품·거래처 보드 렌더
-                 renderProductClientList();
+                 // 거래처 보드 렌더
+                 renderKakaoList();
                  })();
 
       // Step3: 엑셀 미리보기 (UI 스켈레톤)
