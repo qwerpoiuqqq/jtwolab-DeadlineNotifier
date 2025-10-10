@@ -1010,12 +1010,12 @@
             </div>
             <div class="two-col">
               <div class="panel">
-                <div class="stack" style="justify-content:space-between; align-items:center"><b>미리보기</b><div class="stack"><button id="copy-kakao" class="btn">복사</button></div></div>
-                <textarea id="kakao-text" style="width:100%; height:360px; margin-top:8px"></textarea>
-              </div>
-              <div class="panel">
                 <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px"><b>상품별 총 금액(부가세 포함)</b><span class="muted-sm">항목 선택으로 내용 수정</span></div>
                 <div id="pc-list" style="max-height:380px; overflow:auto"></div>
+              </div>
+              <div class="panel">
+                <div class="stack" style="justify-content:space-between; align-items:center"><b>미리보기</b><div class="stack"><button id="copy-kakao" class="btn">복사</button></div></div>
+                <textarea id="kakao-text" style="width:100%; height:360px; margin-top:8px"></textarea>
               </div>
             </div>
             <div class="stack" style="justify-content:space-between; margin-top:8px">
@@ -1180,6 +1180,14 @@
         const totals = {}; Object.keys(pc).forEach(prod=>{ totals[prod] = Object.values(pc[prod]).reduce((a,b)=>a+Number(b||0),0); });
         return totals;
       }
+      // 상품 → 거래처명 매핑: priceBook에서 해당 상품의 대표 거래처명을 추정
+      function getVendorNameForProduct(prod){
+        try{
+          // priceBook에서 동일 상품명의 첫 레코드의 client 사용
+          const it = (state.priceBook||[]).find(x=> String(x.product||'')===String(prod||''));
+          return (it && it.client) ? String(it.client) : String(prod||'');
+        }catch(e){ return String(prod||''); }
+      }
       function renderKakaoList(){
         const cont = document.getElementById('kakao-list'); if(!cont) return; cont.innerHTML='';
         const totals = computeProductTotals();
@@ -1188,7 +1196,7 @@
           const amount = Number(totals[prod]||0);
           wrap.innerHTML = `
             <div class=\"stack\" style=\"justify-content:space-between; align-items:center\">
-              <div><b>[${prod}]</b></div>
+              <div><b>[${getVendorNameForProduct(prod)}]</b></div>
               <div>
                 ${(EXPENSE_TAGS||[]).map(tag=>`<span class=\"tag\" data-ptag data-product=\"${prod}\" data-key=\"${tag.key}\">${tag.key}</span>`).join('')}
               </div>
@@ -1211,7 +1219,7 @@
         const dateStr = (document.getElementById('report-date')?.value||state.wizard.reportDate||'').trim(); if(dateStr){ txt.push(dateStr); txt.push(''); }
         const totals = computeProductTotals(); let totalSum=0;
         Object.keys(totals).sort().forEach(prod=>{
-          txt.push(`[${prod}]`);
+          txt.push(`[${getVendorNameForProduct(prod)}]`);
           const amount = Number(totals[prod]||0); totalSum += amount;
           const tags = state.wizard.categories[prod]||[]; const custom = (state.wizard.custom[prod]||'').trim();
           const pieces = []; tags.forEach(k=>{ const t=EXPENSE_TAGS.find(x=>x.key===k); if(t) pieces.push(t.label); }); if(custom) pieces.push(custom);
