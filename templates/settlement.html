@@ -1010,7 +1010,7 @@
             </div>
             <div class="two-col">
               <div class="panel">
-                <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px"><b>상품별 총 금액(부가세 포함)</b><span class="muted-sm">항목 선택으로 내용 수정</span></div>
+                <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px"><b>거래처별 총 금액(부가세 포함)</b><span class="muted-sm">항목 선택으로 내용 수정</span></div>
                 <div id="pc-list" style="max-height:380px; overflow:auto"></div>
               </div>
               <div class="panel">
@@ -1025,7 +1025,8 @@
           </div>
           <div id="slide-3" class="slide">
             <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px"><b>엑셀 보고 템플릿</b><div class="stack"><button id="copy-excel" class="btn">복사</button></div></div>
-            <div style="overflow:auto"><table id="excel-table" class="mini" style="width:100%"><thead><tr><th>날짜</th><th>거래처</th><th>상품명</th><th>수량</th><th>단가</th><th>지출</th></tr></thead><tbody></tbody></table></div>
+            <div class="muted-sm" style="margin-bottom:6px">열: 구분 | 은행 | 계좌 | 금액(vat 포함) | 내용 | 예금주</div>
+            <div style="overflow:auto"><table id="excel-table" class="mini" style="width:100%"><thead><tr><th>구분</th><th>은행</th><th>계좌</th><th>금액(vat 포함)</th><th>내용</th><th>예금주</th></tr></thead><tbody></tbody></table></div>
             <div class="stack" style="justify-content:space-between; margin-top:8px">
               <button id="wiz-back-3" class="btn">이전</button>
               <button id="wiz-done" class="btn-primary">완료</button>
@@ -1215,7 +1216,12 @@
       function renderKakaoList(){
         const cont = document.getElementById('kakao-list'); if(!cont) return; cont.innerHTML='';
         const totals = computeVendorTotals();
-        Object.keys(totals).sort().forEach(vendor=>{
+        const keys = Object.keys(totals).sort((a,b)=>{
+          const A = (a==='일류기획')? '\\x00'+a : a;
+          const B = (b==='일류기획')? '\\x00'+b : b;
+          return A.localeCompare(B);
+        });
+        keys.forEach(vendor=>{
           const wrap = document.createElement('div'); wrap.className='panel'; wrap.style.marginBottom='8px';
           const amount = Number(totals[vendor]||0);
           wrap.innerHTML = `
@@ -1268,29 +1274,30 @@
       // Step3: 엑셀 미리보기 (UI 스켈레톤)
       function gatherCurrentRows(){
         const rows = [];
-        const aggs = augmentAggregatesWithExtras(state.lastAggregates||{}, state.extraExpenses||[]);
-        const byA = aggs.by_agency||{}; const mincomClients=['민컴퍼니','궁서애드'];
-        const filterGuarantee = window.__filterGuarantee===true; const filterManage = window.__filterManage===true; const filterMincom = window.__filterMincom===true; const onlyMincomMode = filterMincom && !filterGuarantee && !filterManage;
-        Object.keys(byA).forEach(date=>{
-          const cmap = byA[date]||{}; Object.keys(cmap).forEach(client=>{
-            (cmap[client]||[]).forEach(it=>{
-              if(state.exclusions?.products?.includes?.(it.product||'')) return;
-              const rowKey = `${date}|||${client}|||${it.product||''}|||${it.type||''}|||${Number(it.qty||0)}|||${Number(it.unit_price||0)}|||${Number(it.expense||0)}`;
-              if(state.exclusions?.rows?.includes?.(rowKey)) return;
-              const itype = it.internal_type||null; const isG=itype==='guarantee'; const isM=itype==='manage'; const isMin = mincomClients.includes(client);
-              if(filterGuarantee && !isG) return; if(filterManage && !isM) return; if(filterMincom && !isMin) return; if(onlyMincomMode && !isG) return; if(filterGuarantee && isMin) return;
-              rows.push({date, client, product:it.product||'', type:it.type||'', qty:Number(it.qty||0), price:Number(it.unit_price||0), expense:Number(it.expense||0)});
-            });
-          });
+        const vendors = computeVendorTotals();
+        // order: 일류기획 우선
+        const keys = Object.keys(vendors).sort((a,b)=>{
+          const A=(a==='일류기획')? '\\x00'+a:a; const B=(b==='일류기획')? '\\x00'+b:b; return A.localeCompare(B);
+        });
+        let idx=1;
+        keys.forEach(vendor=>{
+          // bank/account/holder lookup from priceBook (first match by client)
+          const rec = (state.priceBook||[]).find(x=> String(x.client||'')===String(vendor||''));
+          const bank = rec?.bank||''; const account = rec?.account||''; const holder = rec?.holder||'';
+          // 내용: 카톡 미리보기 라인과 동일 규칙(태그 선택)
+          const tags = state.wizard.categories[vendor]||[]; const custom = (state.wizard.custom[vendor]||'').trim();
+          const pieces=[]; tags.forEach(k=>{ const t=EXPENSE_TAGS.find(x=>x.key===k); if(t) pieces.push(t.label); }); if(custom) pieces.push(custom);
+          const label = pieces.length? pieces.join(', ') : '지출';
+          rows.push({ order: idx++, bank, account, amount: Number(vendors[vendor]||0), content: label, holder });
         });
         return rows;
       }
       function renderExcelTable(){ const tb=document.querySelector('#excel-table tbody'); if(!tb) return; tb.innerHTML=''; const rows=gatherCurrentRows(); rows.forEach(r=>{
-        const tr=document.createElement('tr'); tr.innerHTML = `<td>${r.date}</td><td>${r.client}</td><td>${r.product}</td><td>${Number(r.qty).toLocaleString()}</td><td>${Number(r.price).toLocaleString()}</td><td>${Number(r.expense).toLocaleString()}</td>`; tb.appendChild(tr);
+        const tr=document.createElement('tr'); tr.innerHTML = `<td>${r.order}</td><td>${r.bank}</td><td>${r.account}</td><td>${Number(r.amount).toLocaleString()}</td><td>${r.content}</td><td>${r.holder}</td>`; tb.appendChild(tr);
       }); }
       (function(){ const back=document.getElementById('wiz-back-3'); if(back){ back.addEventListener('click', ()=> setSlide(2)); }
                  const done=document.getElementById('wiz-done'); if(done){ done.addEventListener('click', ()=>{ toast('완료되었어요'); }); }
-                 const copy=document.getElementById('copy-excel'); if(copy){ copy.addEventListener('click', ()=>{ const rows=gatherCurrentRows(); const headers=['날짜','거래처','상품명','수량','단가','지출']; const lines=[headers.join('\t')]; rows.forEach(r=>{ lines.push([r.date,r.client,r.product,r.qty,r.price,r.expense].join('\t')); }); const text=lines.join('\n'); navigator.clipboard?.writeText(text); toast('복사됨'); }); } })();
+                 const copy=document.getElementById('copy-excel'); if(copy){ copy.addEventListener('click', ()=>{ const rows=gatherCurrentRows(); const headers=['구분','은행','계좌','금액(vat 포함)','내용','예금주']; const lines=[headers.join('\t')]; rows.forEach(r=>{ lines.push([r.order,r.bank,r.account,r.amount,r.content,r.holder].join('\t')); }); const text=lines.join('\n'); navigator.clipboard?.writeText(text); toast('복사됨'); }); } })();
 
       // 4) 엑셀 양식 복붙용 생성 (버튼이 존재하는 경우에만 바인딩)
       { const btn = document.getElementById('btn-export-excel'); if(btn){ btn.addEventListener('click', ()=>{
