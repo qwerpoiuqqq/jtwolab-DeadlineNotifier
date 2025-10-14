@@ -99,6 +99,8 @@
             </div>
           </div>
 
+          <!-- 정산 탭 콘텐츠 -->
+          <div id="settle-content">
           <!-- 1) 중앙 히어로: 탭 불러오기/기간/가져오기만 표시 (정산 탭에서만 보임) -->
           <div id="hero" class="panel" style="margin-bottom:12px; display:block">
             <div class="stack" style="align-items:flex-end">
@@ -119,8 +121,12 @@
             <div class="muted" style="margin-top:8px; font-size:12px">탭명은 날짜(예: 2025-10-06) 형식을 권장합니다.</div>
           </div>
 
-          <!-- 2) 단가 관리: 상단/좌측 탭에서 전환 시 표시 -->
-          <div id="price-panel" class="panel" style="display:none; margin-bottom:12px">
+          </div>
+          <!-- 정산 탭 콘텐츠 끝 -->
+
+          <!-- 단가 관리 탭 콘텐츠 -->
+          <div id="price-content" style="display:none;">
+          <div id="price-panel" class="panel" style="margin-bottom:12px">
             <div class="stack" style="justify-content:space-between">
               <div class="muted">거래처별 계좌 · 상품별 단가</div>
               <div class="btn-group">
@@ -189,7 +195,9 @@
               </table>
             </div>
           </div>
-        
+          </div>
+          <!-- 단가 관리 탭 콘텐츠 끝 -->
+          
           <!-- 3) 정산 미리보기(페이지 하단 표시) -->
           <!-- 사전 점검 패널: 미정 단가 / 추가 지출 -->
           <div id="precheck-panel" class="panel" style="display:none; margin-bottom:12px">
@@ -399,7 +407,7 @@
           if(window.__finalizing===true){ pre.style.display='none'; rp.style.display = 'block'; window.__finalizing=false; }
           else{ pre.style.display='block'; rp.style.display = 'none'; }
           // 정산 탭 상태 강제 유지
-          setTab('settle');
+          try{ setTab('settle'); }catch(e){}
           setPvTab();
         }catch(e){ alert(e.message||'집계 실패'); }
         finally{ setProgress(100, '완료'); hideLoading(); }
@@ -1351,12 +1359,8 @@
           renderPriceBook();
         }catch(e){ /* swallow */ }
         finally{ hideLoading(); }
-        // 초기 탭 상태 강제: 정산으로 시작하고 단가 패널은 무조건 숨김
-        try{ 
-          const pp = document.getElementById('price-panel'); 
-          if(pp){ pp.style.display = 'none'; }
-          setTab('settle'); 
-        }catch(e){}
+        // 초기 탭 상태 강제: 정산으로 시작
+        try{ setTab('settle'); }catch(e){}
       })();
 
       // 상단 탭 전환: 정산 / 단가 관리
@@ -1367,24 +1371,18 @@
         try{ document.getElementById('side-tab-settle')?.classList.toggle('active', isSettle); }catch(e){}
         try{ document.getElementById('side-tab-price')?.classList.toggle('active', !isSettle); }catch(e){}
         
-        // 패널 표시 제어
-        const pp = document.getElementById('price-panel');
-        const hero = document.getElementById('hero');
-        const pre = document.getElementById('precheck-panel');
-        const rp = document.getElementById('results-panel');
+        // 컨테이너 단위 표시 제어
+        const settleContent = document.getElementById('settle-content');
+        const priceContent = document.getElementById('price-content');
         
         if(isSettle){
-          // 정산 탭: hero + precheck/results 표시, 단가 패널 숨김
-          if(pp){ pp.style.display = 'none'; }
-          if(hero){ hero.style.display = 'block'; }
-          if(pre){ pre.style.display = (state.missingPrices?.length || state.extraExpenses?.length) ? 'block' : 'none'; }
-          if(rp){ rp.style.display = (Array.isArray(state.previewRows) && state.previewRows.length) ? 'block' : 'none'; }
+          // 정산 탭: settle-content 표시, price-content 숨김
+          if(settleContent){ settleContent.style.display = 'block'; }
+          if(priceContent){ priceContent.style.display = 'none'; }
         } else {
-          // 단가 관리 탭: 단가 패널만 표시, 나머지 숨김
-          if(pp){ pp.style.display = 'block'; }
-          if(hero){ hero.style.display = 'none'; }
-          if(pre){ pre.style.display = 'none'; }
-          if(rp){ rp.style.display = 'none'; }
+          // 단가 관리 탭: price-content 표시, settle-content 숨김
+          if(settleContent){ settleContent.style.display = 'none'; }
+          if(priceContent){ priceContent.style.display = 'block'; }
         }
       }
       const tSettle = document.getElementById('tab-settle'); if(tSettle){ tSettle.addEventListener('click', ()=> setTab('settle')); }
