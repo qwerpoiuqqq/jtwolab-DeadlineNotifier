@@ -51,6 +51,7 @@
       .two-grid{ display:grid; gap:10px; grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
       .fill{ width:100%; }
       .acc-grid{ display:grid; gap:10px; grid-template-columns: minmax(0,1fr) 140px 160px; align-items:end; }
+      .col-left{ grid-column: 1 / 2; }
       table{ width:100%; border-collapse: collapse; }
       th, td{ border-bottom:1px solid var(--line); padding:8px 6px; text-align:left; }
       th{ font-size:12px; color:var(--muted); font-weight:600; }
@@ -131,12 +132,12 @@
             <!-- 인라인 에디터: 2열 압축 배치 -->
             <div class="panel" style="margin-top:10px">
                 <div class="two-grid">
-                <div class="stack fill" style="align-items:flex-end; min-width:0">
+                <div class="stack fill col-left" style="align-items:flex-end; min-width:0">
                   <div style="flex:1"><label>거래처</label><input id="pb-client" class="fill" type="text" placeholder="예: 일류기획" /></div>
                   <div style="flex:1"><label>상품명</label><input id="pb-product" class="fill" type="text" placeholder="예: 일류1" /></div>
                   <div style="width:160px"><label>단가</label><input id="pb-price" class="fill" type="text" placeholder="예: 1750" /></div>
                 </div>
-                <div class="acc-grid fill" style="min-width:0">
+                <div class="stack fill col-left" style="flex-direction:column; min-width:0">
                   <div><label>계좌</label><input id="pb-account" class="fill" type="text" placeholder="계좌" /></div>
                   <div><label>은행</label><input id="pb-bank" class="fill" type="text" placeholder="은행" /></div>
                   <div><label>예금주</label><input id="pb-holder" class="fill" type="text" placeholder="예: ㈜제이티더블유랩" /></div>
