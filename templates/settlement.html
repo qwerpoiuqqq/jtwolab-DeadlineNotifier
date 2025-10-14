@@ -78,8 +78,8 @@
         .tabbar{ display:block; }
       }
       /* 탭 가드: 기본은 숨김, '단가 관리'일 때만 보임 */
+      /* 기본 비표시: 어디든 숨김. '단가 관리' 모드에서만 아래 JS가 display:block 지정 */
       #price-panel{ display:none !important; }
-      body[data-mode="price"] #price-panel{ display:block !important; }
     </style>
   </head>
   <body>
