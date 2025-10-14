@@ -317,7 +317,7 @@
         extraExpenses: [], // [{date,client,product,amount,report}]
         exclusions: { products: [], rows: [] } // 결재선 반영 제외 세트
       };
-      state.wizard = { step:1, receivables: [], payables: [], categories: {}, custom: {}, reportDate:'' };
+      state.wizard = { step:1, receivables: [], payables: [], categories: {}, custom: {}, reportDate:'', vendorOrder: [] };
 
       const $ = (s)=>document.querySelector(s);
       const overlay = document.getElementById('overlay');
@@ -1205,6 +1205,35 @@
         const out={}; Object.keys(map).forEach(v=>{ out[v] = withVAT(map[v]); });
         return out;
       }
+
+      // 벤더(거래처) 표시 순서 유지/보정
+      function computeDefaultVendorOrder(vendors){
+        const s = vendors.slice().sort((a,b)=>{
+          const A = (a==='일류기획')? '\\x00'+a : a;
+          const B = (b==='일류기획')? '\\x00'+b : b;
+          return A.localeCompare(B);
+        });
+        return s;
+      }
+      function ensureVendorOrder(currentVendors){
+        const cur = Array.isArray(currentVendors)? currentVendors.slice(): [];
+        let ordered = (state.wizard.vendorOrder||[]).filter(v=> cur.includes(v));
+        const remain = cur.filter(v=> !ordered.includes(v));
+        ordered = ordered.concat(computeDefaultVendorOrder(remain));
+        // 일류기획 최상단 유지
+        const idx = ordered.indexOf('일류기획'); if(idx>0){ ordered.splice(idx,1); ordered.unshift('일류기획'); }
+        state.wizard.vendorOrder = ordered;
+        return ordered;
+      }
+      function reorderVendorOrder(src, dst){
+        const arr = (state.wizard.vendorOrder||[]).slice();
+        const si = arr.indexOf(src); const di = arr.indexOf(dst);
+        if(si<0 || di<0 || si===di) return;
+        arr.splice(si,1); arr.splice(di,0,src);
+        // 일류기획 고정
+        const idx = arr.indexOf('일류기획'); if(idx>0){ arr.splice(idx,1); arr.unshift('일류기획'); }
+        state.wizard.vendorOrder = arr;
+      }
       // 상품 → 거래처명 매핑: priceBook에서 해당 상품의 대표 거래처명을 추정
       function getVendorNameForProduct(prod){
         try{
@@ -1216,13 +1245,10 @@
       function renderKakaoList(){
         const cont = document.getElementById('pc-list'); if(!cont) return; cont.innerHTML='';
         const totals = computeVendorTotals();
-        const keys = Object.keys(totals).sort((a,b)=>{
-          const A = (a==='일류기획')? '\\x00'+a : a;
-          const B = (b==='일류기획')? '\\x00'+b : b;
-          return A.localeCompare(B);
-        });
+        const keys = ensureVendorOrder(Object.keys(totals));
         keys.forEach(vendor=>{
           const wrap = document.createElement('div'); wrap.className='panel'; wrap.style.marginBottom='8px';
+          wrap.setAttribute('draggable','true'); wrap.dataset.vendor = vendor;
           const amount = Number(totals[vendor]||0);
           wrap.innerHTML = `
             <div class=\"stack\" style=\"justify-content:space-between; align-items:center\">
@@ -1233,6 +1259,10 @@
               <b>${amount.toLocaleString()}원</b>
             </div>`;
           cont.appendChild(wrap);
+          // DnD
+          wrap.addEventListener('dragstart', (e)=>{ try{ e.dataTransfer.setData('text/plain', vendor); }catch(err){} });
+          wrap.addEventListener('dragover', (e)=>{ e.preventDefault(); });
+          wrap.addEventListener('drop', (e)=>{ e.preventDefault(); let src=''; try{ src=e.dataTransfer.getData('text/plain'); }catch(err){} if(!src) return; reorderVendorOrder(src, vendor); renderKakaoList(); buildKakaoText(); });
         });
         // 태그 토글 핸들러 (거래처 단위)
         cont.querySelectorAll('[data-vtag]')?.forEach(el=>{
@@ -1258,7 +1288,8 @@
         }catch(e){}
         if(dateStr){ txt.push(dateStr); txt.push(''); }
         const totals = computeVendorTotals(); let totalSum=0;
-        Object.keys(totals).sort().forEach(vendor=>{
+        const ordered = ensureVendorOrder(Object.keys(totals));
+        ordered.forEach(vendor=>{
           txt.push(`[${vendor}]`);
           const amount = Number(totals[vendor]||0); totalSum += amount;
           const tags = state.wizard.categories[vendor]||[]; const custom = (state.wizard.custom[vendor]||'').trim();
