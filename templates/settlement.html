@@ -23,6 +23,9 @@
       .btn-danger{ background:#b91c1c; color:#fff; border-color:#b91c1c; }
       .btn-accent{ background:#2563eb; color:#fff; border-color:#2563eb; border-radius:12px; }
       .btn-ghost{ background:#fff; color:#2563eb; border-color:#2563eb; }
+      .btn-outline{ background:#fff; color:#111827; border-color:#d1d5db; }
+      .btn-sm{ padding:6px 10px; border-radius:8px; font-size:12px; }
+      .btn-group{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
       .tag{ display:inline-block; padding:4px 8px; border:1px solid var(--line); border-radius:999px; background:var(--pill); font-size:12px; cursor:pointer; margin-right:6px; }
       .tag.active{ background:#111827; color:#fff; border-color:#111827; }
       .muted-sm{ font-size:12px; color:var(--muted); }
@@ -116,18 +119,18 @@
           <div id="price-panel" class="panel" style="display:none; margin-bottom:12px">
             <div class="stack" style="justify-content:space-between">
               <div class="muted">거래처별 계좌 · 상품별 단가</div>
-              <div class="stack">
-                <button id="btn-add-price" class="btn btn-primary">상품 추가</button>
-                <button id="btn-save-price" class="btn">저장</button>
-                <button id="btn-bulk-toggle" class="btn">엑셀 대량등록</button>
-                <a id="bulk-download" class="btn" href="/api/settlement/pricebook/template">대량등록 양식</a>
+              <div class="btn-group">
+                <button id="btn-add-price" class="btn btn-primary btn-sm">상품 추가</button>
+                <button id="btn-save-price" class="btn btn-outline btn-sm">저장</button>
+                <button id="btn-bulk-toggle" class="btn btn-outline btn-sm">엑셀 대량등록</button>
+                <a id="bulk-download" class="btn btn-outline btn-sm" href="/api/settlement/pricebook/template">대량등록 양식</a>
               </div>
             </div>
             <!-- 인라인 에디터: 2열 압축 배치 -->
             <div class="panel" style="margin-top:10px">
               <div class="two-grid">
                 <div class="stack fill" style="align-items:flex-end">
-                  <div style="flex:1"><label>거래처</label><input id="pb-client" class="fill" type="text" placeholder="예: 레알마케팅" /></div>
+                  <div style="flex:1"><label>거래처</label><input id="pb-client" class="fill" type="text" placeholder="예: 일류기획" /></div>
                   <div style="flex:1"><label>상품명</label><input id="pb-product" class="fill" type="text" placeholder="예: 일류1" /></div>
                   <div style="width:160px"><label>단가</label><input id="pb-price" class="fill" type="text" placeholder="예: 1750" /></div>
                 </div>
@@ -143,9 +146,9 @@
                   </div>
                 </div>
               </div>
-              <div class="stack" style="justify-content:space-between; margin-top:8px">
-                <div class="stack"><button id="pb-add-one" class="btn btn-primary" type="button">추가</button><button id="pb-add-both" class="btn" type="button">저장·트래픽 동시 추가</button></div>
-                <div class="stack fill"><label style="margin:0">검색</label><input id="pb-search" type="text" placeholder="거래처/상품 검색" class="fill" /></div>
+            <div class="stack" style="justify-content:space-between; margin-top:8px; align-items:center">
+                <div class="btn-group"><button id="pb-add-one" class="btn btn-primary btn-sm" type="button">추가</button><button id="pb-add-both" class="btn btn-outline btn-sm" type="button">저장·트래픽 동시 추가</button></div>
+                <div class="stack fill" style="align-items:center"><label style="margin:0">검색</label><input id="pb-search" type="text" placeholder="거래처/상품 검색" class="fill" /></div>
               </div>
             </div>
 
@@ -789,6 +792,8 @@
             }
           });
         });
+        // 표 안의 수정/삭제 버튼을 작게 스타일링
+        tb.querySelectorAll('button').forEach(b=>{ b.classList.add('btn-sm','btn-outline'); });
         rebuildClientDefaults();
       }
 
