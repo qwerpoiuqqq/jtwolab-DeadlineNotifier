@@ -77,8 +77,8 @@
         .subnav{ display:none; }
         .tabbar{ display:block; }
       }
-      /* 탭 가드: 정산/단가 관리에 따라 패널 강제 토글 */
-      body[data-mode="settle"] #price-panel{ display:none !important; }
+      /* 탭 가드: 기본은 숨김, '단가 관리'일 때만 보임 */
+      #price-panel{ display:none !important; }
       body[data-mode="price"] #price-panel{ display:block !important; }
     </style>
   </head>
@@ -1366,7 +1366,8 @@
         try{ document.getElementById('tab-price')?.classList.toggle('btn-primary', !isSettle); }catch(e){}
         try{ document.getElementById('side-tab-settle')?.classList.toggle('active', isSettle); }catch(e){}
         try{ document.getElementById('side-tab-price')?.classList.toggle('active', !isSettle); }catch(e){}
-        document.getElementById('price-panel').style.display = isSettle ? 'none' : 'block';
+        // DOM 표시 전환(기본 CSS가 가드하지만 JS에서도 동기화)
+        const pp = document.getElementById('price-panel'); if(pp){ pp.style.display = isSettle ? 'none' : 'block'; }
         document.getElementById('hero').style.display = isSettle ? 'block' : 'none';
         // 미리보기 패널은 정산 탭에서만 표시
         const rp = document.getElementById('results-panel');
