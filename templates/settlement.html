@@ -42,6 +42,10 @@
       .card.collapsed .card-bd{ display:none; }
       .mini{ font-size:12px; }
       .mini th, .mini td{ padding:4px 6px; }
+      .dense th, .dense td{ padding:6px 8px; font-size:12px; }
+      .sticky thead th{ position:sticky; top:0; background:#fff; z-index:1; }
+      .two-grid{ display:grid; gap:10px; grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .fill{ width:100%; }
       table{ width:100%; border-collapse: collapse; }
       th, td{ border-bottom:1px solid var(--line); padding:8px 6px; text-align:left; }
       th{ font-size:12px; color:var(--muted); font-weight:600; }
@@ -119,43 +123,29 @@
                 <a id="bulk-download" class="btn" href="/api/settlement/pricebook/template">대량등록 양식</a>
               </div>
             </div>
-            <!-- 인라인 에디터 -->
+            <!-- 인라인 에디터: 2열 압축 배치 -->
             <div class="panel" style="margin-top:10px">
-              <div class="stack" style="align-items:flex-end; gap:10px; flex-wrap:wrap">
-                <div>
-                  <label>거래처</label>
-                  <input id="pb-client" type="text" placeholder="예: 레알마케팅" />
+              <div class="two-grid">
+                <div class="stack fill" style="align-items:flex-end">
+                  <div style="flex:1"><label>거래처</label><input id="pb-client" class="fill" type="text" placeholder="예: 레알마케팅" /></div>
+                  <div style="flex:1"><label>상품명</label><input id="pb-product" class="fill" type="text" placeholder="예: 일류1" /></div>
+                  <div style="width:160px"><label>단가</label><input id="pb-price" class="fill" type="text" placeholder="예: 1750" /></div>
                 </div>
-                <div>
-                  <label>상품명</label>
-                  <input id="pb-product" type="text" placeholder="예: 일류1" />
+                <div class="stack fill" style="align-items:flex-end">
+                  <div style="flex:1; min-width:180px"><label>계좌</label><input id="pb-account" class="fill" type="text" placeholder="계좌" /></div>
+                  <div style="width:140px"><label>은행</label><input id="pb-bank" class="fill" type="text" placeholder="은행" /></div>
+                  <div style="width:160px"><label>예금주</label><input id="pb-holder" class="fill" type="text" placeholder="예: ㈜제이티더블유랩" /></div>
+                  <div class="stack" style="gap:8px; white-space:nowrap">
+                    <label style="margin:0; color:var(--muted); font-size:12px">유형</label>
+                    <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="공통" checked />공통</label>
+                    <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="저장" />저장</label>
+                    <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="트래픽" />트래픽</label>
+                  </div>
                 </div>
-                <div>
-                  <label>단가</label>
-                  <input id="pb-price" type="text" placeholder="예: 1750" />
-                </div>
-                <div style="min-width:200px">
-                  <label>계좌</label>
-                  <input id="pb-account" type="text" placeholder="선택" />
-                </div>
-                <div style="min-width:200px">
-                  <label>예금주</label>
-                  <input id="pb-holder" type="text" placeholder="예: ㈜제이티더블유랩" />
-                </div>
-                <div class="stack" style="gap:8px">
-                  <label style="margin:0; color:var(--muted); font-size:12px">유형</label>
-                  <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="공통" checked />공통</label>
-                  <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="저장" />저장</label>
-                  <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="트래픽" />트래픽</label>
-                </div>
-                <div class="stack">
-                  <button id="pb-add-one" class="btn btn-primary" type="button">추가</button>
-                  <button id="pb-add-both" class="btn" type="button">저장·트래픽 동시 추가</button>
-                </div>
-                <div class="panel" style="margin-top:6px; width:100%">
-                  <label>검색</label>
-                  <input id="pb-search" type="text" placeholder="거래처/상품 검색" style="width:100%" />
-                </div>
+              </div>
+              <div class="stack" style="justify-content:space-between; margin-top:8px">
+                <div class="stack"><button id="pb-add-one" class="btn btn-primary" type="button">추가</button><button id="pb-add-both" class="btn" type="button">저장·트래픽 동시 추가</button></div>
+                <div class="stack fill"><label style="margin:0">검색</label><input id="pb-search" type="text" placeholder="거래처/상품 검색" class="fill" /></div>
               </div>
             </div>
 
@@ -168,37 +158,23 @@
                 <button id="bulk-apply-xlsx" class="btn">일괄 추가/병합</button>
                 <span id="bulk-status" class="muted" style="font-size:12px"></span>
               </div>
-              <div style="overflow:auto; margin-top:8px">
-                <table id="tbl-bulk" style="width:100%">
+              <div style="overflow:auto; margin-top:8px; max-height:320px">
+                <table id="tbl-bulk" class="dense sticky" style="width:100%">
                   <thead>
                     <tr>
-                      <th style="font-size:12px">#</th>
-                      <th style="font-size:12px">거래처</th>
-                      <th style="font-size:12px">상품명</th>
-                      <th style="font-size:12px">유형</th>
-                      <th style="font-size:12px">단가</th>
-                      <th style="font-size:12px">계좌</th>
-                      <th style="font-size:12px">은행</th>
-                      <th style="font-size:12px">예금주</th>
-                      <th style="font-size:12px">상태</th>
+                      <th>#</th><th>거래처</th><th>상품명</th><th>유형</th><th>단가</th><th>계좌</th><th>은행</th><th>예금주</th><th>상태</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
                 </table>
               </div>
             </div>
-            <div style="overflow:auto; margin-top:8px">
-              <table id="tbl-price">
+
+            <div style="overflow:auto; margin-top:8px; max-height:420px">
+              <table id="tbl-price" class="dense sticky" style="width:100%">
                 <thead>
                   <tr>
-                    <th>거래처</th>
-                    <th>상품명</th>
-                    <th>유형</th>
-                    <th>단가</th>
-                    <th>계좌</th>
-                    <th>은행</th>
-                    <th>예금주</th>
-                    <th></th>
+                    <th>거래처</th><th>상품명</th><th>유형</th><th>단가</th><th>계좌</th><th>은행</th><th>예금주</th><th></th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -1387,5 +1363,3 @@
     </script>
   </body>
   </html>
-
-
