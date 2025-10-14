@@ -77,6 +77,9 @@
         .subnav{ display:none; }
         .tabbar{ display:block; }
       }
+      /* 탭 가드: 정산/단가 관리에 따라 패널 강제 토글 */
+      body[data-mode="settle"] #price-panel{ display:none !important; }
+      body[data-mode="price"] #price-panel{ display:block !important; }
     </style>
   </head>
   <body>
@@ -1358,6 +1361,7 @@
       // 상단 탭 전환: 정산 / 단가 관리
       function setTab(mode){
         const isSettle = mode==='settle';
+        try{ document.body.setAttribute('data-mode', isSettle ? 'settle' : 'price'); }catch(e){}
         try{ document.getElementById('tab-settle')?.classList.toggle('btn-primary', isSettle); }catch(e){}
         try{ document.getElementById('tab-price')?.classList.toggle('btn-primary', !isSettle); }catch(e){}
         try{ document.getElementById('side-tab-settle')?.classList.toggle('active', isSettle); }catch(e){}
