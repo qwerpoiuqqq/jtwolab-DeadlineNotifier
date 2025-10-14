@@ -77,9 +77,7 @@
         .subnav{ display:none; }
         .tabbar{ display:block; }
       }
-      /* 탭 가드: 기본은 숨김, '단가 관리'일 때만 보임 */
-      /* 기본 비표시: 어디든 숨김. '단가 관리' 모드에서만 아래 JS가 display:block 지정 */
-      #price-panel{ display:none !important; }
+      /* 탭 전환은 JS에서만 제어 */
     </style>
   </head>
   <body>
@@ -1361,17 +1359,30 @@
       // 상단 탭 전환: 정산 / 단가 관리
       function setTab(mode){
         const isSettle = mode==='settle';
-        try{ document.body.setAttribute('data-mode', isSettle ? 'settle' : 'price'); }catch(e){}
         try{ document.getElementById('tab-settle')?.classList.toggle('btn-primary', isSettle); }catch(e){}
         try{ document.getElementById('tab-price')?.classList.toggle('btn-primary', !isSettle); }catch(e){}
         try{ document.getElementById('side-tab-settle')?.classList.toggle('active', isSettle); }catch(e){}
         try{ document.getElementById('side-tab-price')?.classList.toggle('active', !isSettle); }catch(e){}
-        // DOM 표시 전환(기본 CSS가 가드하지만 JS에서도 동기화)
-        const pp = document.getElementById('price-panel'); if(pp){ pp.style.display = isSettle ? 'none' : 'block'; }
-        document.getElementById('hero').style.display = isSettle ? 'block' : 'none';
-        // 미리보기 패널은 정산 탭에서만 표시
+        
+        // 패널 표시 제어
+        const pp = document.getElementById('price-panel');
+        const hero = document.getElementById('hero');
+        const pre = document.getElementById('precheck-panel');
         const rp = document.getElementById('results-panel');
-        if(rp){ rp.style.display = isSettle ? (Array.isArray(state.previewRows) && state.previewRows.length? 'block':'none') : 'none'; }
+        
+        if(isSettle){
+          // 정산 탭: hero + precheck/results 표시, 단가 패널 숨김
+          if(pp){ pp.style.display = 'none'; }
+          if(hero){ hero.style.display = 'block'; }
+          if(pre){ pre.style.display = (state.missingPrices?.length || state.extraExpenses?.length) ? 'block' : 'none'; }
+          if(rp){ rp.style.display = (Array.isArray(state.previewRows) && state.previewRows.length) ? 'block' : 'none'; }
+        } else {
+          // 단가 관리 탭: 단가 패널만 표시, 나머지 숨김
+          if(pp){ pp.style.display = 'block'; }
+          if(hero){ hero.style.display = 'none'; }
+          if(pre){ pre.style.display = 'none'; }
+          if(rp){ rp.style.display = 'none'; }
+        }
       }
       const tSettle = document.getElementById('tab-settle'); if(tSettle){ tSettle.addEventListener('click', ()=> setTab('settle')); }
       const tPrice = document.getElementById('tab-price'); if(tPrice){ tPrice.addEventListener('click', ()=> setTab('price')); }
