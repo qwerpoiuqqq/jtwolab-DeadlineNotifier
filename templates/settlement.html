@@ -395,8 +395,11 @@
           // 최종 반영 전에는 결과 패널 숨김, 사전 점검만 노출
           const pre = document.getElementById('precheck-panel');
           const rp = document.getElementById('results-panel');
+          const pp = document.getElementById('price-panel');
           if(window.__finalizing===true){ pre.style.display='none'; rp.style.display = 'block'; window.__finalizing=false; }
           else{ pre.style.display='block'; rp.style.display = 'none'; }
+          // 정산 보기에서는 단가 관리 패널을 강제로 숨김
+          if(pp){ pp.style.display = 'none'; }
           setPvTab();
         }catch(e){ alert(e.message||'집계 실패'); }
         finally{ setProgress(100, '완료'); hideLoading(); }
