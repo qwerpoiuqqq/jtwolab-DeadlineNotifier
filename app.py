@@ -536,8 +536,9 @@ def create_app() -> Flask:
 					qty = 0
 				if not bizname:
 					continue
-				# 특수 탭 처리: '영수증리뷰'는 '구분(내부 소통용)' 변형 키들을 우선 사용
+				# 특수 탭 처리: '영수증리뷰'는 '항목' 우선 → 없으면 '구분(내부 소통용)' 변형
 				if _collapse_spaces(ws.title or "") == _collapse_spaces("영수증리뷰"):
+					item_val = _get_value_flexible(row_norm, "항목", "PRODUCT_NAME_COLUMN")
 					candidates = [
 						"구분(내부 소통용)",
 						"구분 (내부 소통용)",
@@ -545,12 +546,13 @@ def create_app() -> Flask:
 						"구분\n(내부 소통용)",
 						"구분",
 					]
-					cat = ""
+					cat = str(item_val or "").strip()
 					for key in candidates:
+						if cat:
+							break
 						val = _get_value_flexible(row_norm, key, "PRODUCT_NAME_COLUMN")
 						if val is not None and str(val).strip() != "":
 							cat = str(val).strip()
-							break
 					if not cat:
 						memo = _get_value_flexible(row_norm, "내부 소통용", "PRODUCT_NAME_COLUMN")
 						cat = str(memo or "").strip()
