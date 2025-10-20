@@ -482,14 +482,17 @@ def create_app() -> Flask:
 			payload = request.get_json(force=True, silent=False) or {}
 		except Exception:
 			return jsonify({"error": "invalid_json"}), 400
-		tabs = payload.get("tabs") or []
-		if not isinstance(tabs, list):
+		tabs = payload.get("tabs")
+		if tabs is None:
+			tabs = []
+		elif not isinstance(tabs, list):
 			return jsonify({"error": "tabs_array_required"}), 400
 		try:
 			settings = load_settings()
 			client = _get_client()
 			ss = client.open_by_key(settings.spreadsheet_id)
-			worksheets = { (w.title or "").strip(): w for w in ss.worksheets() }
+			ws_list = ss.worksheets()
+			worksheets = { (w.title or "").strip(): w for w in ws_list }
 		except Exception as e:
 			return jsonify({"error": str(e)}), 500
 
@@ -502,10 +505,17 @@ def create_app() -> Flask:
 		by_product: Dict[str, Dict[str, Dict[str, int]]] = {}
 		by_agency: Dict[str, Dict[str, Dict[str, int]]] = {}
 
-		for tab in tabs:
-			ws = worksheets.get((tab or "").strip())
-			if not ws:
-				continue
+		# 탭이 비어있으면 모든 워크시트를 처리
+		target_ws = []
+		if not tabs:
+			target_ws = list(worksheets.values())
+		else:
+			for tab in tabs:
+				ws = worksheets.get((tab or "").strip())
+				if ws:
+					target_ws.append(ws)
+
+		for ws in target_ws:
 			try:
 				header_row, headers = _find_header_row(ws, load_settings())
 				records = _build_records(ws, header_row, headers)
@@ -526,7 +536,13 @@ def create_app() -> Flask:
 					qty = 0
 				if not bizname:
 					continue
-				job = _display_task_for_tab(ws.title or "", product, product_name)
+				# 특수 탭 처리: '영수증리뷰'는 '구분' 또는 '내부 소통용' 컬럼 우선 사용
+				if _collapse_spaces(ws.title or "") == _collapse_spaces("영수증리뷰"):
+					cat = str(_get_value_flexible(row_norm, "구분", "PRODUCT_NAME_COLUMN") or "").strip()
+					memo = str(_get_value_flexible(row_norm, "내부 소통용", "PRODUCT_NAME_COLUMN") or "").strip()
+					job = (cat if cat else memo) or _display_task_for_tab(ws.title or "", product, product_name)
+				else:
+					job = _display_task_for_tab(ws.title or "", product, product_name)
 				typev = _derive_type(product)
 				product_key = job if typev=="공통" else f"{job} {typev}"
 				unit_price = _lookup_unit_price(price_items, agency, product_key, typev)
