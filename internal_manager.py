@@ -189,6 +189,17 @@ def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any
 	# (agency, biz) -> week_idx -> task_display -> sum(workload)
 	aggr: Dict[Tuple[str, str], Dict[int, Dict[str, int]]] = {}
 
+	def _parse_date_from_title_to_date(title: str) -> _date | None:
+		try:
+			import re as _re
+			m = _re.search(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})", title or "")
+			if not m:
+				return None
+			y = int(m.group(1)); mth = int(m.group(2)); d = int(m.group(3))
+			return _date(y, mth, d)
+		except Exception:
+			return None
+
 	for ws in ss.worksheets():
 		tab_title = (ws.title or "").strip()
 		header_row, headers = _find_header_row(ws, settings)
@@ -208,13 +219,17 @@ def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any
 			if not bizname:
 				continue
 
-			# 접수일 파싱 및 주간 범위 매핑
+			# 접수일 파싱 및 주간 범위 매핑 (없으면 탭 제목 날짜 폴백)
 			parsed = _parse_date_maybe(received_raw)
-			if not parsed:
-				continue
-			try:
-				dt = _date(parsed[0], parsed[1], parsed[2])
-			except Exception:
+			dt = None
+			if parsed:
+				try:
+					dt = _date(parsed[0], parsed[1], parsed[2])
+				except Exception:
+					dt = None
+			if dt is None:
+				dt = _parse_date_from_title_to_date(tab_title)
+			if dt is None:
 				continue
 
 			week_idx = None
@@ -225,13 +240,18 @@ def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any
 			if week_idx is None:
 				continue
 
-			# 작업 표시명
-			base_task = tab_title
-			is_misc = _collapse_spaces(tab_title) == _collapse_spaces("기타")
-			if is_misc:
-				display_task = product_name if product_name else base_task
+			# 작업 표시명 (특수 탭 '영수증리뷰'는 구분/내부 소통용 우선)
+			if _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰"):
+				cat = str(_get_value_flexible(row_norm, "구분", "PRODUCT_NAME_COLUMN") or "").strip()
+				memo = str(_get_value_flexible(row_norm, "내부 소통용", "PRODUCT_NAME_COLUMN") or "").strip()
+				display_task = (cat if cat else memo) or (product_name if _collapse_spaces(tab_title)==_collapse_spaces("기타") else (f"{tab_title} {product}".strip() if product else tab_title))
 			else:
-				display_task = f"{base_task} {product}".strip() if product else base_task
+				base_task = tab_title
+				is_misc = _collapse_spaces(tab_title) == _collapse_spaces("기타")
+				if is_misc:
+					display_task = product_name if product_name else base_task
+				else:
+					display_task = f"{base_task} {product}".strip() if product else base_task
 
 			# 수량 합산
 			try:
