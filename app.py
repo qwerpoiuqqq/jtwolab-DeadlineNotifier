@@ -536,11 +536,25 @@ def create_app() -> Flask:
 					qty = 0
 				if not bizname:
 					continue
-				# 특수 탭 처리: '영수증리뷰'는 '구분' 또는 '내부 소통용' 컬럼 우선 사용
+				# 특수 탭 처리: '영수증리뷰'는 '구분(내부 소통용)' 변형 키들을 우선 사용
 				if _collapse_spaces(ws.title or "") == _collapse_spaces("영수증리뷰"):
-					cat = str(_get_value_flexible(row_norm, "구분", "PRODUCT_NAME_COLUMN") or "").strip()
-					memo = str(_get_value_flexible(row_norm, "내부 소통용", "PRODUCT_NAME_COLUMN") or "").strip()
-					job = (cat if cat else memo) or _display_task_for_tab(ws.title or "", product, product_name)
+					candidates = [
+						"구분(내부 소통용)",
+						"구분 (내부 소통용)",
+						"구분(내부소통용)",
+						"구분\n(내부 소통용)",
+						"구분",
+					]
+					cat = ""
+					for key in candidates:
+						val = _get_value_flexible(row_norm, key, "PRODUCT_NAME_COLUMN")
+						if val is not None and str(val).strip() != "":
+							cat = str(val).strip()
+							break
+					if not cat:
+						memo = _get_value_flexible(row_norm, "내부 소통용", "PRODUCT_NAME_COLUMN")
+						cat = str(memo or "").strip()
+					job = cat or _display_task_for_tab(ws.title or "", product, product_name)
 				else:
 					job = _display_task_for_tab(ws.title or "", product, product_name)
 				typev = _derive_type(product)
