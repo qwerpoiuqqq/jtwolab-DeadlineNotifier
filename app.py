@@ -234,6 +234,7 @@ def create_app() -> Flask:
 			weeks = int(weeks_str) if weeks_str else 3
 		except Exception:
 			weeks = 3
+		# 날짜 지정이 없어도 되도록 기본은 오늘(서버 시각)
 		base_date_str = request.args.get("base_date", "").strip()
 		try:
 			base_dt = date.fromisoformat(base_date_str) if base_date_str else date.today()
