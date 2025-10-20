@@ -240,11 +240,25 @@ def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any
 			if week_idx is None:
 				continue
 
-			# 작업 표시명 (특수 탭 '영수증리뷰'는 구분/내부 소통용 우선)
+			# 작업 표시명 (특수 탭 '영수증리뷰'는 '구분(내부 소통용)' 형태 우선)
 			if _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰"):
-				cat = str(_get_value_flexible(row_norm, "구분", "PRODUCT_NAME_COLUMN") or "").strip()
-				memo = str(_get_value_flexible(row_norm, "내부 소통용", "PRODUCT_NAME_COLUMN") or "").strip()
-				display_task = (cat if cat else memo) or (product_name if _collapse_spaces(tab_title)==_collapse_spaces("기타") else (f"{tab_title} {product}".strip() if product else tab_title))
+				candidates = [
+					"구분(내부 소통용)",
+					"구분 (내부 소통용)",
+					"구분(내부소통용)",
+					"구분\n(내부 소통용)",
+					"구분",
+				]
+				cat = ""
+				for key in candidates:
+					val = _get_value_flexible(row_norm, key, "PRODUCT_NAME_COLUMN")
+					if val is not None and str(val).strip() != "":
+						cat = str(val).strip()
+						break
+				if not cat:
+					memo = _get_value_flexible(row_norm, "내부 소통용", "PRODUCT_NAME_COLUMN")
+					cat = str(memo or "").strip()
+				display_task = cat or (product_name if _collapse_spaces(tab_title)==_collapse_spaces("기타") else (f"{tab_title} {product}".strip() if product else tab_title))
 			else:
 				base_task = tab_title
 				is_misc = _collapse_spaces(tab_title) == _collapse_spaces("기타")
