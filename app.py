@@ -7,8 +7,9 @@ from dotenv import load_dotenv
 from datetime import date, timedelta
 import re
 
-from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency, mark_checked_for_agencies, list_sheet_tabs, inspect_sheets_by_id, compute_settlement_rows
+from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency, mark_checked_for_agencies
 from internal_manager import load_cache as internal_load_cache, refresh_cache as internal_refresh_cache
+from internal_manager import fetch_internal_weekly_summary
 
 
 # .env 로드
@@ -171,175 +172,6 @@ def create_app() -> Flask:
 			initial_items=items,
 		)
 
-	@app.route("/settlement", methods=["GET"])  # 결재선 · 정산 페이지 (UI 스켈레톤)
-	def settlement():
-		from flask import send_file
-		# 템플릿 엔진 경유 대신 파일을 직접 서빙하여, 템플릿 로더/캐시 이슈를 우회한다.
-		return send_file(os.path.join(app.root_path, "templates", "settlement.html"), mimetype="text/html; charset=utf-8")
-
-	# --- 결재선 보조 API들 ---
-	@app.route("/api/settlement/tabs", methods=["GET"])  # 시트 탭 제목 목록 (결재선 전용 시트)
-	def api_settlement_tabs():
-		try:
-			settlement_ssid = os.getenv("SETTLEMENT_SPREADSHEET_ID", "").strip()
-			tabs = list_sheet_tabs(settlement_ssid or None)
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-		return jsonify({"tabs": tabs}), 200
-
-	@app.route("/api/settlement/pricebook", methods=["GET", "POST"])  # 단가/계좌 저장소 - 파일 기반(로컬)
-	def api_settlement_pricebook():
-		storage_path = os.getenv("PRICEBOOK_PATH", os.path.join(os.getcwd(), "pricebook.json"))
-		if request.method == "GET":
-			try:
-				if os.path.exists(storage_path):
-					with open(storage_path, "r", encoding="utf-8") as f:
-						data = json.load(f)
-				else:
-					data = []
-			except Exception as e:
-				return jsonify({"error": str(e)}), 500
-			return jsonify({"items": data}), 200
-		# POST: 저장
-		try:
-			payload = request.get_json(force=True, silent=False) or {}
-		except Exception:
-			return jsonify({"error": "invalid_json"}), 400
-		items = payload.get("items")
-		if not isinstance(items, list):
-			return jsonify({"error": "invalid_items"}), 400
-		try:
-			with open(storage_path, "w", encoding="utf-8") as f:
-				json.dump(items, f, ensure_ascii=False, indent=2)
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-		return jsonify({"ok": True}), 200
-
-	@app.route("/api/settlement/pricebook/upload", methods=["POST"])  # XLSX 업로드 → 항목 파싱 반환
-	def api_settlement_pricebook_upload():
-		from io import BytesIO
-		from openpyxl import load_workbook
-		f = request.files.get("file")
-		if not f:
-			return jsonify({"error": "missing_file"}), 400
-		try:
-			buf = BytesIO(f.read())
-			wb = load_workbook(buf, data_only=True)
-			ws = wb.active
-		except Exception as e:
-			return jsonify({"error": f"xlsx_load_failed: {e}"}), 400
-		# 헤더 매핑: 거래처, 상품명, 유형, 단가, 계좌, 예금주
-		items = []
-		try:
-			headers = []
-			for cell in ws[1]:
-				headers.append(str(cell.value or "").strip())
-			def idx(name: str) -> int | None:
-				try:
-					return headers.index(name)
-				except ValueError:
-					return None
-			i_client = idx("거래처"); i_product = idx("상품명"); i_type = idx("유형"); i_price = idx("단가"); i_account = idx("계좌"); i_bank = idx("은행"); i_holder = idx("예금주")
-			if i_client is None or i_product is None or i_price is None:
-				return jsonify({"error": "missing_required_headers"}), 400
-			for r in ws.iter_rows(min_row=2):
-				def get(i):
-					if i is None: return ""
-					v = r[i].value if i < len(r) else ""
-					return str(v).strip() if v is not None else ""
-				client = get(i_client); product = get(i_product)
-				if not client and not product:
-					continue
-				type_s = get(i_type)
-				type_s = "공통" if type_s not in ("저장", "트래픽") else type_s
-				price_s = get(i_price)
-				try:
-					price = float(str(price_s).replace(",", "")) if price_s else 0.0
-				except Exception:
-					price = 0.0
-				account = get(i_account); bank = get(i_bank); holder = get(i_holder)
-				items.append({"client": client, "product": product, "type": type_s, "price": price, "account": account, "bank": bank, "holder": holder})
-		except Exception as e:
-			return jsonify({"error": f"parse_failed: {e}"}), 400
-		return jsonify({"items": items, "count": len(items)}), 200
-
-	@app.route("/api/settlement/pricebook/template", methods=["GET"])  # 대량등록 XLSX 템플릿 다운로드
-	def api_settlement_pricebook_template():
-		from io import BytesIO
-		from openpyxl import Workbook
-		wb = Workbook()
-		ws = wb.active
-		ws.title = "pricebook"
-		ws.append(["거래처", "상품명", "유형", "단가", "계좌", "은행", "예금주"])
-		ws.append(["일류기획", "호올스", "저장", 32, "123-45-67890", "국민", "류준호"])  # 샘플
-		buf = BytesIO()
-		wb.save(buf)
-		buf.seek(0)
-		return app.response_class(buf.getvalue(), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=pricebook_template.xlsx"})
-
-	@app.route("/api/settlement/inspect", methods=["GET"])  # 결재선 시트 헤더 점검
-	def api_settlement_inspect():
-		try:
-			ssid = os.getenv("SETTLEMENT_SPREADSHEET_ID", "").strip()
-			info = inspect_sheets_by_id(ssid)
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-		return jsonify({"tabs": info}), 200
-
-	@app.route("/api/settlement/compute", methods=["POST"])  # 결재선 집계 계산
-	def api_settlement_compute():
-		try:
-			payload = request.get_json(force=True, silent=False) or {}
-		except Exception:
-			return jsonify({"error": "invalid_json"}), 400
-		ssid = os.getenv("SETTLEMENT_SPREADSHEET_ID", "").strip()
-		selected_tabs = payload.get("tabs") or []
-		if not isinstance(selected_tabs, list):
-			return jsonify({"error": "invalid_tabs"}), 400
-		# 단가 로드
-		storage_path = os.getenv("PRICEBOOK_PATH", os.path.join(os.getcwd(), "pricebook.json"))
-		try:
-			if os.path.exists(storage_path):
-				with open(storage_path, "r", encoding="utf-8") as f:
-					pricebook = json.load(f)
-			else:
-				pricebook = []
-		except Exception:
-			pricebook = []
-		try:
-			result = compute_settlement_rows(ssid, selected_tabs, pricebook)
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-		return jsonify(result), 200
-
-	@app.route("/api/settlement/extra", methods=["GET", "POST"])  # 수기 추가 지출 저장소
-	def api_settlement_extra():
-		storage_path = os.getenv("EXTRA_EXPENSES_PATH", os.path.join(os.getcwd(), "extra_expenses.json"))
-		if request.method == "GET":
-			try:
-				if os.path.exists(storage_path):
-					with open(storage_path, "r", encoding="utf-8") as f:
-						data = json.load(f)
-				else:
-					data = []
-			except Exception as e:
-				return jsonify({"error": str(e)}), 500
-			return jsonify({"items": data}), 200
-		# POST 저장 (전체 치환 방식)
-		try:
-			payload = request.get_json(force=True, silent=False) or {}
-		except Exception:
-			return jsonify({"error": "invalid_json"}), 400
-		items = payload.get("items")
-		if not isinstance(items, list):
-			return jsonify({"error": "invalid_items"}), 400
-		try:
-			with open(storage_path, "w", encoding="utf-8") as f:
-				json.dump(items, f, ensure_ascii=False, indent=2)
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-		return jsonify({"ok": True}), 200
-
 	@app.route("/debug/headers")
 	def debug_headers():
 		try:
@@ -385,6 +217,28 @@ def create_app() -> Flask:
 		return jsonify({
 			"updated_at": cache.get("updated_at"),
 			"items": cache.get("items", []),
+		}), 200
+
+	@app.route("/api/internal/weekly", methods=["GET"])  # 내부 진행 주간 요약 (대행사>업체)
+	def api_internal_weekly():
+		try:
+			weeks_str = request.args.get("weeks", "3").strip()
+			weeks = int(weeks_str) if weeks_str else 3
+		except Exception:
+			weeks = 3
+		base_date_str = request.args.get("base_date", "").strip()
+		try:
+			base_dt = date.fromisoformat(base_date_str) if base_date_str else date.today()
+		except Exception:
+			base_dt = date.today()
+		try:
+			groups = fetch_internal_weekly_summary(base_dt, weeks)
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify({
+			"base_date": base_dt.isoformat(),
+			"weeks": weeks,
+			"groups": groups,
 		}), 200
 
 	@app.route("/api/internal/refresh", methods=["POST"])  # 수동 불러오기
