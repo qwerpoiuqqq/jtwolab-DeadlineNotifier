@@ -35,7 +35,6 @@
           <div class="nav">
             <a class="btn" href="/">마감 안내</a>
             <a class="btn btn-primary" href="/manage">보장 관리</a>
-            <a class="btn" href="/settlement">결재선 · 정산</a>
           </div>
           <div class="right stack">
             <span class="muted">마지막 업데이트:</span>
@@ -48,42 +47,20 @@
       <div class="panel" style="margin-bottom:12px">
         <div class="stack" style="align-items:flex-end">
           <div>
-            <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">날짜 선택 (해당 날짜 기준 잔여일 재계산)</label>
-            <input id="q-date" type="date" />
+            <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">기준일</label>
+            <input id="base-date" type="date" />
           </div>
           <div>
-            <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">상호명</label>
-            <input id="q-biz" type="text" placeholder="상호명 검색" list="dl-biz" />
-            <datalist id="dl-biz"></datalist>
+            <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">최근 주 수</label>
+            <input id="weeks" type="text" value="3" style="min-width:80px" />
           </div>
-          <div>
-            <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">대행사명</label>
-            <input id="q-agency" type="text" placeholder="대행사명 검색" list="dl-agency" />
-            <datalist id="dl-agency"></datalist>
-          </div>
-          <button id="search" class="btn btn-primary">검색</button>
-          <span class="muted">(둘 중 하나만 입력)</span>
+          <button id="load-weekly" class="btn btn-primary">주간 요약 불러오기</button>
         </div>
       </div>
 
       <div class="panel" style="margin-bottom:12px">
-        <div class="muted" style="margin-bottom:8px">총 <span id="count">0</span>건</div>
-        <div style="overflow:auto">
-          <table id="tbl">
-            <thead>
-              <tr>
-                <th>대행사</th>
-                <th>상호명</th>
-                <th>작업명</th>
-                <th>마감 잔여일</th>
-                <th>일작업량</th>
-                <th>체크</th>
-                <th>탭</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
+        <div class="muted" style="margin-bottom:8px">총 <span id="count">0</span>개 업체</div>
+        <div id="cards" class="grid" style="grid-template-columns: 1fr;"> </div>
       </div>
 
     </div>
@@ -97,8 +74,8 @@
       function toast(msg){ const t=$('#toast'); if(!t) return; t.textContent=msg||'완료'; t.style.display='block'; setTimeout(()=>t.style.display='none', 1200); }
 
       function norm(s){ return (s||'').toString().trim().toLowerCase(); }
-      let allItems = Array.isArray(initialItems) ? initialItems : [];
       let lastUpdatedAt = typeof initialUpdatedAt==='string' ? initialUpdatedAt : null;
+      let weeklyGroups = [];
 
       function toKSTString(iso){
         try{
@@ -137,56 +114,54 @@
         dl.innerHTML = filtered.map(v=>`<option value="${v}"></option>`).join('');
       }
 
-      function render(items){
-        const tb = document.querySelector('#tbl tbody');
-        tb.innerHTML = '';
-        for(const it of items){
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td>${it.agency||''}</td>
-            <td>${it.bizname||''}</td>
-            <td>${it.task_display||''}</td>
-            <td>${(it._effective_remain??'')!==''? it._effective_remain: ''}</td>
-            <td>${it.daily_workload||''}</td>
-            <td>${it.checked? '✓' : ''}</td>
-            <td>${it.tab_title||''}</td>
+      function renderWeekly(groups){
+        const container = document.getElementById('cards');
+        container.innerHTML = '';
+        for(const g of groups){
+          const card = document.createElement('div');
+          card.className = 'panel';
+          const id = Math.random().toString(36).slice(2,8);
+          const header = document.createElement('div');
+          header.className = 'stack';
+          header.style.justifyContent = 'space-between';
+          header.innerHTML = `
+            <div class="stack"><span class="badge">${g.agency||''}</span><span class="badge">${g.bizname||''}</span></div>
+            <div class="stack"><button class="btn" data-copy>복사</button></div>
           `;
-          tb.appendChild(tr);
+          const ta = document.createElement('textarea');
+          ta.value = g.text || '';
+          ta.style.minHeight = '120px';
+          ta.setAttribute('data-textarea', '1');
+          card.appendChild(header);
+          card.appendChild(ta);
+          container.appendChild(card);
+          const btn = header.querySelector('[data-copy]');
+          btn.addEventListener('click', ()=>{
+            const tx = ta.value;
+            (navigator.clipboard?.writeText? navigator.clipboard.writeText(tx) : new Promise((res,rej)=>{ const t=document.createElement('textarea'); t.value=tx; document.body.appendChild(t); t.select(); document.execCommand('copy')?res():rej(); document.body.removeChild(t);})).then(()=>toast('복사되었습니다.')).catch(()=>toast('복사 실패'));
+          });
         }
-        document.getElementById('count').textContent = items.length.toString();
+        document.getElementById('count').textContent = groups.length.toString();
       }
 
-      function applyFilter(){
-        const qb = norm(document.getElementById('q-biz').value);
-        const qa = norm(document.getElementById('q-agency').value);
-        const dateStr = document.getElementById('q-date').value;
-        const userDate = parseYMD(dateStr);
-        const snapshotDate = toUTCDateOnly(lastUpdatedAt || new Date().toISOString());
-        const userDateUTC = userDate ? userDate : toUTCDateOnly(new Date().toISOString());
-        const delta = daysBetween(userDateUTC, snapshotDate); // 사용자날짜 - 스냅샷날짜
-
-        let list = allItems.map(it=>{
-          const r = (typeof it.remain_days === 'number') ? (it.remain_days - delta) : null;
-          return Object.assign({}, it, { _effective_remain: r });
-        });
-
-        // 날짜 기준: 해당 날짜에 구동 중인 항목만 (잔여일>=0)
-        list = list.filter(it=> it._effective_remain === null ? false : (it._effective_remain >= 0));
-
-        if(qb && qa){
-          list = list.filter(it=> norm(it.bizname).includes(qb) && norm(it.agency).includes(qa));
-        }else if(qb){
-          list = list.filter(it=> norm(it.bizname).includes(qb));
-        }else if(qa){
-          list = list.filter(it=> norm(it.agency).includes(qa));
-        }
-        render(list);
+      async function loadWeekly(){
+        const base = document.getElementById('base-date').value;
+        const weeks = document.getElementById('weeks').value || '3';
+        const params = new URLSearchParams({ base_date: base, weeks });
+        const btn = document.getElementById('load-weekly');
+        btn.disabled = true; btn.textContent = '불러오는 중...';
+        try{
+          const res = await fetch(`/api/internal/weekly?${params.toString()}`);
+          const data = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(data?.error||'불러오기 실패');
+          weeklyGroups = Array.isArray(data.groups)? data.groups: [];
+          renderWeekly(weeklyGroups);
+          toast('완료');
+        }catch(e){ toast(e.message||'실패'); }
+        finally{ btn.disabled=false; btn.textContent='주간 요약 불러오기'; }
       }
 
-      document.getElementById('q-biz').addEventListener('input', ()=>{ updateDatalistFor('q-biz','dl-biz', bizOptions); applyFilter(); });
-      document.getElementById('q-agency').addEventListener('input', ()=>{ updateDatalistFor('q-agency','dl-agency', agencyOptions); applyFilter(); });
-      document.getElementById('q-date').addEventListener('change', applyFilter);
-      document.getElementById('search').addEventListener('click', applyFilter);
+      document.getElementById('load-weekly').addEventListener('click', loadWeekly);
 
       document.getElementById('refresh').addEventListener('click', async()=>{
         const btn = document.getElementById('refresh');
@@ -195,11 +170,9 @@
           const res = await fetch('/api/internal/refresh', { method: 'POST' });
           const data = await res.json().catch(()=>({}));
           if(!res.ok){ throw new Error(data?.error||'갱신 실패'); }
-          allItems = Array.isArray(data.items) ? data.items : [];
           lastUpdatedAt = data.updated_at || null;
           setUpdatedBadge();
-          buildOptionSets();
-          applyFilter();
+          // 캐시 갱신은 주간 집계와 직접적 연동은 없지만, 스냅샷 시간 확인용으로 유지
           toast('업데이트 완료');
         }catch(e){
           toast(e.message || '업데이트 실패');
@@ -216,11 +189,12 @@
           const yyyy = now.getFullYear();
           const mm = String(now.getMonth()+1).padStart(2,'0');
           const dd = String(now.getDate()).padStart(2,'0');
-          document.getElementById('q-date').value = `${yyyy}-${mm}-${dd}`;
+          document.getElementById('base-date').value = `${yyyy}-${mm}-${dd}`;
         }catch(e){}
-        buildOptionSets();
-        applyFilter();
+        loadWeekly();
       })();
     </script>
   </body>
   </html>
+
+
