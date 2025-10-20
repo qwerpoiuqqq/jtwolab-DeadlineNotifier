@@ -240,8 +240,10 @@ def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any
 			if week_idx is None:
 				continue
 
-			# 작업 표시명 (특수 탭 '영수증리뷰'는 '구분(내부 소통용)' 형태 우선)
+			# 작업 표시명 (특수 탭 '영수증리뷰'는 '항목' 우선 → 없으면 '구분(내부 소통용)' 변형)
 			if _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰"):
+				# 1순위: 항목
+				item_val = _get_value_flexible(row_norm, "항목", "PRODUCT_NAME_COLUMN")
 				candidates = [
 					"구분(내부 소통용)",
 					"구분 (내부 소통용)",
@@ -249,12 +251,13 @@ def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any
 					"구분\n(내부 소통용)",
 					"구분",
 				]
-				cat = ""
+				cat = str(item_val or "").strip()
 				for key in candidates:
 					val = _get_value_flexible(row_norm, key, "PRODUCT_NAME_COLUMN")
+					if cat:
+						break
 					if val is not None and str(val).strip() != "":
 						cat = str(val).strip()
-						break
 				if not cat:
 					memo = _get_value_flexible(row_norm, "내부 소통용", "PRODUCT_NAME_COLUMN")
 					cat = str(memo or "").strip()
@@ -281,14 +284,14 @@ def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any
 	groups: List[Dict[str, Any]] = []
 	for (agency, biz), week_map in sorted(aggr.items(), key=lambda kv: (kv[0][0], kv[0][1])):
 		sections: List[Dict[str, Any]] = []
-		# 최신 주부터 오래된 주 순으로
-		for idx in sorted(week_map.keys()):
+		# 오래된 주부터 최신 주 순으로(최신이 하단)
+		for idx in sorted(week_map.keys(), reverse=True):
 			win = windows[idx]
 			label = win["label"]
 			lines: List[str] = []
 			for task, total in sorted(week_map[idx].items(), key=lambda kv: kv[0]):
-				unit = _guess_unit_for_task(task)
-				val = f"{total}{unit}" if total > 0 else "0건"
+				# 단위 제거, 숫자만 표시
+				val = str(int(total))
 				lines.append(f"{task} : {val}")
 			sections.append({"label": label, "lines": lines})
 		# 최종 텍스트
