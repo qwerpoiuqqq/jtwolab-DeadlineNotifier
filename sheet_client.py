@@ -19,6 +19,7 @@ DEFAULT_KEYS = {
 	"PRODUCT_NAME_COLUMN": "상품 명",
 	"DAILY_WORKLOAD_COLUMN": "일작업량",
 	"RECEIVED_DATE_COLUMN": "접수일",
+	"START_DATE_COLUMN": "작업 시작일",
 }
 
 # header 동의어(공백 무시, 소문자 비교)
@@ -32,6 +33,7 @@ SYNONYMS: Dict[str, List[str]] = {
 	"PRODUCT_NAME_COLUMN": ["상품 명", "상품명", "작업명", "작업 명"],
 	"DAILY_WORKLOAD_COLUMN": ["일 작업량", "일작업량"],
 	"RECEIVED_DATE_COLUMN": ["접수 날짜", "접수일자", "요청일", "요청 날짜", "최근 접수일", "최근 작업 접수일"],
+	"START_DATE_COLUMN": ["작업 시작일", "시작일", "작업시작일", "start", "start date", "시작"]
 }
 
 TRUTHY_VALUES = {"true", "1", "yes", "y", "o", "ok", "checked", "done", "완료", "예", "y", "yy", "ㅇ", "ㅇㅇ", "o", "O", "✓", "✔"}
@@ -49,6 +51,7 @@ class Settings:
 		self.product_name_col: str = kwargs.get("PRODUCT_NAME_COLUMN", DEFAULT_KEYS["PRODUCT_NAME_COLUMN"]).strip()
 		self.daily_workload_col: str = kwargs.get("DAILY_WORKLOAD_COLUMN", DEFAULT_KEYS["DAILY_WORKLOAD_COLUMN"]).strip()
 		self.received_date_col: str = kwargs.get("RECEIVED_DATE_COLUMN", DEFAULT_KEYS["RECEIVED_DATE_COLUMN"]).strip()
+		self.start_date_col: str = kwargs.get("START_DATE_COLUMN", DEFAULT_KEYS["START_DATE_COLUMN"]).strip()
 
 	def to_dict(self) -> Dict[str, str]:
 		return {
@@ -62,6 +65,7 @@ class Settings:
 			"PRODUCT_NAME_COLUMN": self.product_name_col,
 			"DAILY_WORKLOAD_COLUMN": self.daily_workload_col,
 			"RECEIVED_DATE_COLUMN": self.received_date_col,
+			"START_DATE_COLUMN": self.start_date_col,
 		}
 
 
@@ -77,6 +81,7 @@ def load_settings() -> Settings:
 		PRODUCT_NAME_COLUMN=os.getenv("PRODUCT_NAME_COLUMN", DEFAULT_KEYS["PRODUCT_NAME_COLUMN"]),
 		DAILY_WORKLOAD_COLUMN=os.getenv("DAILY_WORKLOAD_COLUMN", DEFAULT_KEYS["DAILY_WORKLOAD_COLUMN"]),
 		RECEIVED_DATE_COLUMN=os.getenv("RECEIVED_DATE_COLUMN", DEFAULT_KEYS["RECEIVED_DATE_COLUMN"]),
+		START_DATE_COLUMN=os.getenv("START_DATE_COLUMN", DEFAULT_KEYS["START_DATE_COLUMN"]),
 	)
 
 
