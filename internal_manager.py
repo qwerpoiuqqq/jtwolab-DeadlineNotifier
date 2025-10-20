@@ -310,7 +310,7 @@ def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any
 				"wl": wl_num,
 			})
 
-	# 출력 구성: 업체별 3주차만 산출
+	# 출력 구성: 업체별 '최근 시작일'을 앵커로 지난 3주 전체 구간(3주 전부터 앵커까지)을 커버
 	groups: List[Dict[str, Any]] = []
 	for (agency, biz), recs in sorted(records_by_key.items(), key=lambda kv: (kv[0][0], kv[0][1])):
 		if not recs:
@@ -320,25 +320,56 @@ def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any
 		anchor_dt = recv_sorted[0].get("dt")
 		if not isinstance(anchor_dt, _date):
 			continue
-		# anchor 기준 3주차 범위 계산 (week3: anchor-20 ~ anchor-14)
-		w3_start = anchor_dt - _timedelta(days=20)
-		w3_end = anchor_dt - _timedelta(days=14)
-		# 집계: 3주차 범위에 속하는 레코드만
-		task_to_sum: Dict[str, int] = {}
+		# 윈도우: anchor-20 ~ anchor (지난 3주 전체)
+		win_start = anchor_dt - _timedelta(days=20)
+		win_end = anchor_dt
+		# [st, ed]를 윈도우와 인터섹트하여 구간을 모으고 병합
+		spans: List[Tuple[_date, _date]] = []
 		for r in recs:
 			st = r.get("dt")
 			ed = r.get("end") or st
 			if not isinstance(st, _date) or not isinstance(ed, _date):
 				continue
-			# 기간 겹침: [st, ed] ∩ [w3_start, w3_end]
-			if not (ed < w3_start or st > w3_end):
-				task = r.get("task") or ""
-				wl = int(r.get("wl") or 0)
-				task_to_sum[task] = task_to_sum.get(task, 0) + wl
-		# 섹션/텍스트 구성
-		label = f"{_fmt_mmdd(w3_start)} ~ {_fmt_mmdd(w3_end)}"
-		lines = [f"{t} : {int(v)}" for t, v in sorted(task_to_sum.items(), key=lambda kv: kv[0])]
-		sections = [{"label": label, "lines": lines}]
+			is_st = st if st > win_start else win_start
+			is_ed = ed if ed < win_end else win_end
+			if is_st <= is_ed:
+				spans.append((is_st, is_ed))
+		spans.sort(key=lambda x: (x[0], x[1]))
+		merged: List[Tuple[_date, _date]] = []
+		for s, e in spans:
+			if not merged or s > merged[-1][1]:
+				merged.append((s, e))
+			else:
+				ps, pe = merged[-1]
+				merged[-1] = (ps, (e if e > pe else pe))
+		# 병합된 각 구간별로 작업 합산
+		sections: List[Dict[str, Any]] = []
+		for s, e in merged:
+			task_to_sum: Dict[str, int] = {}
+			for r in recs:
+				st = r.get("dt"); ed = r.get("end") or st
+				if not isinstance(st, _date) or not isinstance(ed, _date):
+					continue
+				if not (ed < s or st > e):
+					task = r.get("task") or ""
+					wl = int(r.get("wl") or 0)
+					task_to_sum[task] = task_to_sum.get(task, 0) + wl
+			label = f"{_fmt_mmdd(s)} ~ {_fmt_mmdd(e)}"
+			lines = [f"{t} : {int(v)}" for t, v in sorted(task_to_sum.items(), key=lambda kv: kv[0])]
+			sections.append({"label": label, "lines": lines})
+		# 텍스트 구성
+		parts: List[str] = []
+		for sec in sections:
+			parts.append(sec["label"]) 
+			parts.extend(sec["lines"]) 
+			parts.append("")
+		text = "\n".join(parts).rstrip()
+		groups.append({
+			"agency": agency,
+			"bizname": biz,
+			"sections": sections,
+			"text": text,
+		})
 		parts: List[str] = []
 		for sec in sections:
 			parts.append(sec["label"])
