@@ -12,6 +12,8 @@ from internal_manager import load_cache as internal_load_cache, refresh_cache as
 from internal_manager import fetch_internal_weekly_summary
 import csv
 from io import StringIO
+from pathlib import Path
+from datetime import datetime
 
 
 # .env 로드
@@ -271,7 +273,29 @@ def create_app() -> Flask:
 		except Exception:
 			return default_value
 
+
+	def _ensure_parent_dir(path: str) -> None:
+		try:
+			p = Path(path)
+			if p.parent and not p.parent.exists():
+				p.parent.mkdir(parents=True, exist_ok=True)
+		except Exception:
+			pass
+
+	def _backup_existing_file(path: str) -> None:
+		try:
+			p = Path(path)
+			if p.exists() and p.is_file():
+				stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+				backup = p.with_name(p.stem + f".{stamp}.bak" + p.suffix)
+				p.replace(backup)
+		except Exception:
+			pass
+
 	def _write_json_file(path: str, data) -> None:
+		_ensure_parent_dir(path)
+		# 기존 파일 백업
+		_backup_existing_file(path)
 		with open(path, "w", encoding="utf-8") as f:
 			json.dump(data, f, ensure_ascii=False)
 
@@ -281,7 +305,21 @@ def create_app() -> Flask:
 		if not isinstance(data, dict):
 			data = {"items": []}
 		items = data.get("items", [])
-		return jsonify({"items": items})
+		# meta 조회(파일 상태): /api/settlement/pricebook?meta=1 또는 debug=1
+		q = (request.args.get("meta") or request.args.get("debug") or "").strip().lower()
+		meta = None
+		if q in ("1", "true", "yes", "y"):
+			try:
+				p = Path(_PRICEBOOK_FILE)
+				meta = {
+					"path": str(p),
+					"exists": p.exists(),
+					"size": (p.stat().st_size if p.exists() and p.is_file() else 0),
+					"mtime": (datetime.fromtimestamp(p.stat().st_mtime).isoformat() if p.exists() and p.is_file() else None),
+				}
+			except Exception:
+				meta = {"path": _PRICEBOOK_FILE, "error": "inspect_failed"}
+		return jsonify({"items": items, "meta": meta})
 
 	@app.route("/api/settlement/pricebook", methods=["POST"])
 	def api_pricebook_save():
@@ -340,7 +378,21 @@ def create_app() -> Flask:
 		data = _read_json_file(_EXTRAS_FILE, {"items": []})
 		if not isinstance(data, dict):
 			data = {"items": []}
-		return jsonify({"items": data.get("items", [])})
+		items = data.get("items", [])
+		q = (request.args.get("meta") or request.args.get("debug") or "").strip().lower()
+		meta = None
+		if q in ("1", "true", "yes", "y"):
+			try:
+				p = Path(_EXTRAS_FILE)
+				meta = {
+					"path": str(p),
+					"exists": p.exists(),
+					"size": (p.stat().st_size if p.exists() and p.is_file() else 0),
+					"mtime": (datetime.fromtimestamp(p.stat().st_mtime).isoformat() if p.exists() and p.is_file() else None),
+				}
+			except Exception:
+				meta = {"path": _EXTRAS_FILE, "error": "inspect_failed"}
+		return jsonify({"items": items, "meta": meta})
 
 	@app.route("/api/settlement/extra", methods=["POST"])
 	def api_extra_save():
@@ -353,6 +405,29 @@ def create_app() -> Flask:
 			return jsonify({"error": "items_array_required"}), 400
 		_write_json_file(_EXTRAS_FILE, {"items": items})
 		return jsonify({"ok": True, "count": len(items)})
+
+	@app.route("/api/settlement/debug/files", methods=["GET"])  # 파일 상태 헬스체크
+	def api_settlement_debug_files():
+		def inspect(path: str):
+			try:
+				p = Path(path)
+				return {
+					"path": str(p),
+					"exists": p.exists(),
+					"size": (p.stat().st_size if p.exists() and p.is_file() else 0),
+					"mtime": (datetime.fromtimestamp(p.stat().st_mtime).isoformat() if p.exists() and p.is_file() else None),
+				}
+			except Exception as e:
+				return {"path": path, "error": str(e)}
+		return jsonify({
+			"pricebook": inspect(_PRICEBOOK_FILE),
+			"extras": inspect(_EXTRAS_FILE),
+		}), 200
+
+	# 별칭(일부 환경에서 'debug' 경로 필터링 시 대체)
+	@app.route("/api/settlement/files", methods=["GET"])
+	def api_settlement_files_alias():
+		return api_settlement_debug_files()
 
 	@app.route("/api/settlement/tabs", methods=["GET"])
 	def api_settlement_tabs():
