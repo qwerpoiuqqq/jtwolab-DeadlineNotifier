@@ -1,606 +1,1396 @@
-import os
-import json
-import argparse
-from typing import Dict, List
-from flask import Flask, render_template, request, jsonify, Response, stream_with_context
-from dotenv import load_dotenv
-from datetime import date, timedelta
-import re
-
-from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency, mark_checked_for_agencies, _get_client, _find_header_row, _build_records, _get_value_flexible, _normalize_key, _collapse_spaces
-from internal_manager import load_cache as internal_load_cache, refresh_cache as internal_refresh_cache
-from internal_manager import fetch_internal_weekly_summary
-import csv
-from io import StringIO
-from pathlib import Path
-from datetime import datetime
-
-
-# .env 로드
-load_dotenv()
-
-
-def _strip_parentheses(text: str) -> str:
-	"""문자열에서 소괄호 내 내용을 제거한다. 예: '작업명(부가)' -> '작업명'"""
-	if not text:
-		return text
-	return re.sub(r"\s*\([^)]*\)", "", text).strip()
-
-
-def create_app() -> Flask:
-	app = Flask(__name__)
-
-	@app.route("/", methods=["GET"])  # 메인 페이지: 폼 + 결과
-	def index():
-		settings = load_settings()
-		days_param = request.args.get("days", "").strip()
-		base_date_str = request.args.get("base_date", "").strip()
-		filter_mode = request.args.get("filter_mode", "agency").strip().lower()  # 'agency' | 'internal'
-		did_fetch = request.args.get("submit", "") == "1"
-
-		# 기준일 처리 (기본: 오늘)
-		if base_date_str:
-			try:
-				base_dt = date.fromisoformat(base_date_str)
-			except ValueError:
-				base_dt = date.today()
-		else:
-			base_dt = date.today()
-
-		ordered_days: List[int] = []
-		day_to_date: Dict[int, str] = {}
-		day_to_date_label: Dict[int, str] = {}
-		grouped_by_date: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
-		agency_to_message: Dict[str, str] = {}
-		agency_to_message_workload: Dict[str, str] = {}
-		agency_to_date_line: Dict[str, str] = {}
-		error = None
-		suggested_prefix = ""
-
-		if did_fetch:
-			selected_days = _parse_days(days_param)
-			ordered_days = sorted(selected_days)
-
-			# 날짜 매핑 생성 (YYYY-MM-DD 및 요일 포함 라벨)
-			weekday_kr = ["월", "화", "수", "목", "금", "토", "일"]
-			for d in ordered_days:
-				cur = base_dt + timedelta(days=d)
-				day_to_date[d] = cur.isoformat()
-				day_to_date_label[d] = f"{cur.isoformat()}({weekday_kr[cur.weekday()]})"
-
-			try:
-				# 날짜별 그룹핑 (필터 모드 적용)
-				grouped_by_date = fetch_grouped_messages_by_date(selected_days=selected_days, settings=settings, filter_mode=filter_mode)
-			except Exception as e:
-				grouped_by_date = {}
-				error = str(e)
-			else:
-				error = None
-
-			# 복붙 포맷 2종 생성
-			# 1) 기본: 날짜(요일) → <작업명> → 상호명
-			# 2) 작업량 포함: 날짜(요일) → <작업명> → 상호명 : 일작업량
-			name_wl_re = re.compile(r"^(.+?)\s*\(일작업량\s+(.*?)\)$")
-			for agency, by_day in grouped_by_date.items():
-				parts_base: List[str] = []
-				parts_wl: List[str] = []
-				for d in sorted(by_day.keys()):
-					# 날짜 헤더
-					date_label = day_to_date_label.get(d, f"+{d}")
-					parts_base.append(date_label)
-					parts_wl.append(date_label)
-					# 작업명과 상호들
-					for task, names in by_day[d].items():
-						if not names:
-							continue
-						display_task = _strip_parentheses(task)
-						parts_base.append(f"<{display_task}>")
-						parts_wl.append(f"<{display_task}>")
-						for name in names:
-							name_str = str(name).strip()
-							m = name_wl_re.match(name_str)
-							if m:
-								base_name = m.group(1).strip()
-								workload_val = m.group(2).strip()
-								parts_base.append(base_name)
-								parts_wl.append(f"{base_name} : {workload_val}")
-							else:
-								# 작업량 정보가 없으면 동일하게 표기
-								parts_base.append(name_str)
-								parts_wl.append(name_str)
-						# 작업 블록 사이: 1줄 공백
-						parts_base.append("")
-						parts_wl.append("")
-					# 날짜 블록 사이: 추가로 1줄 더 공백(= 총 2줄)
-					parts_base.append("")
-					parts_wl.append("")
-				agency_to_message[agency] = "\n".join(parts_base).rstrip()
-				agency_to_message_workload[agency] = "\n".join(parts_wl).rstrip()
-
-			# 대행사별 실제 존재하는 마감일 범위를 기준으로 날짜 문구(요일 포함) 생성
-			weekday_kr = ["월", "화", "수", "목", "금", "토", "일"]
-			def fmt_mmdd_w(dt: date) -> str:
-				return f"{dt.month:02d}/{dt.day:02d}({weekday_kr[dt.weekday()]})"
-			for agency, by_day in grouped_by_date.items():
-				present_days = sorted(list(by_day.keys()))
-				if not present_days:
-					continue
-				start_dt = base_dt + timedelta(days=present_days[0])
-				end_dt = base_dt + timedelta(days=present_days[-1])
-				if start_dt == end_dt:
-					line = f"{fmt_mmdd_w(start_dt)} 마감건 안내드립니다."
-				else:
-					line = f"{fmt_mmdd_w(start_dt)} ~ {fmt_mmdd_w(end_dt)} 마감건 안내드립니다."
-				agency_to_date_line[agency] = line
-
-			# 선택된 날짜 범위 기반 추천 첫 멘트 생성 (인사 + 날짜 문구, MM/DD 포맷)
-			if ordered_days:
-				all_dates = [base_dt + timedelta(days=d) for d in ordered_days]
-				start_dt = min(all_dates)
-				end_dt = max(all_dates)
-				greeting = "대표님 안녕하세요~"
-				def mmdd(dt: date) -> str:
-					return f"{dt.month:02d}/{dt.day:02d}"
-				if start_dt == end_dt:
-					line = f"{mmdd(start_dt)} 마감건 안내드립니다."
-				else:
-					line = f"{mmdd(start_dt)} ~ {mmdd(end_dt)} 마감건 안내드립니다."
-				suggested_prefix = greeting + "\n" + line
-
-		return render_template(
-			"index.html",
-			error=error,
-			did_fetch=did_fetch,
-			days_param=days_param,
-			base_date_str=base_date_str or base_dt.isoformat(),
-			day_to_date=day_to_date,
-			day_to_date_label=day_to_date_label,
-			ordered_days=ordered_days,
-			grouped=grouped_by_date,
-			agency_to_message=agency_to_message,
-			agency_to_message_workload=agency_to_message_workload,
-			agency_to_date_line=agency_to_date_line,
-			settings=settings,
-			filter_mode=filter_mode,
-			suggested_prefix=suggested_prefix,
-		)
-
-	@app.route("/manage", methods=["GET"])  # 내부 보장건/관리 탭
-	def manage():
-		cache = internal_load_cache()
-		updated_at = cache.get("updated_at")
-		items = cache.get("items", [])
-		return render_template(
-			"manage.html",
-			updated_at=updated_at,
-			initial_items=items,
-		)
-
-	@app.route("/settlement", methods=["GET"])  # 마감 체크 전용 탭
-	def settlement():
-		return render_template("settlement.html")
-
-	@app.route("/debug/headers")
-	def debug_headers():
-		try:
-			info = inspect_sheets()
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-		return jsonify(info)
-
-	@app.route("/debug/matches")
-	def debug_matches():
-		days_param = request.args.get("days", "0").strip()
-		selected_days = _parse_days(days_param)
-		try:
-			report = diagnose_matches(selected_days)
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-		return jsonify(report)
-
-	@app.route("/api/fetch-stream")
-	def fetch_stream():
-		"""SSE: 진행률과 최종 결과를 스트리밍한다."""
-		settings = load_settings()
-		days_param = request.args.get("days", "").strip()
-		filter_mode = request.args.get("filter_mode", "agency").strip().lower()
-		selected_days = _parse_days(days_param)
-
-		def event_stream():
-			try:
-				for evt in stream_grouped_messages_by_date(selected_days, settings, filter_mode):
-					yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
-			except Exception as e:
-				payload = {"type": "error", "message": str(e)}
-				yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-
-		return Response(stream_with_context(event_stream()), mimetype="text/event-stream")
-
-	@app.route("/api/internal/items", methods=["GET"])  # 캐시된 내부 진행건 목록 반환
-	def api_internal_items():
-		try:
-			cache = internal_load_cache()
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-		return jsonify({
-			"updated_at": cache.get("updated_at"),
-			"items": cache.get("items", []),
-		}), 200
-
-	@app.route("/api/internal/weekly", methods=["GET"])  # 내부 진행 주간 요약 (대행사>업체)
-	def api_internal_weekly():
-		try:
-			weeks_str = request.args.get("weeks", "3").strip()
-			weeks = int(weeks_str) if weeks_str else 3
-		except Exception:
-			weeks = 3
-		base_date_str = request.args.get("base_date", "").strip()
-		try:
-			base_dt = date.fromisoformat(base_date_str) if base_date_str else date.today()
-		except Exception:
-			base_dt = date.today()
-		try:
-			groups = fetch_internal_weekly_summary(base_dt, weeks)
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-		return jsonify({
-			"base_date": base_dt.isoformat(),
-			"weeks": weeks,
-			"groups": groups,
-		}), 200
-
-	@app.route("/api/internal/refresh", methods=["POST"])  # 수동 불러오기
-	def api_internal_refresh():
-		try:
-			data = internal_refresh_cache()
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-		return jsonify(data), 200
-
-	# -----------------------------
-	# Settlement(정산) API
-	# -----------------------------
-	_PRICEBOOK_FILE = os.getenv("PRICEBOOK_FILE", "settlement_pricebook.json")
-	_EXTRAS_FILE = os.getenv("EXTRAS_FILE", "settlement_extras.json")
-
-	def _read_json_file(path: str, default_value):
-		try:
-			with open(path, "r", encoding="utf-8") as f:
-				data = json.load(f)
-				return data
-		except FileNotFoundError:
-			return default_value
-		except Exception:
-			return default_value
-
-
-	def _ensure_parent_dir(path: str) -> None:
-		try:
-			p = Path(path)
-			if p.parent and not p.parent.exists():
-				p.parent.mkdir(parents=True, exist_ok=True)
-		except Exception:
-			pass
-
-	def _backup_existing_file(path: str) -> None:
-		try:
-			p = Path(path)
-			if p.exists() and p.is_file():
-				stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-				backup = p.with_name(p.stem + f".{stamp}.bak" + p.suffix)
-				p.replace(backup)
-		except Exception:
-			pass
-
-	def _write_json_file(path: str, data) -> None:
-		_ensure_parent_dir(path)
-		# 기존 파일 백업
-		_backup_existing_file(path)
-		with open(path, "w", encoding="utf-8") as f:
-			json.dump(data, f, ensure_ascii=False)
-
-	@app.route("/api/settlement/pricebook", methods=["GET"])
-	def api_pricebook_get():
-		data = _read_json_file(_PRICEBOOK_FILE, {"items": []})
-		if not isinstance(data, dict):
-			data = {"items": []}
-		items = data.get("items", [])
-		return jsonify({"items": items})
-
-	@app.route("/api/settlement/pricebook", methods=["POST"])
-	def api_pricebook_save():
-		try:
-			payload = request.get_json(force=True, silent=False) or {}
-		except Exception:
-			return jsonify({"error": "invalid_json"}), 400
-		items = payload.get("items")
-		if not isinstance(items, list):
-			return jsonify({"error": "items_array_required"}), 400
-		_write_json_file(_PRICEBOOK_FILE, {"items": items})
-		return jsonify({"ok": True, "count": len(items)})
-
-	@app.route("/api/settlement/pricebook/template", methods=["GET"])
-	def api_pricebook_template():
-		# 간단 CSV 템플릿 제공
-		si = StringIO()
-		w = csv.writer(si)
-		w.writerow(["client", "product", "type", "price", "account", "bank", "holder"])
-		csv_data = si.getvalue()
-		resp = Response(csv_data, mimetype="text/csv; charset=utf-8")
-		resp.headers["Content-Disposition"] = "attachment; filename=pricebook_template.csv"
-		return resp
-
-	@app.route("/api/settlement/pricebook/upload", methods=["POST"])
-	def api_pricebook_upload():
-		file = request.files.get("file")
-		if not file:
-			return jsonify({"error": "file_required"}), 400
-		filename = file.filename or ""
-		name_lower = filename.lower()
-		# CSV만 지원 (간단 구현)
-		if not name_lower.endswith(".csv"):
-			return jsonify({"error": "csv_only_supported"}), 400
-		try:
-			text = file.stream.read().decode("utf-8", errors="replace")
-			si = StringIO(text)
-			r = csv.DictReader(si)
-			items = []
-			for row in r:
-				client = (row.get("client") or "").strip()
-				product = (row.get("product") or "").strip()
-				typev = (row.get("type") or "공통").strip() or "공통"
-				price = int(str(row.get("price") or "0").replace(",", "").strip() or "0")
-				account = (row.get("account") or "").strip()
-				bank = (row.get("bank") or "").strip()
-				holder = (row.get("holder") or "").strip()
-				if client and product:
-					items.append({"client": client, "product": product, "type": typev, "price": price, "account": account, "bank": bank, "holder": holder})
-		except Exception as e:
-			return jsonify({"error": f"parse_failed:{e}"}), 400
-		return jsonify({"items": items})
-
-	@app.route("/api/settlement/extra", methods=["GET"])
-	def api_extra_get():
-		data = _read_json_file(_EXTRAS_FILE, {"items": []})
-		if not isinstance(data, dict):
-			data = {"items": []}
-		return jsonify({"items": data.get("items", [])})
-
-	@app.route("/api/settlement/extra", methods=["POST"])
-	def api_extra_save():
-		try:
-			payload = request.get_json(force=True, silent=False) or {}
-		except Exception:
-			return jsonify({"error": "invalid_json"}), 400
-		items = payload.get("items")
-		if not isinstance(items, list):
-			return jsonify({"error": "items_array_required"}), 400
-		_write_json_file(_EXTRAS_FILE, {"items": items})
-		return jsonify({"ok": True, "count": len(items)})
-
-	@app.route("/api/settlement/debug/files", methods=["GET"])  # 파일 상태 헬스체크
-	def api_settlement_debug_files():
-		def inspect(path: str):
-			try:
-				p = Path(path)
-				return {
-					"path": str(p),
-					"exists": p.exists(),
-					"size": (p.stat().st_size if p.exists() and p.is_file() else 0),
-					"mtime": (datetime.fromtimestamp(p.stat().st_mtime).isoformat() if p.exists() and p.is_file() else None),
-				}
-			except Exception as e:
-				return {"path": path, "error": str(e)}
-		return jsonify({
-			"pricebook": inspect(_PRICEBOOK_FILE),
-			"extras": inspect(_EXTRAS_FILE),
-		}), 200
-
-	@app.route("/api/settlement/tabs", methods=["GET"])
-	def api_settlement_tabs():
-		try:
-			settings = load_settings()
-			client = _get_client()
-			ss = client.open_by_key(settings.spreadsheet_id)
-			ws = ss.worksheets()
-			titles = [ (w.title or "").strip() for w in ws ]
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-		return jsonify({"tabs": titles})
-
-	def _parse_date_from_title(title: str) -> str:
-		# YYYY-MM-DD 또는 YYYY.MM.DD 등 단순 포맷만 추출
-		m = re.search(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})", title or "")
-		if not m:
-			return title or ""
-		y = int(m.group(1)); mth = int(m.group(2)); d = int(m.group(3))
-		return f"{y:04d}-{mth:02d}-{d:02d}"
-
-	def _display_task_for_tab(tab_title: str, product: str, product_name: str) -> str:
-		base_task = (tab_title or "").strip()
-		is_misc = _collapse_spaces(base_task) == _collapse_spaces("기타")
-		if is_misc:
-			return (product_name or base_task).strip() or base_task
-		return (f"{base_task} {product}".strip() if product else base_task) or base_task
-
-	def _derive_type(product: str) -> str:
-		s = (product or "").strip()
-		if "저장" in s:
-			return "저장"
-		if "트래픽" in s:
-			return "트래픽"
-		return "공통"
-
-	def _lookup_unit_price(pricebook_items: List[Dict[str, any]], client: str, product: str, typev: str) -> int:
-		# 정확 타입 우선, 없으면 공통
-		for it in pricebook_items:
-			if (it.get("client") or "").strip()==client and (it.get("product") or "").strip()==product and (it.get("type") or "공통").strip()==typev:
-				try: return int(it.get("price") or 0)
-				except Exception: return 0
-		for it in pricebook_items:
-			if (it.get("client") or "").strip()==client and (it.get("product") or "").strip()==product and (it.get("type") or "공통").strip()=="공통":
-				try: return int(it.get("price") or 0)
-				except Exception: return 0
-		return 0
-
-	@app.route("/api/settlement/compute", methods=["POST"])
-	def api_settlement_compute():
-		try:
-			payload = request.get_json(force=True, silent=False) or {}
-		except Exception:
-			return jsonify({"error": "invalid_json"}), 400
-		tabs = payload.get("tabs") or []
-		if not isinstance(tabs, list):
-			return jsonify({"error": "tabs_array_required"}), 400
-		try:
-			settings = load_settings()
-			client = _get_client()
-			ss = client.open_by_key(settings.spreadsheet_id)
-			worksheets = { (w.title or "").strip(): w for w in ss.worksheets() }
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-
-		pricebook = _read_json_file(_PRICEBOOK_FILE, {"items": []})
-		price_items = pricebook.get("items", []) if isinstance(pricebook, dict) else []
-
-		rows: List[Dict[str, any]] = []
-		missing_prices: List[Dict[str, str]] = []
-		# aggregates: by_product: {date: {product: {qty, expense, income}}}, by_agency: {agency: {product: {qty, expense, income}}}
-		by_product: Dict[str, Dict[str, Dict[str, int]]] = {}
-		by_agency: Dict[str, Dict[str, Dict[str, int]]] = {}
-
-		for tab in tabs:
-			ws = worksheets.get((tab or "").strip())
-			if not ws:
-				continue
-			try:
-				header_row, headers = _find_header_row(ws, load_settings())
-				records = _build_records(ws, header_row, headers)
-			except Exception:
-				records = []
-			date_str = _parse_date_from_title(ws.title or "")
-			for row in records:
-				row_norm = { _normalize_key(k): v for k, v in row.items() }
-				agency = str(_get_value_flexible(row_norm, load_settings().agency_col, "AGENCY_COLUMN") or "").strip()
-				bizname = str(_get_value_flexible(row_norm, load_settings().bizname_col, "BIZNAME_COLUMN") or "").strip()
-				product = str(_get_value_flexible(row_norm, load_settings().product_col, "PRODUCT_COLUMN") or "").strip()
-				product_name = str(_get_value_flexible(row_norm, load_settings().product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
-				workload_raw = str(_get_value_flexible(row_norm, load_settings().daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
-				qty = 0
-				try:
-					qty = int(re.search(r"-?\d+", workload_raw).group(0)) if workload_raw else 0
-				except Exception:
-					qty = 0
-				if not bizname:
-					continue
-				job = _display_task_for_tab(ws.title or "", product, product_name)
-				typev = _derive_type(product)
-				product_key = job if typev=="공통" else f"{job} {typev}"
-				unit_price = _lookup_unit_price(price_items, agency, product_key, typev)
-				expense = qty * unit_price
-				income = expense
-				rows.append({
-					"date": date_str,
-					"client": agency,
-					"job": job,
-					"type": (None if typev=="공통" else typev),
-					"qty": qty,
-					"unit_price": unit_price,
-					"expense": expense,
-					"income": income,
-				})
-				# aggregates by date/product
-				pmap = by_product.setdefault(date_str, {})
-				acc = pmap.setdefault(product_key, {"qty": 0, "expense": 0, "income": 0})
-				acc["qty"] += qty; acc["expense"] += expense; acc["income"] += income
-				# aggregates by agency/product
-				amap = by_agency.setdefault(agency or "기타", {})
-				acc2 = amap.setdefault(product_key, {"qty": 0, "expense": 0, "income": 0})
-				acc2["qty"] += qty; acc2["expense"] += expense; acc2["income"] += income
-				if unit_price <= 0:
-					missing_prices.append({"client": agency, "product": job, "type": (None if typev=="공통" else typev)})
-
-		return jsonify({
-			"rows": rows,
-			"aggregates": {"by_product": by_product, "by_agency": by_agency},
-			"missing_prices": missing_prices,
-		}), 200
-
-	@app.route("/api/mark-done", methods=["POST"])
-	def mark_done():
-		"""특정 대행사 카드의 모든 해당 행을 '마감 안내 체크'로 표시한다."""
-		try:
-			data = request.get_json(force=True, silent=False) or {}
-		except Exception:
-			return jsonify({"error": "invalid_json"}), 400
-
-		agency_label = str(data.get("agency") or "").strip()
-		days_param = str(data.get("days") or "").strip()
-		filter_mode = str(data.get("filter_mode") or "agency").strip().lower()
-		if not agency_label:
-			return jsonify({"error": "missing_agency"}), 400
-
-		selected_days = _parse_days(days_param)
-		try:
-			result = mark_checked_for_agency(selected_days=selected_days, agency_label=agency_label, filter_mode=filter_mode)
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-		return jsonify(result)
-
-	@app.route("/api/mark-done-bulk", methods=["POST"])
-	def mark_done_bulk():
-		"""여러 대행사 카드를 한 번에 체크 처리한다."""
-		try:
-			data = request.get_json(force=True, silent=False) or {}
-		except Exception:
-			return jsonify({"error": "invalid_json"}), 400
-
-		agency_labels = data.get("agencies") or []
-		if not isinstance(agency_labels, list):
-			return jsonify({"error": "invalid_agencies"}), 400
-		agency_labels = [str(a or "").strip() for a in agency_labels if str(a or "").strip()]
-		if not agency_labels:
-			return jsonify({"error": "empty_agencies"}), 400
-
-		days_param = str(data.get("days") or "").strip()
-		filter_mode = str(data.get("filter_mode") or "agency").strip().lower()
-		selected_days = _parse_days(days_param)
-		try:
-			result = mark_checked_for_agencies(selected_days=selected_days, agency_labels=agency_labels, filter_mode=filter_mode)
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-		return jsonify(result)
-
-	return app
-
-app = create_app()
-
-
-def _parse_days(days_param: str) -> List[int]:
-	if not days_param:
-		return []
-	parts = [p.strip() for p in days_param.split(",") if p.strip()]
-	selected: List[int] = []
-	for p in parts:
-		try:
-			selected.append(int(p))
-		except ValueError:
-			continue
-	return selected
-
-
-if __name__ == "__main__":
-	parser = argparse.ArgumentParser()
-	parser.add_argument("--prod", action="store_true", help="Run with waitress server")
-	args = parser.parse_args()
-
-	host = os.getenv("FLASK_HOST", "0.0.0.0")
-	port = int(os.getenv("FLASK_PORT", "8080"))
-	debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
-
-	if args.prod:
-		from waitress import serve
-
-		serve(app, host=host, port=port)
-	else:
-		app.run(host=host, port=port, debug=debug)
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>결재선 · 정산</title>
+    <style>
+      :root{ --bg:#ffffff; --text:#1f2328; --muted:#6b778c; --line:#e5e7eb; --panel:#ffffff; --pill:#f6f8fa; --btn:#111827; }
+      *,*::before,*::after{ box-sizing:border-box; }
+      html,body{ height:100% }
+      body{ margin:0; background:var(--bg); color:var(--text); font-family: ui-sans-serif, system-ui, "Noto Sans KR", Arial; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+      .content{ flex:1; padding:24px; }
+      .title{ font-weight:800; letter-spacing:.2px; font-size:18px; margin-bottom:16px; }
+      .home-link{ color:inherit; text-decoration:none; }
+      .home-link:hover{ text-decoration:underline; }
+      .nav a{ display:block; padding:10px 12px; border-radius:10px; color:inherit; text-decoration:none; margin-bottom:6px; border:1px solid var(--line); background:var(--pill); }
+      .nav a.active{ background:#111827; color:#fff; border-color:#111827; }
+      .panel{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+      .stack{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+      label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+      input[type="text"], input[type="date"], select{ background:#fff; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px 12px; min-width:200px; outline:none; }
+      .btn{ border:1px solid var(--line); background:#fff; color:#111827; padding:10px 14px; border-radius:10px; cursor:pointer; }
+      .btn-primary{ background:#111827; color:#fff; border-color:#111827; }
+      .btn-danger{ background:#b91c1c; color:#fff; border-color:#b91c1c; }
+      .btn-accent{ background:#2563eb; color:#fff; border-color:#2563eb; border-radius:12px; }
+      .btn-ghost{ background:#fff; color:#2563eb; border-color:#2563eb; }
+      .btn-outline{ background:#fff; color:#111827; border-color:#d1d5db; }
+      .btn-sm{ padding:6px 10px; border-radius:8px; font-size:12px; }
+      .btn-group{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+      .tag{ display:inline-block; padding:4px 8px; border:1px solid var(--line); border-radius:999px; background:var(--pill); font-size:12px; cursor:pointer; margin-right:6px; }
+      .tag.active{ background:#111827; color:#fff; border-color:#111827; }
+      .muted-sm{ font-size:12px; color:var(--muted); }
+      .wizard{ border:1px solid var(--line); background:#fff; border-radius:12px; padding:16px; }
+      .slide{ display:none; }
+      .slide.active{ display:block; }
+      .two-col{ display:grid; gap:12px; }
+      @media(min-width:1100px){ .two-col{ grid-template-columns: 1fr 1fr; } }
+      .muted{ color:var(--muted); }
+      .pill{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
+      .grid{ display:grid; gap:12px; }
+      @media(min-width:1100px){ .grid{ grid-template-columns: 1fr 1fr; } }
+      .cards{ display:grid; gap:12px; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
+      .card{ border:1px solid var(--line); border-radius:10px; background:#fff; }
+      .card .card-hd{ display:flex; justify-content:space-between; align-items:center; padding:10px 12px; cursor:pointer; }
+      .card .card-bd{ padding:0 12px 12px 12px; }
+      .card.collapsed .card-bd{ display:none; }
+      .mini{ font-size:12px; }
+      .mini th, .mini td{ padding:4px 6px; }
+      .dense th, .dense td{ padding:6px 8px; font-size:12px; }
+      .sticky thead th{ position:sticky; top:0; background:#fff; z-index:1; }
+      .two-grid{ display:grid; gap:10px; grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
+      .fill{ width:100%; }
+      .acc-grid{ display:grid; gap:10px; grid-template-columns: minmax(0,1fr) 140px 160px; align-items:end; }
+      .col-left{ grid-column: 1 / 2; }
+      table{ width:100%; border-collapse: collapse; }
+      th, td{ border-bottom:1px solid var(--line); padding:8px 6px; text-align:left; }
+      th{ font-size:12px; color:var(--muted); font-weight:600; }
+      .chips{ display:flex; gap:8px; flex-wrap:wrap; }
+      .chip{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:8px 12px; border-radius:999px; cursor:pointer; font-size:12px; }
+      .chip.active{ background:#111827; color:#fff; border-color:#111827; }
+      .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.08); backdrop-filter: blur(2px); z-index:50; }
+      .spinner{ width:34px; height:34px; border:3px solid rgba(17,24,39,.18); border-top-color:#111827; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 10px; }
+      .progress{ width:260px; height:8px; background:#e5e7eb; border-radius:999px; overflow:hidden; margin:8px auto 0; }
+      .progress-bar{ height:100%; width:0%; background:#111827; transition:width .2s ease; }
+      @keyframes spin{ to{ transform:rotate(360deg); } }
+      /* 페이지 2열 레이아웃 */
+      .page{ display:flex; gap:16px; align-items:flex-start; }
+      .subnav{ width:220px; border:1px solid var(--line); background:#fff; border-radius:12px; padding:12px; }
+      .subnav .title-sm{ font-weight:700; margin-bottom:10px; }
+      .subnav .vtab{ display:block; width:100%; text-align:left; padding:10px 12px; border:1px solid var(--line); background:var(--pill); border-radius:10px; margin-bottom:8px; cursor:pointer; }
+      .subnav .vtab.active{ background:#111827; color:#fff; border-color:#111827; }
+      .maincol{ flex:1; min-width:0; }
+      /* 모바일: 좌측 탭 숨기고 상단 탭 표시 */
+      .tabbar{ display:none; }
+      @media(max-width:900px){
+        .page{ display:block; }
+        .subnav{ display:none; }
+        .tabbar{ display:block; }
+      }
+      /* 탭 전환은 JS에서만 제어 */
+    </style>
+  </head>
+  <body>
+    <div class="content" style="max-width:1100px; margin:0 auto; padding:24px">
+      <div class="title"><a class="home-link" href="/">마감 안내 생성기</a> · <a class="home-link" href="/manage">보장 관리</a> · <a class="home-link" href="/settlement" style="font-weight:600">결재선 · 정산</a></div>
+
+      <div class="page">
+        <aside class="subnav">
+          <div class="title-sm">결재선</div>
+          <button id="side-tab-settle" class="vtab active" type="button">정산</button>
+          <button id="side-tab-price" class="vtab" type="button">단가 관리</button>
+        </aside>
+        <div class="maincol">
+          <!-- 모바일 상단 탭: 데스크톱에서는 숨김 -->
+          <div id="tabbar" class="panel tabbar" style="margin-bottom:12px">
+            <div class="stack" style="justify-content:flex-start">
+              <button id="tab-settle" class="btn btn-primary" type="button">정산</button>
+              <button id="tab-price" class="btn" type="button">단가 관리</button>
+            </div>
+          </div>
+
+          <!-- 정산 탭 콘텐츠 -->
+          <div id="settle-content">
+          <!-- 1) 중앙 히어로: 탭 불러오기/기간/가져오기만 표시 (정산 탭에서만 보임) -->
+          <div id="hero" class="panel" style="margin-bottom:12px; display:block">
+            <div class="stack" style="align-items:flex-end">
+              <div>
+                <label>구글 시트 하단 탭</label>
+                <div class="stack">
+                  <button id="load-tabs" class="btn">탭 불러오기</button>
+                  <span id="tab-count" class="pill">0개</span>
+                </div>
+              </div>
+              <div style="flex:1; min-width:260px">
+                <label>탭(날짜) 선택</label>
+                <div id="tab-chips" class="chips"></div>
+              </div>
+              <!-- 기간 선택 제거 -->
+              <button id="fetch-data" class="btn btn-primary">데이터 가져오기</button>
+            </div>
+            <div class="muted" style="margin-top:8px; font-size:12px">탭명은 날짜(예: 2025-10-06) 형식을 권장합니다.</div>
+          </div>
+
+          </div>
+          <!-- 정산 탭 콘텐츠 끝 -->
+
+          <!-- 단가 관리 탭 콘텐츠 -->
+          <div id="price-content" style="display:none;">
+          <div id="price-panel" class="panel" style="margin-bottom:12px">
+            <div class="stack" style="justify-content:space-between">
+              <div class="muted">거래처별 계좌 · 상품별 단가</div>
+              <div class="btn-group">
+                <button id="btn-add-price" class="btn btn-primary btn-sm">상품 추가</button>
+                <button id="btn-save-price" class="btn btn-outline btn-sm">저장</button>
+                <button id="btn-bulk-toggle" class="btn btn-outline btn-sm">엑셀 대량등록</button>
+                <a id="bulk-download" class="btn btn-outline btn-sm" href="/api/settlement/pricebook/template">대량등록 양식</a>
+              </div>
+            </div>
+            <!-- 인라인 에디터: 2열 압축 배치 -->
+            <div class="panel" style="margin-top:10px">
+                <div class="two-grid">
+                <div class="stack fill col-left" style="align-items:flex-end; min-width:0">
+                  <div style="flex:1"><label>거래처</label><input id="pb-client" class="fill" type="text" placeholder="예: 일류기획" /></div>
+                  <div style="flex:1"><label>상품명</label><input id="pb-product" class="fill" type="text" placeholder="예: 일류1" /></div>
+                  <div style="width:160px"><label>단가</label><input id="pb-price" class="fill" type="text" placeholder="예: 1750" /></div>
+                </div>
+                <div class="stack fill col-left" style="flex-direction:column; min-width:0">
+                  <div><label>계좌</label><input id="pb-account" class="fill" type="text" placeholder="계좌" /></div>
+                  <div><label>은행</label><input id="pb-bank" class="fill" type="text" placeholder="은행" /></div>
+                  <div><label>예금주</label><input id="pb-holder" class="fill" type="text" placeholder="예: ㈜제이티더블유랩" /></div>
+                </div>
+                <div class="stack" style="gap:8px; white-space:nowrap">
+                    <label style="margin:0; color:var(--muted); font-size:12px">유형</label>
+                    <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="공통" checked />공통</label>
+                    <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="저장" />저장</label>
+                    <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="트래픽" />트래픽</label>
+                  </div>
+                </div>
+              </div>
+            <div class="stack" style="justify-content:space-between; margin-top:8px; align-items:center">
+                <div class="btn-group"><button id="pb-add-one" class="btn btn-primary btn-sm" type="button">추가</button><button id="pb-add-both" class="btn btn-outline btn-sm" type="button">저장·트래픽 동시 추가</button></div>
+                <div class="stack fill" style="align-items:center"><label style="margin:0">검색</label><input id="pb-search" type="text" placeholder="거래처/상품 검색" class="fill" /></div>
+              </div>
+            </div>
+
+            <!-- 대량 등록 패널 -->
+            <div id="bulk-panel" class="panel" style="margin-top:10px; display:none">
+              <div class="muted" style="margin-bottom:6px; font-size:12px">대량등록 엑셀을 업로드하세요. 헤더: 거래처, 상품명, 유형(공란/저장/트래픽), 단가, 계좌, 은행, 예금주</div>
+              <div class="stack" style="gap:10px; align-items:center; flex-wrap:wrap">
+                <input id="bulk-file" type="file" accept=".xlsx" />
+                <button id="bulk-upload" class="btn btn-primary">업로드 미리보기</button>
+                <button id="bulk-apply-xlsx" class="btn">일괄 추가/병합</button>
+                <span id="bulk-status" class="muted" style="font-size:12px"></span>
+              </div>
+              <div style="overflow:auto; margin-top:8px; max-height:320px">
+                <table id="tbl-bulk" class="dense sticky" style="width:100%">
+                  <thead>
+                    <tr>
+                      <th>#</th><th>거래처</th><th>상품명</th><th>유형</th><th>단가</th><th>계좌</th><th>은행</th><th>예금주</th><th>상태</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style="overflow:auto; margin-top:8px; max-height:420px">
+              <table id="tbl-price" class="dense sticky" style="width:100%">
+                <thead>
+                  <tr>
+                    <th>거래처</th><th>상품명</th><th>유형</th><th>단가</th><th>계좌</th><th>은행</th><th>예금주</th><th></th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          </div>
+          <!-- 단가 관리 탭 콘텐츠 끝 -->
+          
+          <!-- 3) 정산 미리보기(페이지 하단 표시) -->
+          <!-- 사전 점검 패널: 미정 단가 / 추가 지출 -->
+          <div id="precheck-panel" class="panel" style="display:none; margin-bottom:12px">
+            <div class="grid">
+              <div class="panel">
+                <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px">
+                  <div class="muted">신규 상품</div>
+                  <button id="btn-apply-missing" class="btn btn-primary">추가</button>
+                </div>
+                <div style="overflow:auto">
+                  <table class="mini" style="width:100%">
+                    <thead><tr><th>반영</th><th>대행사</th><th>상품명</th><th>유형</th><th>수량 합계</th><th>단가(입력)</th></tr></thead>
+                    <tbody id="tbl-missing-body"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="panel">
+                <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px">
+                  <div class="muted">추가 지출</div>
+                  <div class="stack" style="gap:6px">
+                    <button id="btn-add-extra" class="btn">행 추가</button>
+                    <button id="btn-save-extra" class="btn btn-primary">추가 지출 저장</button>
+                  </div>
+                </div>
+                <div style="overflow:auto">
+                  <table class="mini" style="width:100%">
+                    <thead><tr><th>반영</th><th>날짜</th><th>대행사</th><th>상품</th><th>금액</th><th></th></tr></thead>
+                    <tbody id="tbl-extra-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div class="stack" style="justify-content:flex-end; margin-top:8px">
+              <button id="btn-finalize" class="btn btn-primary">최종 반영</button>
+            </div>
+          </div>
+
+          <div id="results-panel" class="panel" style="display:none; margin-bottom:12px">
+            <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
+              <div class="stack" style="gap:10px; align-items:center">
+                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-guarantee"> 보장형</label>
+                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-manage"> 관리형</label>
+                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-mincom"> 민컴&궁서</label>
+                <span id="agg-total-badge" class="pill"></span>
+              </div>
+              <div class="stack" style="gap:8px">
+                <button id="btn-toggle-collapse" class="btn">전체 접기</button>
+                <button id="btn-delete-toggle" class="btn" title="결재선 반영에서 특정 건 제외">삭제</button>
+                <button id="btn-finalize-wizard" class="btn-accent" title="최종 보고 생성">최종 정산</button>
+              </div>
+            </div>
+            <!-- 상품별 카드 그리드 -->
+            <div id="cards-container" class="cards"></div>
+            <!-- 상품별 보기 -->
+            <div style="overflow:auto">
+              <table id="tbl-product" style="width:100%; display:none">
+                <thead>
+                  <tr>
+                    <th>날짜</th>
+                    <th>상품명</th>
+                    <th>총 접수량</th>
+                    <th>지출</th>
+                    <th>매출</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <!-- 대행사별 보기 -->
+            <div style="overflow:auto">
+              <table id="tbl-agency" style="width:100%; display:none">
+                <thead>
+                  <tr>
+                    <th>날짜</th>
+                    <th>대행사</th>
+                    <th>상품명</th>
+                    <th>유형</th>
+                    <th>수량</th>
+                    <th>단가</th>
+                    <th>지출</th>
+                    <th>매출</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="overlay" id="overlay">
+      <div class="center">
+        <div class="spinner"></div>
+        <div class="muted" id="progress-text">불러오는 중...</div>
+        <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
+      </div>
+    </div>
+
+    <script>
+      // 상태 저장소 (임시: 클라이언트 메모리)
+      const state = {
+        tabs: [], // 시트 탭명
+        selectedTabs: [], // 선택된 탭
+        priceBook: [], // { client, product, price, account }
+        previewRows: [], // { date, client, agency, product, qty, price, amount }
+        lastAggregates: null, // 마지막 계산 aggregates 그대로 보관
+        missingPrices: [], // compute 응답의 missing_prices
+        extraExpenses: [], // [{date,client,product,amount,report}]
+        exclusions: { products: [], rows: [] } // 결재선 반영 제외 세트
+      };
+      state.wizard = { step:1, receivables: [], payables: [], categories: {}, custom: {}, reportDate:'', vendorOrder: [] };
+
+      const $ = (s)=>document.querySelector(s);
+      const overlay = document.getElementById('overlay');
+      const pbar = document.getElementById('progress-bar');
+      const ptxt = document.getElementById('progress-text');
+      // 미리보기는 하단 패널 사용
+
+      function showLoading(msg){ overlay.style.display='flex'; if(ptxt) ptxt.textContent = msg||'불러오는 중...'; if(pbar) pbar.style.width='15%'; }
+      function setProgress(pct, msg){ if(pbar){ pbar.style.width = Math.max(0, Math.min(100, pct))+'%'; } if(msg && ptxt){ ptxt.textContent = msg; } }
+      function hideLoading(){ overlay.style.display='none'; if(pbar) pbar.style.width='0%'; }
+      // 전역 안전장치: 예외 발생/로드 완료 시 오버레이 강제 해제
+      window.addEventListener('error', ()=>{ try{ hideLoading(); }catch(e){} }, { once:false });
+      window.addEventListener('load', ()=>{ try{ hideLoading(); }catch(e){} });
+
+      // 간단 토스트
+      function toast(msg){
+        try{
+          const d=document.createElement('div');
+          d.textContent = msg||'저장됨';
+          d.style.position='fixed'; d.style.right='16px'; d.style.bottom='16px';
+          d.style.background='#111827'; d.style.color='#fff'; d.style.border='1px solid #111827';
+          d.style.padding='10px 12px'; d.style.borderRadius='10px'; d.style.zIndex='60';
+          document.body.appendChild(d);
+          setTimeout(()=>{ try{ document.body.removeChild(d);}catch(e){} }, 1200);
+        }catch(e){}
+      }
+
+      async function savePriceBook(){
+        showLoading('단가표 저장 중...');
+        try{
+          const res = await fetch('/api/settlement/pricebook', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items: state.priceBook }) });
+          const data = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(data?.error||'저장 실패');
+          toast('저장됨');
+        }catch(e){ alert(e.message||'저장 실패'); }
+        finally{ hideLoading(); }
+      }
+
+      // 1) 탭 불러오기 (API 연동 예정)
+      const loadTabsBtn = document.getElementById('load-tabs'); if(loadTabsBtn) loadTabsBtn.addEventListener('click', async()=>{
+        showLoading('탭 목록을 불러오는 중...');
+        try{
+          const res = await fetch('/api/settlement/tabs');
+          const data = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(data?.error||'탭 조회 실패');
+          state.tabs = Array.isArray(data.tabs) ? data.tabs : [];
+          renderTabChips();
+          $('#tab-count').textContent = `${state.tabs.length}개`;
+          setProgress(100, '완료');
+        }catch(e){ alert(e.message||'탭 불러오기 실패'); }
+        finally{ hideLoading(); }
+      });
+
+      function renderTabChips(){
+        const wrap = document.getElementById('tab-chips');
+        if(!wrap) return;
+        wrap.innerHTML = '';
+        state.tabs.forEach(tab=>{
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'chip';
+          btn.textContent = tab;
+          const active = state.selectedTabs.includes(tab);
+          if(active) btn.classList.add('active');
+          btn.addEventListener('click', ()=>{
+            const i = state.selectedTabs.indexOf(tab);
+            if(i>=0) state.selectedTabs.splice(i,1); else state.selectedTabs.push(tab);
+            renderTabChips();
+          });
+          wrap.appendChild(btn);
+        });
+      }
+
+      // 기간 선택 제거됨
+
+      // 2) 데이터 가져오기
+      const fetchBtn = document.getElementById('fetch-data'); if(fetchBtn) fetchBtn.addEventListener('click', async()=>{
+        showLoading('정산 데이터를 준비 중...'); setProgress(25);
+        try{
+          const res = await fetch('/api/settlement/compute', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tabs: state.selectedTabs }) });
+          const data = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(data?.error||'집계 실패');
+          // data.rows: {date, client, job, type, qty, unit_price, expense, income}
+          const rows = Array.isArray(data.rows) ? data.rows : [];
+          state.previewRows = rows.map(r=>({ date: r.date, client: r.client, product: (r.type?`${r.job} ${r.type}`:r.job), qty: r.qty, price: r.unit_price, expense: r.expense||0, income: r.income||0 }));
+          state.lastAggregates = data?.aggregates||{};
+          state.missingPrices = Array.isArray(data?.missing_prices) ? data.missing_prices : [];
+          await loadExtras();
+          renderPrecheck();
+          renderPreview();
+          renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses));
+          // 최종 반영 전에는 결과 패널 숨김, 사전 점검만 노출
+          const pre = document.getElementById('precheck-panel');
+          const rp = document.getElementById('results-panel');
+          if(window.__finalizing===true){ pre.style.display='none'; rp.style.display = 'block'; window.__finalizing=false; }
+          else{ pre.style.display='block'; rp.style.display = 'none'; }
+          // 정산 탭 상태 강제 유지
+          try{ setTab('settle'); }catch(e){}
+          setPvTab();
+        }catch(e){ alert(e.message||'집계 실패'); }
+        finally{ setProgress(100, '완료'); hideLoading(); }
+      });
+
+          function renderAggregates(aggs){
+        try{
+          // 상품별 단일 뷰 카드 렌더링 (날짜 무시: 동일 상품은 합산)
+          const cards = document.getElementById('cards-container');
+          if(!cards) return;
+          cards.innerHTML='';
+          const filterGuarantee = window.__filterGuarantee===true;
+          const filterManage = window.__filterManage===true;
+          const filterMincom = window.__filterMincom===true;
+          const mincomClients = ['민컴퍼니','궁서애드'];
+              const onlyMincomMode = filterMincom && !filterGuarantee && !filterManage;
+              const noFilter = !filterGuarantee && !filterManage && !filterMincom;
+          // 1) 상품별 총합 집계 (모든 날짜 합산)
+          const totalByProduct = {}; let grandTotal=0;
+          Object.entries(aggs?.by_product||{}).forEach(([date, prods])=>{
+            Object.entries(prods||{}).forEach(([prod, v])=>{
+              const acc = totalByProduct[prod]||{qty:0, expense:0, income:0};
+              acc.qty += v.qty||0; acc.expense += v.expense||0; acc.income += v.income||0; totalByProduct[prod]=acc;
+            });
+          });
+
+          // 2) 상품별 카드 생성 + 대행사별 상세(모든 날짜 포함)
+          const byAgencyAllDates = aggs?.by_agency||{};
+          Object.keys(totalByProduct).sort().forEach(prod=>{
+            // 전체 상품 제외 처리
+            try{ if(Array.isArray(state.exclusions?.products) && state.exclusions.products.includes(prod)) { return; } }catch(e){}
+            // 필터별 카드 재집계
+            const rawS = totalByProduct[prod];
+            let cardQty=0, cardExpense=0, cardIncome=0, hasMatch=false;
+            Object.keys(byAgencyAllDates).forEach(date=>{
+              const map = byAgencyAllDates[date]||{};
+              Object.keys(map).forEach(client=>{
+                const arr = map[client]||[];
+                    arr.filter(it=> (it.product||'')===prod).forEach(it=>{
+                  const itype = it.internal_type||null;
+                  const isGuarantee = itype==='guarantee';
+                  const isManage = itype==='manage';
+                  const isMincom = mincomClients.includes(client);
+                  let pass = true;
+                  if(filterGuarantee && !isGuarantee) pass=false;
+                  if(filterManage && !isManage) pass=false;
+                      if(filterMincom && !isMincom) pass=false;
+                      if(onlyMincomMode && !isGuarantee) pass=false; // 민컴 전용 모드에서는 보장형만 허용
+                      if(filterGuarantee && isMincom) pass=false; // 보장형 모드에서는 민컴/궁서 제외
+                  // 행 단위 제외
+                  try{
+                    const rowKey = `${date}|||${client}|||${prod}|||${it.type||''}|||${Number(it.qty||0)}|||${Number(it.unit_price||0)}|||${Number(it.expense||0)}`;
+                    if(Array.isArray(state.exclusions?.rows) && state.exclusions.rows.includes(rowKey)) pass=false;
+                  }catch(e){}
+                  if(!pass) return;
+                  hasMatch=true; cardQty += it.qty||0; cardExpense += it.expense||0; cardIncome += it.income||0;
+                });
+              });
+            });
+            if((filterGuarantee||filterManage||filterMincom) && !hasMatch) return; // 필터 시 매칭 없으면 카드 숨김
+            const s = (filterGuarantee||filterManage||filterMincom)? {qty:cardQty, expense:cardExpense, income:cardIncome} : rawS;
+            grandTotal += s.expense||0;
+                const showIncome = !(filterGuarantee || filterManage || filterMincom);
+            const card=document.createElement('div'); card.className='card';
+            card.innerHTML = `
+              <div class="card-hd mini">
+                <div style="display:flex; align-items:center; gap:8px">
+                  ${window.__deleteMode? `<input type="checkbox" class="chk-del-prod" data-del-prod data-product="${prod}">` : ''}
+                  <b>${prod}</b>
+                </div>
+                <div class="muted">총 세팅 ${Number(s.qty||0).toLocaleString()} · 지출 ${Number(s.expense||0).toLocaleString()}${showIncome? ' · 매출 '+Number(s.income||0).toLocaleString():''}</div>
+              </div>
+              <div class="card-bd" style="overflow:auto">
+                <table class="mini" style="width:100%">
+                  <thead><tr>${window.__deleteMode? '<th style="width:36px">제외</th>':''}<th>날짜</th><th>대행사</th><th>유형</th><th>수량</th><th>단가</th><th>지출</th>${showIncome? '<th>매출</th>':''}</tr></thead>
+                  <tbody data-body></tbody>
+                </table>
+              </div>`;
+            const tbody = card.querySelector('[data-body]');
+            Object.keys(byAgencyAllDates).sort().forEach(date=>{
+              const map = byAgencyAllDates[date]||{};
+              Object.keys(map).sort().forEach(client=>{
+                const arr = map[client]||[];
+                    arr.filter(it=> (it.product||'')===prod).forEach(it=>{
+                  const itype = it.internal_type||null;
+                  const isGuarantee = itype==='guarantee';
+                  const isManage = itype==='manage';
+                  const isMincom = mincomClients.includes(client);
+                  let pass = true;
+                  if(filterGuarantee && !isGuarantee) pass=false;
+                  if(filterManage && !isManage) pass=false;
+                      if(filterMincom && !isMincom) pass=false;
+                      if(onlyMincomMode && !isGuarantee) pass=false; // 민컴 전용 모드에서는 보장형만 허용
+                      if(filterGuarantee && isMincom) pass=false; // 보장형 모드에서는 민컴/궁서 제외
+                  // 행 단위 제외
+                  let rowKey = '';
+                  try{ rowKey = `${date}|||${client}|||${prod}|||${it.type||''}|||${Number(it.qty||0)}|||${Number(it.unit_price||0)}|||${Number(it.expense||0)}`; if(Array.isArray(state.exclusions?.rows) && state.exclusions.rows.includes(rowKey)) pass=false; }catch(e){}
+                  if(!pass) return;
+                  const tr=document.createElement('tr');
+                      const incomeCell = it.income||0;
+                      // 행 전체 배경 처리: 민컴 전용 또는 기본(무필터)에서 민컴&궁서 보장형은 파란색
+                      let rowBg = '';
+                      if((filterMincom || noFilter) && isMincom && isGuarantee) rowBg = '#e0f2fe';
+                      else if(isGuarantee) rowBg = '#fffbe6';
+                      else if(isManage) rowBg = '#d9ead3';
+                      if(rowBg) tr.style.background = rowBg;
+                  tr.innerHTML = `${window.__deleteMode? `<td style="text-align:center"><input type="checkbox" class="chk-del-row" data-del-row data-rowkey="${rowKey}"></td>`:''}<td>${date}</td><td>${client}</td><td>${it.type||''}</td><td>${Number(it.qty||0).toLocaleString()}</td><td>${Number(it.unit_price||0).toLocaleString()}</td><td>${Number(it.expense||0).toLocaleString()}</td>${showIncome? `<td>${Number(incomeCell||0).toLocaleString()}</td>`:''}`;
+                  tbody.appendChild(tr);
+                });
+              });
+            });
+            // 추가 지출 행(보고 반영 true만) 표시
+            (state.extraExpenses||[]).filter(ex=> ex && ex.report && String(ex.product||'')===String(prod||'')).forEach(ex=>{
+              const tr=document.createElement('tr');
+              tr.innerHTML = `${window.__deleteMode? '<td></td>':''}<td>${ex.date||''}</td><td>${ex.client||''}</td><td>추가</td><td>-</td><td>-</td><td>${Number(ex.amount||0).toLocaleString()}</td>${showIncome? `<td class="muted">0</td>`:''}`;
+              tbody.appendChild(tr);
+            });
+            cards.appendChild(card);
+
+            // 삭제 모드: 상품 전체 선택 → 행 전체 토글
+            if(window.__deleteMode){
+              try{
+                const prodChk = card.querySelector('input[data-del-prod]');
+                if(prodChk){ prodChk.addEventListener('change', ()=>{
+                  const rows = card.querySelectorAll('input[data-del-row]');
+                  rows.forEach(r=>{ r.checked = prodChk.checked; });
+                }); }
+              }catch(e){}
+            }
+          });
+          // 총계 뱃지 업데이트
+          const badge = document.getElementById('agg-total-badge');
+          let badgeBg = '#f6f8fa';
+          if(filterGuarantee) badgeBg = '#fffbe6';
+          else if(filterManage) badgeBg = '#d9ead3';
+          else if(filterMincom) badgeBg = '#e0f2fe';
+          if(badge){ badge.textContent = `총 지출 ${grandTotal.toLocaleString()}`; badge.style.background = badgeBg; }
+        }catch(e){}
+      }
+
+      // 필터 체크박스: 보장형/관리형/민컴&궁서 (서로 배타적, 모두 해제 가능)
+      (function(){
+        function setFilters(mode){
+          const cbG = document.getElementById('cb-guarantee');
+          const cbM = document.getElementById('cb-manage');
+          const cbMin = document.getElementById('cb-mincom');
+          const g = (mode==='g'); const m = (mode==='m'); const min = (mode==='min');
+          window.__filterGuarantee = g; window.__filterManage = m; window.__filterMincom = min;
+          if(cbG) cbG.checked = g; if(cbM) cbM.checked = m; if(cbMin) cbMin.checked = min;
+          if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); }
+        }
+        const cbG = document.getElementById('cb-guarantee'); if(cbG){ cbG.addEventListener('change', ()=>{ setFilters(cbG.checked? 'g' : null); }); }
+        const cbM = document.getElementById('cb-manage'); if(cbM){ cbM.addEventListener('change', ()=>{ setFilters(cbM.checked? 'm' : null); }); }
+        const cbMin = document.getElementById('cb-mincom'); if(cbMin){ cbMin.addEventListener('change', ()=>{ setFilters(cbMin.checked? 'min' : null); }); }
+      })();
+
+      // --- 사전 점검: 미정 단가 / 추가 지출 ---
+      function renderPrecheck(){
+        // 미정 단가
+        const mb = document.getElementById('tbl-missing-body'); if(mb){ mb.innerHTML='';
+          (state.missingPrices||[]).forEach(item=>{
+            const tr=document.createElement('tr');
+            const defApply = !!(item && item.job);
+            tr.innerHTML = `<td style="text-align:center"><input type="checkbox" data-apply ${defApply? 'checked':''}></td><td>${item.client||''}</td><td>${item.job||''}</td><td>${item.type||''}</td><td>${Number(item.qty_sum||0).toLocaleString()}</td><td><input type="number" min="0" step="1" style="width:100px" data-mprice></td>`;
+            tr.dataset.client = item.client||''; tr.dataset.product = item.job||''; tr.dataset.type = item.type||'';
+            mb.appendChild(tr);
+          });
+        }
+        // 추가 지출
+        const eb = document.getElementById('tbl-extra-body'); if(eb){ eb.innerHTML='';
+          (state.extraExpenses||[]).forEach((ex,idx)=>{
+            const tr=document.createElement('tr'); tr.dataset.idx = String(idx);
+            tr.innerHTML = `
+              <td style="text-align:center"><input type="checkbox" ${ex.report? 'checked':''}></td>
+              <td><input type="text" value="${ex.date||''}" style="width:110px"></td>
+              <td><input type="text" value="${ex.client||''}" style="width:120px"></td>
+              <td><input type="text" value="${ex.product||''}" style="width:140px"></td>
+              <td><input type="number" step="1" value="${Number(ex.amount||0)}" style="width:100px"></td>
+              <td><button class="btn" data-del>삭제</button></td>`;
+            eb.appendChild(tr);
+          });
+          // 삭제 바인딩
+          eb.querySelectorAll('button[data-del]').forEach(btn=>{
+            btn.addEventListener('click', ()=>{ const tr=btn.closest('tr'); const i=Number(tr?.dataset.idx||-1); if(i>=0){ state.extraExpenses.splice(i,1); renderPrecheck(); } });
+          });
+        }
+      }
+
+      async function loadExtras(){
+        try{ const r=await fetch('/api/settlement/extra'); const d=await r.json().catch(()=>({})); if(r.ok && Array.isArray(d.items)) state.extraExpenses = d.items; else state.extraExpenses=[]; }
+        catch(e){ state.extraExpenses=[]; }
+      }
+      async function saveExtras(){
+        // 테이블의 현재 값을 state로 반영 후 저장
+        const eb = document.getElementById('tbl-extra-body'); if(eb){
+          const rows = Array.from(eb.querySelectorAll('tr'));
+          state.extraExpenses = rows.map(tr=>{
+            const inputs = tr.querySelectorAll('input');
+            return { date: inputs[0]?.value||'', client: inputs[1]?.value||'', product: inputs[2]?.value||'', amount: Number(inputs[3]?.value||0), report: !!inputs[4]?.checked };
+          });
+        }
+        try{ await fetch('/api/settlement/extra', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items: state.extraExpenses }) }); }
+        catch(e){}
+      }
+      // 미정 단가 저장 후 재계산
+      async function applyMissingPrices(){
+        const mb = document.getElementById('tbl-missing-body'); if(!mb) return;
+        // 입력된 단가만 pricebook에 추가/갱신
+        const rows = Array.from(mb.querySelectorAll('tr'));
+        rows.forEach(tr=>{
+          const price = Number(tr.querySelector('input[data-mprice]')?.value||0);
+          const apply = tr.querySelector('input[data-apply]')?.checked === true;
+          if(!(price>0 && apply)) return;
+            const client = tr.dataset.client||''; const product = tr.dataset.product||''; const type = tr.dataset.type||'공통';
+            upsertPrice({ client, product, price, account:'', bank:'', holder:'', type });
+        });
+        renderPriceBook(); await savePriceBook();
+        // 재계산
+        if(state.selectedTabs?.length){
+          fetchBtn?.click();
+        }
+      }
+
+      // 버튼 바인딩: 사전 점검
+      (function(){
+        const bAdd = document.getElementById('btn-add-extra'); if(bAdd){ bAdd.addEventListener('click', ()=>{ state.extraExpenses.push({ date:'', client:'', product:'', amount:0, report:true }); renderPrecheck(); }); }
+        const bSave = document.getElementById('btn-save-extra'); if(bSave){ bSave.addEventListener('click', async()=>{ await saveExtras(); if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); } }); }
+        const bApply = document.getElementById('btn-apply-missing'); if(bApply){ bApply.addEventListener('click', applyMissingPrices); }
+        const bFinal = document.getElementById('btn-finalize'); if(bFinal){ bFinal.addEventListener('click', async()=>{
+          // 저장 후 재계산, 사전 점검 숨기고 결과만
+          await saveExtras();
+          // 미정 단가에서 반영 체크된 항목만 적용 후 재계산
+          window.__finalizing = true;
+          await applyMissingPrices();
+          // applyMissingPrices가 재계산을 트리거(fetchBtn.click)하므로, fetch 완료 시 precheck를 숨김 처리
+        }); }
+      })();
+
+      // Aggregates + extraExpenses 합산 유틸
+      function augmentAggregatesWithExtras(aggs, extras){
+        try{
+          const A = JSON.parse(JSON.stringify(aggs||{}));
+          const byP = A.by_product = A.by_product||{}; const byA = A.by_agency = A.by_agency||{};
+          (extras||[]).filter(ex=>ex && ex.report).forEach(ex=>{
+            const date = ex.date||'추가'; const prod = ex.product||'추가지출'; const client = ex.client||'기타'; const amount = Number(ex.amount||0);
+            // by_product
+            const pmap = byP[date] = byP[date]||{}; const cur = pmap[prod] = pmap[prod]||{ qty:0, expense:0, income:0 };
+            cur.expense += amount;
+            // by_agency
+            const amap = byA[date] = byA[date]||{}; const arr = amap[client] = amap[client]||[];
+            arr.push({ product: prod, type: '추가', qty: 0, unit_price: 0, expense: amount, income: 0 });
+          });
+          return A;
+        }catch(e){ return aggs; }
+      }
+
+      // 모달 탭 전환
+      // 단일 상품별 뷰
+      function setPvTab(){ /* no-op: 단일 뷰 */ }
+
+      // 단가부: 추가/삭제/입출력 (로컬 메모리)
+      let clientDefaults = {};
+      function rebuildClientDefaults(){
+        const map = {};
+        for(const it of state.priceBook){
+          const c = (it.client||'').trim(); if(!c) continue;
+          const key = c;
+          const rec = map[key]||{accountCount:{}, bankCount:{}, holderCount:{}};
+          if(it.account){ rec.accountCount[it.account] = 1 + (rec.accountCount[it.account]||0); }
+          if(it.bank){ rec.bankCount[it.bank] = 1 + (rec.bankCount[it.bank]||0); }
+          if(it.holder){ rec.holderCount[it.holder] = 1 + (rec.holderCount[it.holder]||0); }
+          map[key] = rec;
+        }
+        const pickTop = (countObj)=>{
+          let bestK='', bestV=0; for(const k in countObj){ if(countObj[k]>bestV){ bestV=countObj[k]; bestK=k; } }
+          return bestK||'';
+        };
+        const out={};
+        for(const k in map){ out[k] = { account: pickTop(map[k].accountCount), bank: pickTop(map[k].bankCount), holder: pickTop(map[k].holderCount) }; }
+        clientDefaults = out;
+      }
+      function tryAutofillByClient(){
+        const c = (document.getElementById('pb-client')?.value||'').trim(); if(!c) return;
+        const def = clientDefaults[c]; if(!def) return;
+        const accEl = document.getElementById('pb-account'); const bankEl = document.getElementById('pb-bank'); const holdEl = document.getElementById('pb-holder');
+        if(accEl && !accEl.value) accEl.value = def.account||'';
+        if(bankEl && !bankEl.value) bankEl.value = def.bank||'';
+        if(holdEl && !holdEl.value) holdEl.value = def.holder||'';
+      }
+      const pbClientEl = document.getElementById('pb-client'); if(pbClientEl){ pbClientEl.addEventListener('change', tryAutofillByClient); }
+      async function addOnePrice(){
+        const client = (document.getElementById('pb-client')?.value||'').trim(); if(!client) return alert('거래처를 입력하세요');
+        const product = (document.getElementById('pb-product')?.value||'').trim(); if(!product) return alert('상품명을 입력하세요');
+        const price = Number((document.getElementById('pb-price')?.value||'0').replace(/,/g,''))||0;
+        const account = (document.getElementById('pb-account')?.value||'').trim();
+        const holder = (document.getElementById('pb-holder')?.value||'').trim();
+        const bank = (document.getElementById('pb-bank')?.value||'').trim();
+        const type = (document.querySelector('input[name="pb-type"]:checked')?.value)||'공통';
+        upsertPrice({ client, product, price, account, bank, holder, type });
+        renderPriceBook();
+        await savePriceBook();
+      }
+      $('#btn-add-price').addEventListener('click', addOnePrice);
+      document.getElementById('pb-add-one').addEventListener('click', addOnePrice);
+      document.getElementById('pb-add-both').addEventListener('click', async()=>{
+        const client = (document.getElementById('pb-client')?.value||'').trim(); if(!client) return alert('거래처를 입력하세요');
+        const product = (document.getElementById('pb-product')?.value||'').trim(); if(!product) return alert('상품명을 입력하세요');
+        const price = Number((document.getElementById('pb-price')?.value||'0').replace(/,/g,''))||0;
+        const account = (document.getElementById('pb-account')?.value||'').trim();
+        const holder = (document.getElementById('pb-holder')?.value||'').trim();
+        const bank = (document.getElementById('pb-bank')?.value||'').trim();
+        upsertPrice({ client, product, price, account, bank, holder, type:'저장' });
+        upsertPrice({ client, product, price, account, bank, holder, type:'트래픽' });
+        renderPriceBook();
+        await savePriceBook();
+      });
+      { const el=document.getElementById('btn-export-price'); if(el){ el.addEventListener('click', ()=>{
+        const json = JSON.stringify(state.priceBook, null, 2);
+        navigator.clipboard?.writeText(json);
+        alert('단가표 JSON을 클립보드로 복사했습니다.');
+      }); } }
+      { const el=document.getElementById('btn-import-price'); if(el){ el.addEventListener('click', async()=>{
+        const json = prompt('단가표 JSON을 붙여넣으세요');
+        if(!json) return;
+        try{ const arr = JSON.parse(json); if(Array.isArray(arr)) state.priceBook = arr; }catch(e){ alert('JSON 파싱 실패'); }
+        renderPriceBook();
+        await savePriceBook();
+      }); } }
+      $('#btn-save-price').addEventListener('click', savePriceBook);
+
+      let pbEditingIndex = -1;
+      function upsertPrice(item){
+        if(pbEditingIndex>=0){ state.priceBook[pbEditingIndex] = item; pbEditingIndex=-1; return; }
+        const idx = state.priceBook.findIndex(x=>x.client===item.client && x.product===item.product && (String(x.type||'공통')===String(item.type||'공통')));
+        if(idx>=0){ state.priceBook[idx] = item; } else { state.priceBook.push(item); }
+      }
+      function removePrice(client, product, type){
+        state.priceBook = state.priceBook.filter(x=> !(x.client===client && x.product===product && String(x.type||'공통')===String(type||'공통')));
+      }
+      function lookupPrice(client, product){
+        const it = state.priceBook.find(x=>x.client===client && x.product===product);
+        return it ? it.price : null;
+      }
+
+      async function loadPriceBook(){
+        try{
+          const res = await fetch('/api/settlement/pricebook');
+          const data = await res.json().catch(()=>({}));
+          if(res.ok && Array.isArray(data.items)) state.priceBook = data.items; else state.priceBook = [];
+        }catch(e){ state.priceBook = []; }
+        rebuildClientDefaults();
+      }
+
+      function renderPriceBook(){
+        const tb = document.querySelector('#tbl-price tbody');
+        tb.innerHTML = '';
+        const q = (document.getElementById('pb-search')?.value||'').trim().toLowerCase();
+        const list = state.priceBook.filter(it=>{
+          if(!q) return true; const t=(it.client+' '+it.product).toLowerCase(); return t.includes(q);
+        });
+        for(const it of list){
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${it.client||''}</td>
+            <td>${it.product||''}</td>
+            <td>${it.type||'공통'}</td>
+            <td>${it.price??''}</td>
+            <td>${it.account||''}</td>
+            <td>${it.bank||''}</td>
+            <td>${it.holder||''}</td>
+            <td>
+              <button class="btn" data-edit="${it.client}|||${it.product}|||${it.type||'공통'}">수정</button>
+              <button class="btn" data-del="${it.client}|||${it.product}|||${it.type||'공통'}">삭제</button>
+            </td>
+          `;
+          tb.appendChild(tr);
+        }
+        tb.querySelectorAll('button[data-del]')?.forEach(btn=>{
+          btn.addEventListener('click', async()=>{
+            const [c,p,t] = btn.getAttribute('data-del').split('|||');
+            removePrice(c, p, t); renderPriceBook();
+            await savePriceBook();
+          });
+        });
+        tb.querySelectorAll('button[data-edit]')?.forEach(btn=>{
+          btn.addEventListener('click', ()=>{
+            const [c,p,t] = btn.getAttribute('data-edit').split('|||');
+            const idx = state.priceBook.findIndex(x=>x.client===c && x.product===p && String(x.type||'공통')===String(t||'공통'));
+            if(idx>=0){ pbEditingIndex=idx; const it=state.priceBook[idx];
+              document.getElementById('pb-client').value = it.client||'';
+              document.getElementById('pb-product').value = it.product||'';
+              document.getElementById('pb-price').value = it.price||'';
+              document.getElementById('pb-account').value = it.account||'';
+              const bankEl = document.getElementById('pb-bank'); if(bankEl) bankEl.value = it.bank||'';
+              document.getElementById('pb-holder').value = it.holder||'';
+              const r = document.querySelector(`input[name="pb-type"][value="${it.type||'공통'}"]`); if(r) r.checked = true;
+            }
+          });
+        });
+        // 표 안의 수정/삭제 버튼을 작게 스타일링
+        tb.querySelectorAll('button').forEach(b=>{ b.classList.add('btn-sm','btn-outline'); });
+        rebuildClientDefaults();
+      }
+
+      // 대량등록: XLSX 업로드 → 서버 파싱 결과를 미리보기/적용
+      const bulkState = { items: [] };
+      const bulkUploadBtn = document.getElementById('bulk-upload'); if(bulkUploadBtn){ bulkUploadBtn.addEventListener('click', async()=>{
+        const inp = document.getElementById('bulk-file'); if(!inp.files || inp.files.length===0){ alert('엑셀 파일을 선택하세요'); return; }
+        const file = inp.files[0]; const fd = new FormData(); fd.append('file', file);
+        showLoading('엑셀 업로드 중...');
+        try{
+          const res = await fetch('/api/settlement/pricebook/upload', { method:'POST', body: fd });
+          const data = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(data?.error||'업로드 실패');
+          bulkState.items = Array.isArray(data.items)? data.items : [];
+          renderBulkPreview(bulkState.items);
+          document.getElementById('bulk-status').textContent = `${bulkState.items.length}건 준비됨`;
+        }catch(e){ alert(e.message||'업로드 실패'); }
+        finally{ hideLoading(); }
+      }); }
+      const bulkApplyBtn = document.getElementById('bulk-apply-xlsx'); if(bulkApplyBtn){ bulkApplyBtn.addEventListener('click', async()=>{
+        if(!Array.isArray(bulkState.items) || bulkState.items.length===0){ alert('미리보기 후 적용하세요'); return; }
+        for(const it of bulkState.items){ upsertPrice(it); }
+        renderPriceBook(); await savePriceBook();
+        document.getElementById('bulk-status').textContent = `${bulkState.items.length}건 반영됨`;
+      }); }
+
+      // (과거 TSV 붙여넣기 파서는 유지 가능하나 UI에서 감춤)
+      function parseBulk(text){
+        const lines = (text||'').replace(/\r/g,'').split('\n').filter(x=>x.trim().length>0);
+        if(lines.length===0) return {items:[], error:null};
+        const sep = (lines[0].includes('\t')? '\t' : ',');
+        const cells0 = lines[0].split(sep).map(s=>s.trim().toLowerCase());
+        const hasHeader = ['client','product','type','price','account','holder'].some(h=>cells0.includes(h));
+        const startIdx = hasHeader?1:0;
+        const idxOf = (name) => cells0.indexOf(name);
+        const colMap = hasHeader? {
+          client: idxOf('client'), product: idxOf('product'), type: idxOf('type'), price: idxOf('price'), account: idxOf('account'), holder: idxOf('holder')
+        } : { client:0, product:1, type:2, price:3, account:4, holder:5 };
+        const out=[]; let err=null;
+        for(let i=startIdx;i<lines.length;i++){
+          const parts = lines[i].split(sep);
+          const get=(k)=>{ const idx=colMap[k]; return (idx>=0 && idx<parts.length)? parts[idx].trim():''; };
+          const client=get('client'), product=get('product');
+          let type=get('type')||'공통'; const priceRaw=get('price'); const account=get('account'); const holder=get('holder');
+          if(!client || !product){ err = `필수값 누락 (행 ${i+1}): client/product`; break; }
+          const price = Number((priceRaw||'').replace(/,/g,''))||0;
+          if(type.toLowerCase()==='both'){ out.push({client,product,price,account,holder,type:'저장'}); out.push({client,product,price,account,holder,type:'트래픽'}); }
+          else{ if(!['공통','저장','트래픽'].includes(type)) type='공통'; out.push({client,product,price,account,holder,type}); }
+        }
+        return {items: out, error: err};
+      }
+      function renderBulkPreview(list){
+        const tb = document.querySelector('#tbl-bulk tbody'); tb.innerHTML='';
+        list.forEach((it,idx)=>{
+          const tr=document.createElement('tr');
+          tr.innerHTML = `<td>${idx+1}</td><td>${it.client}</td><td>${it.product}</td><td>${it.type}</td><td>${it.price}</td><td>${it.account||''}</td><td>${it.bank||''}</td><td>${it.holder||''}</td><td></td>`;
+          tb.appendChild(tr);
+        });
+        document.getElementById('bulk-status').textContent = `${list.length}건 준비됨`;
+      }
+      document.getElementById('btn-bulk-toggle').addEventListener('click', ()=>{
+        const el = document.getElementById('bulk-panel'); el.style.display = (el.style.display==='none'||!el.style.display)? 'block':'none';
+      });
+      { const el=document.getElementById('bulk-preview'); if(el){ el.addEventListener('click', ()=>{
+        const {items,error} = parseBulk(document.getElementById('bulk-text').value);
+        if(error) { alert(error); return; }
+        renderBulkPreview(items);
+      }); } }
+      { const el=document.getElementById('bulk-apply'); if(el){ el.addEventListener('click', async()=>{
+        const {items,error} = parseBulk(document.getElementById('bulk-text').value);
+        if(error){ alert(error); return; }
+        for(const it of items){ upsertPrice(it); }
+        renderPriceBook();
+        await savePriceBook();
+        document.getElementById('bulk-status').textContent = `${items.length}건 반영됨`;
+      }); } }
+
+      // 템플릿 다운로드는 앵커 링크(#bulk-download)로 처리
+
+      function renderPreview(){
+        const cont = document.getElementById('cards-container');
+        if(!cont) return; cont.innerHTML='';
+        const group = {};
+        for(const r of state.previewRows){
+          const key = `${r.date}|||${r.client}`;
+          (group[key] = group[key]||[]).push(r);
+        }
+        let grand = 0;
+        Object.keys(group).sort().forEach(key=>{
+          const [date, client] = key.split('|||');
+          const rows = group[key];
+          let subtotalE=0, subtotalI=0;
+          const tblRows = rows.map(it=>{
+            subtotalE += (it.expense||0); subtotalI += (it.income||0); grand += (it.expense||0);
+            return `<tr><td>${it.product}</td><td>${it.qty}</td><td>${it.price}</td><td>${it.expense||0}</td><td>${it.income||0}</td></tr>`;
+          }).join('');
+          const card = document.createElement('div'); card.className='card collapsed';
+          card.innerHTML = `
+            <div class="card-hd"><div class="pill">${date}</div><div class="muted" style="font-weight:700">${client}</div></div>
+            <div class="card-bd" style="overflow:auto">
+              <table style="width:100%">
+                <thead><tr><th>상품명</th><th>수량</th><th>단가</th><th>지출</th><th>매출</th></tr></thead>
+                <tbody>${tblRows}</tbody>
+                <tfoot><tr><th colspan="3" style="text-align:right">소계</th><th>${subtotalE}</th><th>${subtotalI}</th></tr></tfoot>
+              </table>
+            </div>
+          `;
+          card.querySelector('.card-hd').addEventListener('click', ()=>{ card.classList.toggle('collapsed'); });
+          cont.appendChild(card);
+        });
+        // 총계 뱃지
+        const headerArea = document.querySelector('#results-panel .stack');
+        if(headerArea){
+          const onlyInternal = window.__onlyInternal===true;
+          // 상단 총 지출 뱃지는 cb-internal 쪽으로 이동
+          const badge = document.getElementById('agg-total-badge');
+          if(badge){ badge.textContent = `${onlyInternal? '내부 총 지출':'총 지출'} ${grand.toLocaleString()}`; badge.style.background = onlyInternal? '#fde68a' : '#f6f8fa'; }
+        }
+      }
+
+      // 카드 접기/펼치기 토글 버튼(단일)
+      (function(){ const btn=document.getElementById('btn-toggle-collapse'); if(!btn) return; let collapsed=true; const apply=()=>{
+        document.querySelectorAll('#cards-container .card').forEach(el=>el.classList.toggle('collapsed', collapsed));
+        btn.textContent = collapsed? '전체 펼치기' : '전체 접기';
+      }; btn.addEventListener('click', ()=>{ collapsed=!collapsed; apply(); }); apply(); })();
+
+      // 삭제 모드 토글: 1) 첫 클릭 → 체크박스 표시 2) 두 번째 클릭 → 선택된 항목 제외 적용
+      (function(){
+        const btn = document.getElementById('btn-delete-toggle'); if(!btn) return;
+        function setBtnActive(on){ btn.classList.toggle('btn-danger', !!on); btn.textContent = on? '선택 삭제 적용' : '삭제'; }
+        async function reRender(){ if(state.lastAggregates){ renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses)); } }
+        btn.addEventListener('click', async()=>{
+          const active = window.__deleteMode===true;
+          if(!active){ // 활성화
+            window.__deleteMode = true; setBtnActive(true); await reRender();
+            return;
+          }
+          // 적용: 선택 수집
+          try{
+            const prodChks = Array.from(document.querySelectorAll('input[data-del-prod]'));
+            const rowChks = Array.from(document.querySelectorAll('input[data-del-row]'));
+            const selProds = prodChks.filter(c=>c.checked).map(c=> String(c.getAttribute('data-product')||''));
+            const selRows = rowChks.filter(c=>c.checked).map(c=> String(c.getAttribute('data-rowkey')||''));
+            // 중복 제거 및 병합
+            const prodSet = new Set([...(state.exclusions?.products||[]), ...selProds.filter(Boolean)]);
+            const rowSet = new Set([...(state.exclusions?.rows||[]), ...selRows.filter(Boolean)]);
+            state.exclusions = { products: Array.from(prodSet), rows: Array.from(rowSet) };
+          }catch(e){}
+          window.__deleteMode = false; setBtnActive(false);
+          await reRender();
+        });
+      })();
+
+      // --- 최종 정산 위저드 ---
+      // 패널 DOM 추가
+      (function mountWizard(){
+        const host = document.querySelector('.maincol'); if(!host) return;
+        const div = document.createElement('div'); div.id='wizard-panel'; div.className='wizard'; div.style.display='none';
+        div.innerHTML = `
+          <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
+            <div class="muted">최종 정산 · 카톡 보고 · 엑셀 보고</div>
+            <div class="stack" style="gap:8px">
+              <button id="wiz-close" class="btn">닫기</button>
+            </div>
+          </div>
+          <div id="wiz-steps" class="muted-sm" style="margin-bottom:8px">1) 미수금/미지급 → 2) 카톡 보고 → 3) 엑셀 보고</div>
+          <div id="slide-1" class="slide active">
+            <div class="grid">
+              <div class="panel">
+                <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px"><b>미수금</b><button id="recv-add" class="btn">행 추가</button></div>
+                <div style="overflow:auto">
+                  <table class="mini" style="width:100%"><thead><tr><th>대행사명</th><th>금액</th><th></th></tr></thead><tbody id="recv-body"></tbody></table>
+                </div>
+              </div>
+              <div class="panel">
+                <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px"><b>미지급</b><button id="pay-add" class="btn">행 추가</button></div>
+                <div style="overflow:auto">
+                  <table class="mini" style="width:100%"><thead><tr><th>거래처</th><th>상품명</th><th>금액</th><th></th></tr></thead><tbody id="pay-body"></tbody></table>
+                </div>
+              </div>
+            </div>
+            <div class="stack" style="justify-content:flex-end; margin-top:8px">
+              <button id="wiz-next-1" class="btn-primary">다음</button>
+            </div>
+          </div>
+          <div id="slide-2" class="slide">
+            <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px">
+              <div class="stack" style="align-items:center; gap:8px">
+                <label class="muted-sm">보고 날짜</label>
+                <input id="report-date" type="text" placeholder="예: 9/26일" style="min-width:120px">
+              </div>
+              <div class="stack" style="gap:8px">
+                <button id="wiz-preview" class="btn">완료</button>
+              </div>
+            </div>
+            <div class="two-col">
+              <div class="panel">
+                <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px"><b>거래처별 총 금액(부가세 포함)</b><span class="muted-sm">항목 선택으로 내용 수정</span></div>
+                <div id="pc-list" style="max-height:380px; overflow:auto"></div>
+              </div>
+              <div class="panel">
+                <div class="stack" style="justify-content:space-between; align-items:center"><b>미리보기</b><div class="stack"><button id="copy-kakao" class="btn">복사</button></div></div>
+                <textarea id="kakao-text" style="width:100%; height:360px; margin-top:8px"></textarea>
+              </div>
+            </div>
+            <div class="stack" style="justify-content:space-between; margin-top:8px">
+              <button id="wiz-back-2" class="btn">이전</button>
+              <button id="wiz-next-2" class="btn-primary">다음</button>
+            </div>
+          </div>
+          <div id="slide-3" class="slide">
+            <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px"><b>엑셀 보고 템플릿</b><div class="stack"><button id="copy-excel" class="btn">복사</button></div></div>
+            <div class="muted-sm" style="margin-bottom:6px">열: 구분 | 은행 | 계좌 | 금액(vat 포함) | 내용 | 예금주</div>
+            <div style="overflow:auto"><table id="excel-table" class="mini" style="width:100%"><thead><tr><th>구분</th><th>은행</th><th>계좌</th><th>금액(vat 포함)</th><th>내용</th><th>예금주</th></tr></thead><tbody></tbody></table></div>
+            <div class="stack" style="justify-content:space-between; margin-top:8px">
+              <button id="wiz-back-3" class="btn">이전</button>
+              <button id="wiz-done" class="btn-primary">완료</button>
+            </div>
+          </div>
+        `;
+        host.appendChild(div);
+      })();
+
+      // 위저드 열기/닫기
+      (function(){
+        const btn = document.getElementById('btn-finalize-wizard'); if(btn){
+          btn.addEventListener('mouseenter', ()=>{ btn.textContent = '퇴근 고?'; });
+          btn.addEventListener('mouseleave', ()=>{ btn.textContent = '최종 정산'; });
+          btn.addEventListener('click', ()=>{
+            const wiz = document.getElementById('wizard-panel'); const rp=document.getElementById('results-panel'); const hero=document.getElementById('hero');
+            if(wiz){ wiz.style.display='block'; }
+            if(rp){ rp.style.display='none'; }
+            if(hero){ hero.style.display='none'; }
+            setSlide(1);
+            renderReceivables(); renderPayables();
+            renderKakaoList(); buildKakaoText(); renderExcelTable();
+          });
+        }
+        const closeBtn = document.getElementById('wiz-close'); if(closeBtn){ closeBtn.addEventListener('click', ()=>{
+          const wiz = document.getElementById('wizard-panel'); const rp=document.getElementById('results-panel'); const hero=document.getElementById('hero');
+          if(wiz){ wiz.style.display='none'; }
+          if(rp){ rp.style.display='block'; }
+          if(hero){ hero.style.display='block'; }
+        }); }
+      })();
+
+      function setSlide(n){ state.wizard.step = n; ['slide-1','slide-2','slide-3'].forEach((id,i)=>{ const el=document.getElementById(id); if(el) el.classList.toggle('active', (i+1)===n); }); }
+
+      // Step1: 미수금/미지급
+      function renderReceivables(){ const tb=document.getElementById('recv-body'); if(!tb) return; tb.innerHTML=''; (state.wizard.receivables||[]).forEach((it,idx)=>{
+        const tr=document.createElement('tr'); tr.innerHTML = `<td><input type="text" value="${it.agency||''}" style="width:160px"></td><td><input type="number" step="1" value="${Number(it.amount||0)}" style="width:120px"></td><td><button class="btn" data-del>삭제</button></td>`; tb.appendChild(tr);
+        tr.querySelector('[data-del]')?.addEventListener('click', ()=>{ state.wizard.receivables.splice(idx,1); renderReceivables(); });
+        const inputs = tr.querySelectorAll('input'); inputs[0]?.addEventListener('input', e=>{ it.agency = e.target.value; }); inputs[1]?.addEventListener('input', e=>{ it.amount = Number(e.target.value||0); });
+      }); }
+      function renderPayables(){ const tb=document.getElementById('pay-body'); if(!tb) return; tb.innerHTML=''; (state.wizard.payables||[]).forEach((it,idx)=>{
+        const tr=document.createElement('tr'); tr.innerHTML = `<td><input type="text" value="${it.client||''}" style="width:160px"></td><td><input type="text" value="${it.product||''}" style="width:160px"></td><td><input type="number" step="1" value="${Number(it.amount||0)}" style="width:120px"></td><td><button class="btn" data-del>삭제</button></td>`; tb.appendChild(tr);
+        tr.querySelector('[data-del]')?.addEventListener('click', ()=>{ state.wizard.payables.splice(idx,1); renderPayables(); });
+        const inputs = tr.querySelectorAll('input'); inputs[0]?.addEventListener('input', e=>{ it.client = e.target.value; }); inputs[1]?.addEventListener('input', e=>{ it.product = e.target.value; }); inputs[2]?.addEventListener('input', e=>{ it.amount = Number(e.target.value||0); });
+      }); }
+      (function(){ const addRecv=document.getElementById('recv-add'); if(addRecv){ addRecv.addEventListener('click', ()=>{ state.wizard.receivables.push({agency:'', amount:0}); renderReceivables(); }); }
+                 const addPay=document.getElementById('pay-add'); if(addPay){ addPay.addEventListener('click', ()=>{ state.wizard.payables.push({client:'', product:'', amount:0}); renderPayables(); }); }
+                 const next1=document.getElementById('wiz-next-1'); if(next1){ next1.addEventListener('click', ()=>{ setSlide(2); renderKakaoList(); buildKakaoText(); }); } })();
+
+      // 현재 필터/제외 적용 후, 클라이언트별 지출 합계 구하기
+      function computeClientTotals(){
+        const aggs = augmentAggregatesWithExtras(state.lastAggregates||{}, state.extraExpenses||[]);
+        const byA = aggs.by_agency||{}; const mincomClients=['민컴퍼니','궁서애드'];
+        const filterGuarantee = window.__filterGuarantee===true; const filterManage = window.__filterManage===true; const filterMincom = window.__filterMincom===true; const onlyMincomMode = filterMincom && !filterGuarantee && !filterManage; const noFilter = !filterGuarantee && !filterManage && !filterMincom;
+        const out = {}; // client -> expense sum
+        Object.keys(byA).forEach(date=>{
+          const cmap = byA[date]||{}; Object.keys(cmap).forEach(client=>{
+            const arr = cmap[client]||[]; arr.forEach(it=>{
+              if(state.exclusions?.products?.includes?.(it.product||'')) return;
+              const rowKey = `${date}|||${client}|||${it.product||''}|||${it.type||''}|||${Number(it.qty||0)}|||${Number(it.unit_price||0)}|||${Number(it.expense||0)}`;
+              if(state.exclusions?.rows?.includes?.(rowKey)) return;
+              const itype = it.internal_type||null; const isG=itype==='guarantee'; const isM=itype==='manage'; const isMin = mincomClients.includes(client);
+              if(filterGuarantee && !isG) return; if(filterManage && !isM) return; if(filterMincom && !isMin) return; if(onlyMincomMode && !isG) return; if(filterGuarantee && isMin) return;
+              out[client] = (out[client]||0) + Number(it.expense||0);
+            });
+          });
+        });
+        return out;
+      }
+
+      // Step2: 카톡 보고용 UI (상품별 → 거래처 목록, 금액은 VAT 포함)
+      const EXPENSE_TAGS = [
+        {key:'리워드', label:'리워드'},
+        {key:'블로그', label:'블로그 배포'},
+        {key:'영수증', label:'영수증'},
+        {key:'민컴', label:'민컴퍼니 정산'},
+        {key:'궁서', label:'궁서애드 정산'},
+      ];
+      // 부가세 포함 금액 계산 유틸 (x1.1, 반올림)
+      function withVAT(v){ return Math.round(Number(v||0) * 1.1); }
+
+      // 상품-거래처 리스트(부가세 포함) 구성
+      function renderProductClientList(){
+        const host = document.getElementById('pc-list'); if(!host) return; host.innerHTML='';
+        // 집계: product -> client -> sum(expense)
+        const aggs = augmentAggregatesWithExtras(state.lastAggregates||{}, state.extraExpenses||{});
+        const byA = aggs.by_agency||{}; const mincomClients=['민컴퍼니','궁서애드'];
+        const filterGuarantee = window.__filterGuarantee===true; const filterManage = window.__filterManage===true; const filterMincom = window.__filterMincom===true; const onlyMincomMode = filterMincom && !filterGuarantee && !filterManage;
+        const excludeP = new Set(state.exclusions?.products||[]); const excludeR = new Set(state.exclusions?.rows||[]);
+        const map = {}; // prod => client => sum
+        Object.keys(byA).forEach(date=>{
+          const cmap = byA[date]||{}; Object.keys(cmap).forEach(client=>{
+            (cmap[client]||[]).forEach(it=>{
+              if(excludeP.has(it.product||'')) return;
+              const rk = `${date}|||${client}|||${it.product||''}|||${it.type||''}|||${Number(it.qty||0)}|||${Number(it.unit_price||0)}|||${Number(it.expense||0)}`;
+              if(excludeR.has(rk)) return;
+              const itype=it.internal_type||null; const isG=itype==='guarantee'; const isM=itype==='manage'; const isMin=mincomClients.includes(client);
+              if(filterGuarantee && !isG) return; if(filterManage && !isM) return; if(filterMincom && !isMin) return; if(onlyMincomMode && !isG) return; if(filterGuarantee && isMin) return;
+              const prod = it.product||''; if(!map[prod]) map[prod]={}; map[prod][client] = (map[prod][client]||0) + Number(it.expense||0);
+            });
+          });
+        });
+        // 카드 그리드(세로·가로 모두 활용)
+        const grid=document.createElement('div'); grid.className='cards';
+        Object.keys(map).sort().forEach(prod=>{
+          const card=document.createElement('div'); card.className='card';
+          const inner=[];
+          Object.keys(map[prod]).sort().forEach(client=>{
+            const v = withVAT(map[prod][client]);
+            inner.push(`<div class="stack" style="justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--line)"><span class="home-link" data-pc="${prod}|||${client}|||${v}">[${client}]</span><b>${v.toLocaleString()}원</b></div>`);
+          });
+          card.innerHTML = `<div class="card-hd mini"><div><b>${prod}</b></div><div class="muted">부가세 포함</div></div><div class="card-bd">${inner.join('')}</div>`;
+          grid.appendChild(card);
+        });
+        host.appendChild(grid);
+        // 클릭 시 카톡 미리보기 실시간 갱신(해당 줄만 교체)
+        host.querySelectorAll('[data-pc]')?.forEach(el=>{
+          el.addEventListener('click', ()=>{
+            const payload = String(el.getAttribute('data-pc')||'');
+            const [prod, client, amountStr] = payload.split('|||');
+            // 해당 클라이언트 라인의 문구를 강조 표시(태그 선택 상태 기반)를 유지한 채 미리보기 갱신
+            // 카테고리 선택은 유지하고, 금액은 부가세 포함으로 반영
+            // 기존 buildKakaoText는 전체를 다시 만드니 그대로 호출
+            buildKakaoText();
+          });
+        });
+      }
+      function computeProductClientTotals(){
+        const aggs = augmentAggregatesWithExtras(state.lastAggregates||{}, state.extraExpenses||{});
+        const byA = aggs.by_agency||{}; const mincomClients=['민컴퍼니','궁서애드'];
+        const filterGuarantee = window.__filterGuarantee===true; const filterManage = window.__filterManage===true; const filterMincom = window.__filterMincom===true; const onlyMincomMode = filterMincom && !filterGuarantee && !filterManage;
+        const excludeP = new Set(state.exclusions?.products||[]); const excludeR = new Set(state.exclusions?.rows||[]);
+        const map = {}; // prod -> client -> sum(expense)
+        Object.keys(byA).forEach(date=>{
+          const cmap = byA[date]||{}; Object.keys(cmap).forEach(client=>{
+            (cmap[client]||[]).forEach(it=>{
+              if(excludeP.has(it.product||'')) return;
+              const rk = `${date}|||${client}|||${it.product||''}|||${it.type||''}|||${Number(it.qty||0)}|||${Number(it.unit_price||0)}|||${Number(it.expense||0)}`;
+              if(excludeR.has(rk)) return;
+              const itype=it.internal_type||null; const isG=itype==='guarantee'; const isM=itype==='manage'; const isMin=mincomClients.includes(client);
+              if(filterGuarantee && !isG) return; if(filterManage && !isM) return; if(filterMincom && !isMin) return; if(onlyMincomMode && !isG) return; if(filterGuarantee && isMin) return;
+              const prod = it.product||''; if(!map[prod]) map[prod]={}; map[prod][client] = (map[prod][client]||0) + Number(it.expense||0);
+            });
+          });
+        });
+        // VAT 포함 변환
+        const out={}; Object.keys(map).forEach(prod=>{ out[prod] = {}; Object.keys(map[prod]).forEach(client=>{ out[prod][client] = withVAT(map[prod][client]); }); });
+        return out;
+      }
+      function computeProductTotals(){
+        const pc = computeProductClientTotals();
+        const totals = {}; Object.keys(pc).forEach(prod=>{ totals[prod] = Object.values(pc[prod]).reduce((a,b)=>a+Number(b||0),0); });
+        return totals;
+      }
+      // 거래처별 합계(VAT 포함): 모든 상품을 거래처 기준으로 병합
+      function computeVendorTotals(){
+        const aggs = augmentAggregatesWithExtras(state.lastAggregates||{}, state.extraExpenses||{});
+        const byA = aggs.by_agency||{}; const mincomClients=['민컴퍼니','궁서애드'];
+        const filterGuarantee = window.__filterGuarantee===true; const filterManage = window.__filterManage===true; const filterMincom = window.__filterMincom===true; const onlyMincomMode = filterMincom && !filterGuarantee && !filterManage;
+        const excludeP = new Set(state.exclusions?.products||[]); const excludeR = new Set(state.exclusions?.rows||[]);
+        const map = {}; // vendor -> sum(expense)
+        Object.keys(byA).forEach(date=>{
+          const cmap = byA[date]||{}; Object.keys(cmap).forEach(client=>{
+            (cmap[client]||[]).forEach(it=>{
+              if(excludeP.has(it.product||'')) return;
+              const rk = `${date}|||${client}|||${it.product||''}|||${it.type||''}|||${Number(it.qty||0)}|||${Number(it.unit_price||0)}|||${Number(it.expense||0)}`;
+              if(excludeR.has(rk)) return;
+              const itype=it.internal_type||null; const isG=itype==='guarantee'; const isM=itype==='manage'; const isMin=mincomClients.includes(client);
+              if(filterGuarantee && !isG) return; if(filterManage && !isM) return; if(filterMincom && !isMin) return; if(onlyMincomMode && !isG) return; if(filterGuarantee && isMin) return;
+              const vendor = getVendorNameForProduct(it.product||'');
+              map[vendor] = (map[vendor]||0) + Number(it.expense||0);
+            });
+          });
+        });
+        // VAT 포함 변환
+        const out={}; Object.keys(map).forEach(v=>{ out[v] = withVAT(map[v]); });
+        return out;
+      }
+
+      // 벤더(거래처) 표시 순서 유지/보정
+      function computeDefaultVendorOrder(vendors){
+        const s = vendors.slice().sort((a,b)=>{
+          const A = (a==='일류기획')? '\\x00'+a : a;
+          const B = (b==='일류기획')? '\\x00'+b : b;
+          return A.localeCompare(B);
+        });
+        return s;
+      }
+      function ensureVendorOrder(currentVendors){
+        const cur = Array.isArray(currentVendors)? currentVendors.slice(): [];
+        let ordered = (state.wizard.vendorOrder||[]).filter(v=> cur.includes(v));
+        const remain = cur.filter(v=> !ordered.includes(v));
+        ordered = ordered.concat(computeDefaultVendorOrder(remain));
+        // 일류기획 최상단 유지
+        const idx = ordered.indexOf('일류기획'); if(idx>0){ ordered.splice(idx,1); ordered.unshift('일류기획'); }
+        state.wizard.vendorOrder = ordered;
+        return ordered;
+      }
+      function reorderVendorOrder(src, dst){
+        const arr = (state.wizard.vendorOrder||[]).slice();
+        const si = arr.indexOf(src); const di = arr.indexOf(dst);
+        if(si<0 || di<0 || si===di) return;
+        arr.splice(si,1); arr.splice(di,0,src);
+        // 일류기획 고정
+        const idx = arr.indexOf('일류기획'); if(idx>0){ arr.splice(idx,1); arr.unshift('일류기획'); }
+        state.wizard.vendorOrder = arr;
+      }
+      // 상품 → 거래처명 매핑: priceBook에서 해당 상품의 대표 거래처명을 추정
+      function getVendorNameForProduct(prod){
+        try{
+          // priceBook에서 동일 상품명의 첫 레코드의 client 사용
+          const it = (state.priceBook||[]).find(x=> String(x.product||'')===String(prod||''));
+          return (it && it.client) ? String(it.client) : String(prod||'');
+        }catch(e){ return String(prod||''); }
+      }
+      function renderKakaoList(){
+        const cont = document.getElementById('pc-list'); if(!cont) return; cont.innerHTML='';
+        const totals = computeVendorTotals();
+        const keys = ensureVendorOrder(Object.keys(totals));
+        keys.forEach(vendor=>{
+          const wrap = document.createElement('div'); wrap.className='panel'; wrap.style.marginBottom='8px';
+          wrap.setAttribute('draggable','true'); wrap.dataset.vendor = vendor;
+          const amount = Number(totals[vendor]||0);
+          wrap.innerHTML = `
+            <div class=\"stack\" style=\"justify-content:space-between; align-items:center\">
+              <div><b>[${vendor}]</b></div>
+              <div>
+                ${(EXPENSE_TAGS||[]).map(tag=>`<span class=\"tag\" data-vtag data-vendor=\"${vendor}\" data-key=\"${tag.key}\">${tag.key}</span>`).join('')}
+              </div>
+              <b>${amount.toLocaleString()}원</b>
+            </div>`;
+          cont.appendChild(wrap);
+          // DnD
+          wrap.addEventListener('dragstart', (e)=>{ try{ e.dataTransfer.setData('text/plain', vendor); }catch(err){} });
+          wrap.addEventListener('dragover', (e)=>{ e.preventDefault(); });
+          wrap.addEventListener('drop', (e)=>{ e.preventDefault(); let src=''; try{ src=e.dataTransfer.getData('text/plain'); }catch(err){} if(!src) return; reorderVendorOrder(src, vendor); renderKakaoList(); buildKakaoText(); });
+        });
+        // 태그 토글 핸들러 (거래처 단위)
+        cont.querySelectorAll('[data-vtag]')?.forEach(el=>{
+          el.addEventListener('click', ()=>{
+            const vendor=String(el.getAttribute('data-vendor')||''); const key=String(el.getAttribute('data-key')||'');
+            const cur=new Set(state.wizard.categories[vendor]||[]); if(cur.has(key)) cur.delete(key); else cur.add(key); state.wizard.categories[vendor]=Array.from(cur);
+            renderKakaoList(); buildKakaoText();
+          });
+        });
+      }
+
+      function buildKakaoText(){
+        const txt = [];
+        // 날짜 자동 생성: 선택한 탭(날짜들)에서 최소~최대를 MM/DD 형식으로 표기. 입력값이 있으면 우선
+        let dateStr = (document.getElementById('report-date')?.value||state.wizard.reportDate||'').trim();
+        try{
+          if(!dateStr && Array.isArray(state.selectedTabs) && state.selectedTabs.length){
+            const toMMDD = (s)=>{ const t=String(s||''); const m=t.slice(0,2), d=t.slice(2); return `${m}/${d}`; };
+            const nums = state.selectedTabs.map(t=> Number(String(t).replace(/\D/g,''))).filter(n=>!isNaN(n));
+            if(nums.length){ nums.sort((a,b)=>a-b); const first=String(nums[0]).padStart(4,'0'); const last=String(nums[nums.length-1]).padStart(4,'0');
+              const fst=toMMDD(first), lst=toMMDD(last); dateStr = (fst===lst)? fst : `${fst} ~ ${lst}`; }
+          }
+        }catch(e){}
+        if(dateStr){ txt.push(dateStr); txt.push(''); }
+        const totals = computeVendorTotals(); let totalSum=0;
+        const ordered = ensureVendorOrder(Object.keys(totals));
+        ordered.forEach(vendor=>{
+          txt.push(`[${vendor}]`);
+          const amount = Number(totals[vendor]||0); totalSum += amount;
+          const tags = state.wizard.categories[vendor]||[]; const custom = (state.wizard.custom[vendor]||'').trim();
+          const pieces = []; tags.forEach(k=>{ const t=EXPENSE_TAGS.find(x=>x.key===k); if(t) pieces.push(t.label); }); if(custom) pieces.push(custom);
+          const label = pieces.length? pieces.join(', ') : '지출';
+          txt.push(`${amount.toLocaleString()}원 - ${label}`);
+          txt.push('');
+        });
+        if((state.wizard.receivables||[]).length){ txt.push('미수금'); (state.wizard.receivables||[]).forEach(it=>{ if(!it) return; const a=String(it.agency||'').trim(); const m=Number(it.amount||0); if(a && m){ txt.push(`${a} - ${m.toLocaleString()}원`); } }); txt.push(''); }
+        if((state.wizard.payables||[]).length){ txt.push('미지급'); let subtotal=0; (state.wizard.payables||[]).forEach(it=>{ if(!it) return; const c=String(it.client||'').trim(); const p=String(it.product||'').trim(); const m=Number(it.amount||0); if(c && p && m){ txt.push(`[${c}]`); txt.push(`${p} - ${m.toLocaleString()}원`); subtotal+=m; } }); if(subtotal>0){ txt.push(''); txt.push(`총 - ${subtotal.toLocaleString()}원`); } txt.push(''); }
+        txt.push(`총 금액: ${totalSum.toLocaleString()}원`);
+        const ta=document.getElementById('kakao-text'); if(ta) ta.value = txt.join('\n');
+      }
+      (function(){ const dateEl=document.getElementById('report-date'); if(dateEl){ dateEl.addEventListener('input', ()=>{ state.wizard.reportDate = dateEl.value; buildKakaoText(); }); }
+                 const prev=document.getElementById('wiz-back-2'); if(prev){ prev.addEventListener('click', ()=> setSlide(1)); }
+                 const preview=document.getElementById('wiz-preview'); if(preview){ preview.addEventListener('click', ()=>{ buildKakaoText(); }); }
+                 const copy=document.getElementById('copy-kakao'); if(copy){ copy.addEventListener('click', ()=>{ const t=document.getElementById('kakao-text')?.value||''; navigator.clipboard?.writeText(t); toast('복사됨'); }); }
+                 const next2=document.getElementById('wiz-next-2'); if(next2){ next2.addEventListener('click', ()=>{ setSlide(3); renderExcelTable(); }); }
+                 // 거래처 보드 렌더
+                 renderKakaoList();
+                 })();
+
+      // Step3: 엑셀 미리보기 (UI 스켈레톤)
+      function gatherCurrentRows(){
+        const rows = [];
+        const vendors = computeVendorTotals();
+        // order: 일류기획 우선
+        const keys = Object.keys(vendors).sort((a,b)=>{
+          const A=(a==='일류기획')? '\\x00'+a:a; const B=(b==='일류기획')? '\\x00'+b:b; return A.localeCompare(B);
+        });
+        let idx=1;
+        keys.forEach(vendor=>{
+          // bank/account/holder lookup from priceBook (first match by client)
+          const rec = (state.priceBook||[]).find(x=> String(x.client||'')===String(vendor||''));
+          const bank = rec?.bank||''; const account = rec?.account||''; const holder = rec?.holder||'';
+          // 내용: 카톡 미리보기 라인과 동일 규칙(태그 선택)
+          const tags = state.wizard.categories[vendor]||[]; const custom = (state.wizard.custom[vendor]||'').trim();
+          const pieces=[]; tags.forEach(k=>{ const t=EXPENSE_TAGS.find(x=>x.key===k); if(t) pieces.push(t.label); }); if(custom) pieces.push(custom);
+          const label = pieces.length? pieces.join(', ') : '지출';
+          rows.push({ order: idx++, bank, account, amount: Number(vendors[vendor]||0), content: label, holder });
+        });
+        return rows;
+      }
+      function renderExcelTable(){ const tb=document.querySelector('#excel-table tbody'); if(!tb) return; tb.innerHTML=''; const rows=gatherCurrentRows(); rows.forEach(r=>{
+        const tr=document.createElement('tr'); tr.innerHTML = `<td>${r.order}</td><td>${r.bank}</td><td>${r.account}</td><td>${Number(r.amount).toLocaleString()}</td><td>${r.content}</td><td>${r.holder}</td>`; tb.appendChild(tr);
+      }); }
+      (function(){ const back=document.getElementById('wiz-back-3'); if(back){ back.addEventListener('click', ()=> setSlide(2)); }
+                 const done=document.getElementById('wiz-done'); if(done){ done.addEventListener('click', ()=>{ toast('완료되었어요'); }); }
+                 const copy=document.getElementById('copy-excel'); if(copy){ copy.addEventListener('click', ()=>{ const rows=gatherCurrentRows(); const headers=['구분','은행','계좌','금액(vat 포함)','내용','예금주']; const lines=[headers.join('\t')]; rows.forEach(r=>{ lines.push([r.order,r.bank,r.account,r.amount,r.content,r.holder].join('\t')); }); const text=lines.join('\n'); navigator.clipboard?.writeText(text); toast('복사됨'); }); } })();
+
+      // 4) 엑셀 양식 복붙용 생성 (버튼이 존재하는 경우에만 바인딩)
+      { const btn = document.getElementById('btn-export-excel'); if(btn){ btn.addEventListener('click', ()=>{
+        const headers = ['날짜','대행사','상품명','수량','단가','지출','매출'];
+        const lines = [headers.join('\t')];
+        for(const r of state.previewRows){
+          lines.push([r.date, r.client, r.product, r.qty, r.price, r.expense||0, r.income||0].join('\t'));
+        }
+        const text = lines.join('\n');
+        navigator.clipboard?.writeText(text);
+        alert('복사 완료! 엑셀에 붙여넣기 하세요.');
+      }); } }
+
+      // 검색 렌더 업데이트
+      document.getElementById('pb-search').addEventListener('input', renderPriceBook);
+
+      // 초기화: 가격표 로드 및 렌더
+      (async function init(){
+        try{
+          showLoading('초기화 중...');
+          await loadPriceBook();
+          renderPriceBook();
+        }catch(e){ /* swallow */ }
+        finally{ hideLoading(); }
+        // 초기 탭 상태 강제: 정산으로 시작
+        try{ setTab('settle'); }catch(e){}
+      })();
+
+      // 상단 탭 전환: 정산 / 단가 관리
+      function setTab(mode){
+        const isSettle = mode==='settle';
+        try{ document.getElementById('tab-settle')?.classList.toggle('btn-primary', isSettle); }catch(e){}
+        try{ document.getElementById('tab-price')?.classList.toggle('btn-primary', !isSettle); }catch(e){}
+        try{ document.getElementById('side-tab-settle')?.classList.toggle('active', isSettle); }catch(e){}
+        try{ document.getElementById('side-tab-price')?.classList.toggle('active', !isSettle); }catch(e){}
+        
+        // 컨테이너 단위 표시 제어
+        const settleContent = document.getElementById('settle-content');
+        const priceContent = document.getElementById('price-content');
+        
+        if(isSettle){
+          // 정산 탭: settle-content 표시, price-content 숨김
+          if(settleContent){ settleContent.style.display = 'block'; }
+          if(priceContent){ priceContent.style.display = 'none'; }
+        } else {
+          // 단가 관리 탭: price-content 표시, settle-content 숨김
+          if(settleContent){ settleContent.style.display = 'none'; }
+          if(priceContent){ priceContent.style.display = 'block'; }
+        }
+      }
+      const tSettle = document.getElementById('tab-settle'); if(tSettle){ tSettle.addEventListener('click', ()=> setTab('settle')); }
+      const tPrice = document.getElementById('tab-price'); if(tPrice){ tPrice.addEventListener('click', ()=> setTab('price')); }
+      const sSettle = document.getElementById('side-tab-settle'); if(sSettle){ sSettle.addEventListener('click', ()=> setTab('settle')); }
+      const sPrice = document.getElementById('side-tab-price'); if(sPrice){ sPrice.addEventListener('click', ()=> setTab('price')); }
+    </script>
+  </body>
+  </html>
+
+
