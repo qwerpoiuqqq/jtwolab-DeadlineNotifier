@@ -221,6 +221,7 @@ def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any
 			workload = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
 			received_raw = _get_value_flexible(row_norm, settings.received_date_col, "RECEIVED_DATE_COLUMN")
 			start_raw = _get_value_flexible(row_norm, settings.start_date_col, "START_DATE_COLUMN")
+			remain_val = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
 
 			if not is_internal:
 				continue
@@ -294,8 +295,16 @@ def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any
 				wl_num = 0
 			key = (agency_raw or "내부 진행", bizname)
 			lst = records_by_key.setdefault(key, [])
+			# 종료일 계산: remain_days는 base 기준 상대값
+			end_dt = dt
+			try:
+				if remain_val is not None:
+					end_dt = base + _timedelta(days=int(remain_val))
+			except Exception:
+				end_dt = dt
 			lst.append({
-				"dt": dt,  # 시작일 기준 날짜
+				"dt": dt,  # 시작일
+				"end": end_dt,  # 종료일
 				"received_dt": received_dt or dt,
 				"task": display_task,
 				"wl": wl_num,
@@ -317,10 +326,12 @@ def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any
 		# 집계: 3주차 범위에 속하는 레코드만
 		task_to_sum: Dict[str, int] = {}
 		for r in recs:
-			dt = r.get("dt")
-			if not isinstance(dt, _date):
+			st = r.get("dt")
+			ed = r.get("end") or st
+			if not isinstance(st, _date) or not isinstance(ed, _date):
 				continue
-			if w3_start <= dt <= w3_end:
+			# 기간 겹침: [st, ed] ∩ [w3_start, w3_end]
+			if not (ed < w3_start or st > w3_end):
 				task = r.get("task") or ""
 				wl = int(r.get("wl") or 0)
 				task_to_sum[task] = task_to_sum.get(task, 0) + wl
