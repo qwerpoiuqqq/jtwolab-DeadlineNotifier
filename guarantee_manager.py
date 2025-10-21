@@ -11,14 +11,14 @@ import gspread
 from google.oauth2.service_account import Credentials
 import logging
 
+logger = logging.getLogger(__name__)
+
 try:
     from data_security import DataSecurity
     USE_ENCRYPTION = True
 except ImportError:
     USE_ENCRYPTION = False
     logger.warning("DataSecurity module not available. Using plain storage.")
-
-logger = logging.getLogger(__name__)
 
 
 class GuaranteeManager:
