@@ -4,11 +4,18 @@ import argparse
 from typing import Dict, List
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from dotenv import load_dotenv
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 import re
+import pytz
+from apscheduler.schedulers.background import BackgroundScheduler
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency, mark_checked_for_agencies, list_sheet_tabs, inspect_sheets_by_id, compute_settlement_rows
 from internal_manager import load_cache as internal_load_cache, refresh_cache as internal_refresh_cache
+from guarantee_manager import GuaranteeManager
 
 
 # .env 로드
@@ -24,6 +31,25 @@ def _strip_parentheses(text: str) -> str:
 
 def create_app() -> Flask:
 	app = Flask(__name__)
+	
+	# 스케줄러 초기화
+	scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Seoul'))
+	scheduler.start()
+	
+	# 자동 동기화 태스크
+	def sync_guarantee_data():
+		"""보장건 데이터 자동 동기화"""
+		try:
+			logger.info(f"Starting automatic sync at {datetime.now(pytz.timezone('Asia/Seoul'))}")
+			gm = GuaranteeManager()
+			result = gm.sync_from_google_sheets()
+			logger.info(f"Sync completed: {result}")
+		except Exception as e:
+			logger.error(f"Sync failed: {e}")
+	
+	# 매일 9시, 16시 스케줄 등록
+	scheduler.add_job(func=sync_guarantee_data, trigger="cron", hour=9, minute=0, id="morning_sync")
+	scheduler.add_job(func=sync_guarantee_data, trigger="cron", hour=16, minute=0, id="afternoon_sync")
 
 	@app.route("/", methods=["GET"])  # 메인 페이지: 폼 + 결과
 	def index():
@@ -165,10 +191,16 @@ def create_app() -> Flask:
 		cache = internal_load_cache()
 		updated_at = cache.get("updated_at")
 		items = cache.get("items", [])
+		
+		# 월보장 통계 가져오기
+		gm = GuaranteeManager()
+		stats = gm.get_statistics()
+		
 		return render_template(
 			"manage.html",
 			updated_at=updated_at,
 			initial_items=items,
+			guarantee_stats=stats,
 		)
 
 	@app.route("/settlement", methods=["GET"])  # 결재선 · 정산 페이지 (UI 스켈레톤)
@@ -439,6 +471,148 @@ def create_app() -> Flask:
 		except Exception as e:
 			return jsonify({"error": str(e)}), 500
 		return jsonify(result)
+
+	# --- 월보장 관리 API ---
+	@app.route("/api/guarantee/items", methods=["GET", "POST"])
+	def api_guarantee_items():
+		"""보장건 목록 조회 및 생성"""
+		gm = GuaranteeManager()
+		
+		if request.method == "GET":
+			# 필터 파라미터
+			filters = {}
+			if request.args.get("company"):
+				filters["company"] = request.args.get("company")
+			if request.args.get("status"):
+				filters["status"] = request.args.get("status")
+			if request.args.get("product"):
+				filters["product"] = request.args.get("product")
+			if request.args.get("active_only"):
+				filters["active_only"] = True
+			
+			items = gm.get_items(filters)
+			return jsonify({"items": items, "count": len(items)}), 200
+		
+		# POST: 새 보장건 생성
+		try:
+			data = request.get_json(force=True)
+		except Exception:
+			return jsonify({"error": "invalid_json"}), 400
+		
+		if not data.get("business_name"):
+			return jsonify({"error": "business_name_required"}), 400
+		
+		item = gm.create_item(data)
+		return jsonify(item), 201
+
+	@app.route("/api/guarantee/items/<item_id>", methods=["GET", "PUT", "DELETE"])
+	def api_guarantee_item(item_id):
+		"""특정 보장건 조회/수정/삭제"""
+		gm = GuaranteeManager()
+		
+		if request.method == "GET":
+			item = gm.get_item(item_id)
+			if not item:
+				return jsonify({"error": "not_found"}), 404
+			return jsonify(item), 200
+		
+		elif request.method == "PUT":
+			try:
+				data = request.get_json(force=True)
+			except Exception:
+				return jsonify({"error": "invalid_json"}), 400
+			
+			item = gm.update_item(item_id, data)
+			if not item:
+				return jsonify({"error": "not_found"}), 404
+			return jsonify(item), 200
+		
+		elif request.method == "DELETE":
+			if gm.delete_item(item_id):
+				return jsonify({"ok": True}), 200
+			return jsonify({"error": "not_found"}), 404
+
+	@app.route("/api/guarantee/statistics", methods=["GET"])
+	def api_guarantee_stats():
+		"""통계 조회"""
+		gm = GuaranteeManager()
+		return jsonify(gm.get_statistics()), 200
+
+	@app.route("/api/guarantee/search", methods=["GET"])
+	def api_guarantee_search():
+		"""검색"""
+		query = request.args.get("q", "").strip()
+		if not query:
+			return jsonify({"items": []}), 200
+		
+		gm = GuaranteeManager()
+		items = gm.search(query)
+		return jsonify({"items": items, "count": len(items)}), 200
+
+	@app.route("/api/guarantee/daily-rank", methods=["POST"])
+	def api_guarantee_daily_rank():
+		"""일차별 순위 업데이트"""
+		try:
+			data = request.get_json(force=True)
+		except Exception:
+			return jsonify({"error": "invalid_json"}), 400
+		
+		item_id = data.get("item_id")
+		day = data.get("day")
+		rank = data.get("rank")
+		
+		if not all([item_id, day is not None, rank is not None]):
+			return jsonify({"error": "missing_params"}), 400
+		
+		gm = GuaranteeManager()
+		item = gm.update_daily_rank(item_id, day, rank)
+		if not item:
+			return jsonify({"error": "not_found"}), 404
+		return jsonify(item), 200
+
+	@app.route("/api/guarantee/sync", methods=["POST"])
+	def api_guarantee_sync():
+		"""수동 동기화"""
+		try:
+			gm = GuaranteeManager()
+			result = gm.sync_from_google_sheets()
+			last_sync = gm.get_last_sync_time()
+			return jsonify({
+				"ok": True,
+				"result": result,
+				"last_sync": last_sync
+			}), 200
+		except Exception as e:
+			logger.error(f"Manual sync failed: {e}")
+			return jsonify({"error": str(e)}), 500
+
+	@app.route("/api/guarantee/sync-status", methods=["GET"])
+	def api_guarantee_sync_status():
+		"""동기화 상태 확인"""
+		gm = GuaranteeManager()
+		last_sync = gm.get_last_sync_time()
+		
+		# 다음 동기화 시간 계산
+		now = datetime.now(pytz.timezone('Asia/Seoul'))
+		current_hour = now.hour
+		
+		if current_hour < 9:
+			next_sync = now.replace(hour=9, minute=0, second=0, microsecond=0)
+		elif current_hour < 16:
+			next_sync = now.replace(hour=16, minute=0, second=0, microsecond=0)
+		else:
+			# 다음날 9시
+			next_sync = (now + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+		
+		return jsonify({
+			"last_sync": last_sync,
+			"next_sync": next_sync.isoformat(),
+			"next_sync_kst": next_sync.strftime("%Y-%m-%d %H:%M KST")
+		}), 200
+
+	# Shutdown scheduler when app closes
+	import atexit
+	atexit.register(lambda: scheduler.shutdown())
 
 	return app
 
