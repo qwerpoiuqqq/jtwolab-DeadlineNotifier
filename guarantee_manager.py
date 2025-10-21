@@ -11,6 +11,13 @@ import gspread
 from google.oauth2.service_account import Credentials
 import logging
 
+try:
+    from data_security import DataSecurity
+    USE_ENCRYPTION = True
+except ImportError:
+    USE_ENCRYPTION = False
+    logger.warning("DataSecurity module not available. Using plain storage.")
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,30 +32,71 @@ class GuaranteeManager:
         if storage_path is None:
             storage_path = os.path.join(os.getcwd(), "guarantee_data.json")
         self.storage_path = storage_path
+        
+        # 암호화 모듈 초기화
+        if USE_ENCRYPTION:
+            self.security = DataSecurity()
+            self.encrypted_filename = "guarantee_data.enc"
+        else:
+            self.security = None
+        
         self.data = self._load_data()
     
     def _load_data(self) -> Dict[str, List[Dict]]:
         """저장된 데이터 로드"""
+        # 암호화된 데이터 우선 로드
+        if USE_ENCRYPTION and self.security:
+            try:
+                data = self.security.load_encrypted(self.encrypted_filename)
+                if data and "items" in data:
+                    logger.info(f"Loaded {len(data.get('items', []))} encrypted items")
+                    return data
+            except Exception as e:
+                logger.warning(f"Failed to load encrypted data: {e}")
+        
+        # 일반 파일 로드 (호환성)
         if os.path.exists(self.storage_path):
             try:
                 with open(self.storage_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except Exception:
-                pass
+                    data = json.load(f)
+                    logger.info(f"Loaded {len(data.get('items', []))} items from plain file")
+                    
+                    # 암호화 저장소로 마이그레이션
+                    if USE_ENCRYPTION and self.security and data.get("items"):
+                        self.security.save_encrypted(data, self.encrypted_filename)
+                        logger.info("Migrated data to encrypted storage")
+                        # 원본 파일 삭제 (선택사항)
+                        # os.remove(self.storage_path)
+                    
+                    return data
+            except Exception as e:
+                logger.error(f"Failed to load plain data: {e}")
+        
         return {
             "items": [],
-            "updated_at": None
+            "updated_at": None,
+            "last_sync": None
         }
     
     def _save_data(self) -> bool:
         """데이터 저장"""
         try:
             self.data["updated_at"] = datetime.now().isoformat()
+            
+            # 암호화 저장
+            if USE_ENCRYPTION and self.security:
+                success = self.security.save_encrypted(self.data, self.encrypted_filename)
+                if success:
+                    logger.info(f"Saved {len(self.data.get('items', []))} items (encrypted)")
+                return success
+            
+            # 일반 저장 (호환성)
             with open(self.storage_path, 'w', encoding='utf-8') as f:
                 json.dump(self.data, f, ensure_ascii=False, indent=2)
+            logger.info(f"Saved {len(self.data.get('items', []))} items (plain)")
             return True
         except Exception as e:
-            print(f"Save error: {e}")
+            logger.error(f"Save error: {e}")
             return False
     
     def create_item(self, item: Dict) -> Dict:
