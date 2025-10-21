@@ -17,6 +17,12 @@ from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, 
 from internal_manager import load_cache as internal_load_cache, refresh_cache as internal_refresh_cache
 from guarantee_manager import GuaranteeManager
 
+try:
+	from data_security import DataSecurity
+	SECURITY_AVAILABLE = True
+except ImportError:
+	SECURITY_AVAILABLE = False
+
 
 # .env 로드
 load_dotenv()
@@ -490,7 +496,14 @@ def create_app() -> Flask:
 			if request.args.get("active_only"):
 				filters["active_only"] = True
 			
+			logger.info(f"Getting items with filters: {filters}")
 			items = gm.get_items(filters)
+			logger.info(f"Found {len(items)} items")
+			
+			# 디버깅: 처음 몇 개 아이템 로그
+			if items:
+				logger.info(f"Sample item: {items[0] if items else 'No items'}")
+			
 			return jsonify({"items": items, "count": len(items)}), 200
 		
 		# POST: 새 보장건 생성
@@ -626,6 +639,55 @@ def create_app() -> Flask:
 			"next_sync": next_sync.isoformat(),
 			"next_sync_kst": next_sync.strftime("%Y-%m-%d %H:%M KST")
 		}), 200
+
+	@app.route("/api/guarantee/security-status", methods=["GET"])
+	def api_security_status():
+		"""데이터 보안 상태 확인 (관리자용)"""
+		status = {
+			"encryption_enabled": SECURITY_AVAILABLE,
+			"data_info": {}
+		}
+		
+		if SECURITY_AVAILABLE:
+			try:
+				security = DataSecurity()
+				status["data_info"] = security.get_data_info()
+				status["encryption_key_source"] = "environment" if os.getenv("DATA_ENCRYPTION_KEY") else "file"
+			except Exception as e:
+				status["error"] = str(e)
+		else:
+			status["warning"] = "Encryption module not available"
+		
+		# 기본 데이터 파일 존재 여부
+		status["plain_files"] = {
+			"guarantee_data.json": os.path.exists("guarantee_data.json"),
+			"pricebook.json": os.path.exists("pricebook.json"),
+			"internal_cache.json": os.path.exists("internal_cache.json")
+		}
+		
+		return jsonify(status), 200
+	
+	@app.route("/api/guarantee/export", methods=["GET"])
+	def api_guarantee_export():
+		"""보장건 데이터 내보내기 (JSON)"""
+		try:
+			gm = GuaranteeManager()
+			items = gm.get_items()
+			
+			# 민감 정보 제거 옵션
+			remove_sensitive = request.args.get("remove_sensitive", "false").lower() == "true"
+			if remove_sensitive:
+				for item in items:
+					item.pop("place_account", None)
+					item.pop("url", None)
+			
+			return jsonify({
+				"exported_at": datetime.now().isoformat(),
+				"count": len(items),
+				"items": items
+			}), 200
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
 
 	# Shutdown scheduler when app closes
 	import atexit
