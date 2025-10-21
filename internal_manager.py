@@ -173,17 +173,10 @@ def _build_week_windows(base: _date, weeks: int) -> List[Dict[str, Any]]:
 
 
 def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any]]:
-	"""내부 진행건을 '작업 시작일' 기준으로 집계하되, 업체별로
-	'마지막에 접수한 작업'의 시작일을 기준 앵커로 삼아 3주차에 해당하는 항목만 출력한다.
+	"""내부 진행건을 접수일 기준으로 최근 weeks개 주간 구간에 집계한다.
 
-	규칙:
-	- '작업 시작일' 값이 있으면 그 날짜 사용
-	- 없으면 '접수일' 사용
-	- 둘 다 없으면 탭 제목의 날짜 폴백
-	- 업체별로 최신(가장 최근) 접수일을 가진 레코드를 찾고, 그 레코드의 시작일을 anchor로 함
-	- anchor를 기준으로 과거로 1주=7일씩 끊어 1주차(anchor-6~anchor), 2주차, 3주차 범위를 만들고 3주차 항목만 포함
-
-	출력: 업체별 1개 섹션(3주차), '작업명 : 일작업량숫자' 목록
+	반환: [ { agency, bizname, sections: [ { label, lines: [ "작업명 : 수량단위" ] } ], text } ]
+	- text는 sections를 순서대로 1줄 공백으로 이어붙인 최종 문자열
 	"""
 	settings = load_settings()
 	if not settings.spreadsheet_id:
@@ -193,19 +186,8 @@ def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any
 	ss = client.open_by_key(settings.spreadsheet_id)
 	windows = _build_week_windows(base, weeks)
 
-	# (agency, biz) -> List[record]
-	records_by_key: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
-
-	def _parse_date_from_title_to_date(title: str) -> _date | None:
-		try:
-			import re as _re
-			m = _re.search(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})", title or "")
-			if not m:
-				return None
-			y = int(m.group(1)); mth = int(m.group(2)); d = int(m.group(3))
-			return _date(y, mth, d)
-		except Exception:
-			return None
+	# (agency, biz) -> week_idx -> task_display -> sum(workload)
+	aggr: Dict[Tuple[str, str], Dict[int, Dict[str, int]]] = {}
 
 	for ws in ss.worksheets():
 		tab_title = (ws.title or "").strip()
@@ -220,35 +202,20 @@ def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any
 			product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
 			workload = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
 			received_raw = _get_value_flexible(row_norm, settings.received_date_col, "RECEIVED_DATE_COLUMN")
-			start_raw = _get_value_flexible(row_norm, settings.start_date_col, "START_DATE_COLUMN")
-			remain_val = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
 
 			if not is_internal:
 				continue
 			if not bizname:
 				continue
 
-			# 시작일 우선 → 접수일 → 탭 제목 날짜 폴백
-			parsed = _parse_date_maybe(start_raw) or _parse_date_maybe(received_raw)
-			dt = None
-			if parsed:
-				try:
-					dt = _date(parsed[0], parsed[1], parsed[2])
-				except Exception:
-					dt = None
-			if dt is None:
-				dt = _parse_date_from_title_to_date(tab_title)
-			if dt is None:
+			# 접수일 파싱 및 주간 범위 매핑
+			parsed = _parse_date_maybe(received_raw)
+			if not parsed:
 				continue
-
-			# 접수일 파싱 (앵커 판단용)
-			rec_parsed = _parse_date_maybe(received_raw)
-			received_dt = None
-			if rec_parsed:
-				try:
-					received_dt = _date(rec_parsed[0], rec_parsed[1], rec_parsed[2])
-				except Exception:
-					received_dt = None
+			try:
+				dt = _date(parsed[0], parsed[1], parsed[2])
+			except Exception:
+				continue
 
 			week_idx = None
 			for idx, win in enumerate(windows):
@@ -258,121 +225,42 @@ def fetch_internal_weekly_summary(base: _date, weeks: int) -> List[Dict[str, Any
 			if week_idx is None:
 				continue
 
-			# 작업 표시명 (특수 탭 '영수증리뷰'는 '항목' 우선 → 없으면 '구분(내부 소통용)' 변형)
-			if _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰"):
-				# 1순위: 항목
-				item_val = _get_value_flexible(row_norm, "항목", "PRODUCT_NAME_COLUMN")
-				candidates = [
-					"구분(내부 소통용)",
-					"구분 (내부 소통용)",
-					"구분(내부소통용)",
-					"구분\n(내부 소통용)",
-					"구분",
-				]
-				cat = str(item_val or "").strip()
-				for key in candidates:
-					val = _get_value_flexible(row_norm, key, "PRODUCT_NAME_COLUMN")
-					if cat:
-						break
-					if val is not None and str(val).strip() != "":
-						cat = str(val).strip()
-				if not cat:
-					memo = _get_value_flexible(row_norm, "내부 소통용", "PRODUCT_NAME_COLUMN")
-					cat = str(memo or "").strip()
-				display_task = cat or (product_name if _collapse_spaces(tab_title)==_collapse_spaces("기타") else (f"{tab_title} {product}".strip() if product else tab_title))
+			# 작업 표시명
+			base_task = tab_title
+			is_misc = _collapse_spaces(tab_title) == _collapse_spaces("기타")
+			if is_misc:
+				display_task = product_name if product_name else base_task
 			else:
-				base_task = tab_title
-				is_misc = _collapse_spaces(tab_title) == _collapse_spaces("기타")
-				if is_misc:
-					display_task = product_name if product_name else base_task
-				else:
-					display_task = f"{base_task} {product}".strip() if product else base_task
+				display_task = f"{base_task} {product}".strip() if product else base_task
 
-			# 레코드 적재
+			# 수량 합산
 			try:
 				wl_num = _parse_int_maybe(workload) or 0
 			except Exception:
 				wl_num = 0
 			key = (agency_raw or "내부 진행", bizname)
-			lst = records_by_key.setdefault(key, [])
-			# 종료일 계산: remain_days는 base 기준 상대값
-			end_dt = dt
-			try:
-				if remain_val is not None:
-					end_dt = base + _timedelta(days=int(remain_val))
-			except Exception:
-				end_dt = dt
-			lst.append({
-				"dt": dt,  # 시작일
-				"end": end_dt,  # 종료일
-				"received_dt": received_dt or dt,
-				"task": display_task,
-				"wl": wl_num,
-			})
+			by_week = aggr.setdefault(key, {})
+			by_task = by_week.setdefault(week_idx, {})
+			by_task[display_task] = int(by_task.get(display_task, 0)) + wl_num
 
-	# 출력 구성: 업체별 '최근 시작일'을 앵커로 지난 3주 전체 구간(3주 전부터 앵커까지)을 커버
+	# 출력 구성
 	groups: List[Dict[str, Any]] = []
-	for (agency, biz), recs in sorted(records_by_key.items(), key=lambda kv: (kv[0][0], kv[0][1])):
-		if not recs:
-			continue
-		# 최신 접수일 레코드 찾기
-		recv_sorted = sorted(recs, key=lambda r: (r.get("received_dt") or _date.min), reverse=True)
-		anchor_dt = recv_sorted[0].get("dt")
-		if not isinstance(anchor_dt, _date):
-			continue
-		# 윈도우: anchor-20 ~ anchor (지난 3주 전체)
-		win_start = anchor_dt - _timedelta(days=20)
-		win_end = anchor_dt
-		# [st, ed]를 윈도우와 인터섹트하여 구간을 모으고 병합
-		spans: List[Tuple[_date, _date]] = []
-		for r in recs:
-			st = r.get("dt")
-			ed = r.get("end") or st
-			if not isinstance(st, _date) or not isinstance(ed, _date):
-				continue
-			is_st = st if st > win_start else win_start
-			is_ed = ed if ed < win_end else win_end
-			if is_st <= is_ed:
-				spans.append((is_st, is_ed))
-		spans.sort(key=lambda x: (x[0], x[1]))
-		merged: List[Tuple[_date, _date]] = []
-		for s, e in spans:
-			if not merged or s > merged[-1][1]:
-				merged.append((s, e))
-			else:
-				ps, pe = merged[-1]
-				merged[-1] = (ps, (e if e > pe else pe))
-		# 병합된 각 구간별로 작업 합산
+	for (agency, biz), week_map in sorted(aggr.items(), key=lambda kv: (kv[0][0], kv[0][1])):
 		sections: List[Dict[str, Any]] = []
-		for s, e in merged:
-			task_to_sum: Dict[str, int] = {}
-			for r in recs:
-				st = r.get("dt"); ed = r.get("end") or st
-				if not isinstance(st, _date) or not isinstance(ed, _date):
-					continue
-				if not (ed < s or st > e):
-					task = r.get("task") or ""
-					wl = int(r.get("wl") or 0)
-					task_to_sum[task] = task_to_sum.get(task, 0) + wl
-			label = f"{_fmt_mmdd(s)} ~ {_fmt_mmdd(e)}"
-			lines = [f"{t} : {int(v)}" for t, v in sorted(task_to_sum.items(), key=lambda kv: kv[0])]
+		# 최신 주부터 오래된 주 순으로
+		for idx in sorted(week_map.keys()):
+			win = windows[idx]
+			label = win["label"]
+			lines: List[str] = []
+			for task, total in sorted(week_map[idx].items(), key=lambda kv: kv[0]):
+				unit = _guess_unit_for_task(task)
+				val = f"{total}{unit}" if total > 0 else "0건"
+				lines.append(f"{task} : {val}")
 			sections.append({"label": label, "lines": lines})
-		# 텍스트 구성
+		# 최종 텍스트
 		parts: List[str] = []
 		for sec in sections:
 			parts.append(sec["label"]) 
-			parts.extend(sec["lines"]) 
-			parts.append("")
-		text = "\n".join(parts).rstrip()
-		groups.append({
-			"agency": agency,
-			"bizname": biz,
-			"sections": sections,
-			"text": text,
-		})
-		parts: List[str] = []
-		for sec in sections:
-			parts.append(sec["label"])
 			parts.extend(sec["lines"]) 
 			parts.append("")
 		text = "\n".join(parts).rstrip()

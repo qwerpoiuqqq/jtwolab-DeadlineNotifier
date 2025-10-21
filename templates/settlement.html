@@ -355,7 +355,6 @@
           const res = await fetch('/api/settlement/tabs');
           const data = await res.json().catch(()=>({}));
           if(!res.ok) throw new Error(data?.error||'탭 조회 실패');
-          // tabs: [{title, gid}] 형태 지원
           state.tabs = Array.isArray(data.tabs) ? data.tabs : [];
           renderTabChips();
           $('#tab-count').textContent = `${state.tabs.length}개`;
@@ -368,22 +367,16 @@
         const wrap = document.getElementById('tab-chips');
         if(!wrap) return;
         wrap.innerHTML = '';
-        const toLabel = (t)=>{
-          if(t && typeof t==='object') return String(t.title||'');
-          return String(t||'');
-        };
-        (Array.isArray(state.tabs)? state.tabs: []).forEach(tab=>{
-          const label = toLabel(tab);
-          if(!label) return;
+        state.tabs.forEach(tab=>{
           const btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'chip';
-          btn.textContent = label;
-          const active = state.selectedTabs.includes(label);
+          btn.textContent = tab;
+          const active = state.selectedTabs.includes(tab);
           if(active) btn.classList.add('active');
           btn.addEventListener('click', ()=>{
-            const i = state.selectedTabs.indexOf(label);
-            if(i>=0) state.selectedTabs.splice(i,1); else state.selectedTabs.push(label);
+            const i = state.selectedTabs.indexOf(tab);
+            if(i>=0) state.selectedTabs.splice(i,1); else state.selectedTabs.push(tab);
             renderTabChips();
           });
           wrap.appendChild(btn);
@@ -396,9 +389,7 @@
       const fetchBtn = document.getElementById('fetch-data'); if(fetchBtn) fetchBtn.addEventListener('click', async()=>{
         showLoading('정산 데이터를 준비 중...'); setProgress(25);
         try{
-          // 서버는 title 문자열 리스트를 기대
-          const tabs = (Array.isArray(state.selectedTabs)? state.selectedTabs: []).map(String);
-          const res = await fetch('/api/settlement/compute', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tabs }) });
+          const res = await fetch('/api/settlement/compute', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tabs: state.selectedTabs }) });
           const data = await res.json().catch(()=>({}));
           if(!res.ok) throw new Error(data?.error||'집계 실패');
           // data.rows: {date, client, job, type, qty, unit_price, expense, income}

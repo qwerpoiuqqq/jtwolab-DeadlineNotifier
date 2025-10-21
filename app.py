@@ -234,7 +234,6 @@ def create_app() -> Flask:
 			weeks = int(weeks_str) if weeks_str else 3
 		except Exception:
 			weeks = 3
-		# 날짜 지정이 없어도 되도록 기본은 오늘(서버 시각)
 		base_date_str = request.args.get("base_date", "").strip()
 		try:
 			base_dt = date.fromisoformat(base_date_str) if base_date_str else date.today()
@@ -340,8 +339,7 @@ def create_app() -> Flask:
 		si = StringIO()
 		w = csv.writer(si)
 		w.writerow(["client", "product", "type", "price", "account", "bank", "holder"])
-		# Excel 호환을 위해 BOM 추가(UTF-8-SIG)
-		csv_data = "\ufeff" + si.getvalue()
+		csv_data = si.getvalue()
 		resp = Response(csv_data, mimetype="text/csv; charset=utf-8")
 		resp.headers["Content-Disposition"] = "attachment; filename=pricebook_template.csv"
 		return resp
@@ -353,44 +351,22 @@ def create_app() -> Flask:
 			return jsonify({"error": "file_required"}), 400
 		filename = file.filename or ""
 		name_lower = filename.lower()
-		# CSV/TSV만 지원
-		if not (name_lower.endswith(".csv") or name_lower.endswith(".tsv")):
-			return jsonify({"error": "csv_or_tsv_only_supported"}), 400
+		# CSV만 지원 (간단 구현)
+		if not name_lower.endswith(".csv"):
+			return jsonify({"error": "csv_only_supported"}), 400
 		try:
-			raw = file.stream.read()
-			if isinstance(raw, str):
-				text = raw
-			else:
-				text = None
-				for enc in ["utf-8-sig", "utf-8", "cp949", "euc-kr"]:
-					try:
-						text = raw.decode(enc)
-						break
-					except Exception:
-						continue
-				if text is None:
-					return jsonify({"error": "unsupported_encoding"}), 400
-			# 구분자 결정
-			if name_lower.endswith(".tsv"):
-				delimiter = "\t"
-			else:
-				try:
-					dialect = csv.Sniffer().sniff(text[:2048])
-					delimiter = getattr(dialect, "delimiter", ",") or ","
-				except Exception:
-					delimiter = ","
+			text = file.stream.read().decode("utf-8", errors="replace")
 			si = StringIO(text)
-			raw_reader = csv.DictReader(si, delimiter=delimiter, skipinitialspace=True)
+			r = csv.DictReader(si)
 			items = []
-			for row in raw_reader:
-				row2 = { (k or "").strip().lower(): (v if isinstance(v, str) else str(v or "")) for k, v in (row or {}).items() }
-				client = (row2.get("client") or "").strip()
-				product = (row2.get("product") or "").strip()
-				typev = (row2.get("type") or "공통").strip() or "공통"
-				price = int(str(row2.get("price") or "0").replace(",", "").strip() or "0")
-				account = (row2.get("account") or "").strip()
-				bank = (row2.get("bank") or "").strip()
-				holder = (row2.get("holder") or "").strip()
+			for row in r:
+				client = (row.get("client") or "").strip()
+				product = (row.get("product") or "").strip()
+				typev = (row.get("type") or "공통").strip() or "공통"
+				price = int(str(row.get("price") or "0").replace(",", "").strip() or "0")
+				account = (row.get("account") or "").strip()
+				bank = (row.get("bank") or "").strip()
+				holder = (row.get("holder") or "").strip()
 				if client and product:
 					items.append({"client": client, "product": product, "type": typev, "price": price, "account": account, "bank": bank, "holder": holder})
 		except Exception as e:
@@ -458,20 +434,12 @@ def create_app() -> Flask:
 		try:
 			settings = load_settings()
 			client = _get_client()
-			# 정산 전용 스프레드시트 ID 우선
-			settlement_sheet_id = (os.getenv("SETTLEMENT_SPREADSHEET_ID", "") or "").strip() or settings.spreadsheet_id
-			ss = client.open_by_key(settlement_sheet_id)
+			ss = client.open_by_key(settings.spreadsheet_id)
 			ws = ss.worksheets()
-			info = []
-			for w in ws:
-				try:
-					wid = int(getattr(w, 'id', 0) or 0)
-				except Exception:
-					wid = 0
-				info.append({"title": (w.title or "").strip(), "gid": wid})
+			titles = [ (w.title or "").strip() for w in ws ]
 		except Exception as e:
 			return jsonify({"error": str(e)}), 500
-		return jsonify({"tabs": info})
+		return jsonify({"tabs": titles})
 
 	def _parse_date_from_title(title: str) -> str:
 		# YYYY-MM-DD 또는 YYYY.MM.DD 등 단순 포맷만 추출
@@ -496,40 +464,17 @@ def create_app() -> Flask:
 			return "트래픽"
 		return "공통"
 
-def _lookup_unit_price(pricebook_items: List[Dict[str, any]], client: str, job_name: str, typev: str) -> int:
-	"""단가 탐색은 작업명(job_name)과 type을 분리하여 수행.
-	- 정확 일치: (client, product==job_name, type==요청 type)
-	- 폴백: (client, product==job_name, type=='공통')
-	- 추가 폴백: 공백/대소문자 무시 일치 시도
-	"""
-	c = (client or '').strip()
-	p = (job_name or '').strip()
-	t = (typev or '공통').strip() or '공통'
-	def norm(s): return (s or '').strip()
-	# 정확 타입 우선
-	for it in pricebook_items:
-		if norm(it.get('client'))==c and norm(it.get('product'))==p and norm(it.get('type') or '공통')==t:
-			try: return int(it.get('price') or 0)
-			except Exception: return 0
-	# 공통 타입 폴백
-	for it in pricebook_items:
-		if norm(it.get('client'))==c and norm(it.get('product'))==p and norm(it.get('type') or '공통')=='공통':
-			try: return int(it.get('price') or 0)
-			except Exception: return 0
-	# 느슨한 공백/대소문자 무시 비교 폴백
-	def collapse(s):
-		import re
-		return re.sub(r"\s+", "", (s or '').lower()).strip()
-	c2 = collapse(c); p2 = collapse(p); t2 = collapse(t)
-	for it in pricebook_items:
-		if collapse(it.get('client'))==c2 and collapse(it.get('product'))==p2 and collapse(it.get('type') or '공통')==t2:
-			try: return int(it.get('price') or 0)
-			except Exception: return 0
-	for it in pricebook_items:
-		if collapse(it.get('client'))==c2 and collapse(it.get('product'))==p2 and collapse(it.get('type') or '공통')=='공통':
-			try: return int(it.get('price') or 0)
-			except Exception: return 0
-	return 0
+	def _lookup_unit_price(pricebook_items: List[Dict[str, any]], client: str, product: str, typev: str) -> int:
+		# 정확 타입 우선, 없으면 공통
+		for it in pricebook_items:
+			if (it.get("client") or "").strip()==client and (it.get("product") or "").strip()==product and (it.get("type") or "공통").strip()==typev:
+				try: return int(it.get("price") or 0)
+				except Exception: return 0
+		for it in pricebook_items:
+			if (it.get("client") or "").strip()==client and (it.get("product") or "").strip()==product and (it.get("type") or "공통").strip()=="공통":
+				try: return int(it.get("price") or 0)
+				except Exception: return 0
+		return 0
 
 	@app.route("/api/settlement/compute", methods=["POST"])
 	def api_settlement_compute():
@@ -537,18 +482,14 @@ def _lookup_unit_price(pricebook_items: List[Dict[str, any]], client: str, job_n
 			payload = request.get_json(force=True, silent=False) or {}
 		except Exception:
 			return jsonify({"error": "invalid_json"}), 400
-		tabs = payload.get("tabs")
-		if tabs is None:
-			tabs = []
-		elif not isinstance(tabs, list):
+		tabs = payload.get("tabs") or []
+		if not isinstance(tabs, list):
 			return jsonify({"error": "tabs_array_required"}), 400
 		try:
 			settings = load_settings()
 			client = _get_client()
-			settlement_sheet_id = (os.getenv("SETTLEMENT_SPREADSHEET_ID", "") or "").strip() or settings.spreadsheet_id
-			ss = client.open_by_key(settlement_sheet_id)
-			ws_list = ss.worksheets()
-			worksheets = { (w.title or "").strip(): w for w in ws_list }
+			ss = client.open_by_key(settings.spreadsheet_id)
+			worksheets = { (w.title or "").strip(): w for w in ss.worksheets() }
 		except Exception as e:
 			return jsonify({"error": str(e)}), 500
 
@@ -561,37 +502,10 @@ def _lookup_unit_price(pricebook_items: List[Dict[str, any]], client: str, job_n
 		by_product: Dict[str, Dict[str, Dict[str, int]]] = {}
 		by_agency: Dict[str, Dict[str, Dict[str, int]]] = {}
 
-		# 탭이 비어있으면 기본으로 특정 시트만 처리: 우선순위 GID -> TITLE('김찬영 일일보고서') -> 전체
-		target_ws = []
-		if not tabs:
-			# by gid
-			pref_gid_raw = os.getenv("SETTLEMENT_DEFAULT_GID", "").strip()
-			pref_gid = None
-			try:
-				pref_gid = int(pref_gid_raw) if pref_gid_raw else None
-			except Exception:
-				pref_gid = None
-			ws_by_id = {}
-			for w in ws_list:
-				try:
-					wid = int(getattr(w, 'id', 0) or 0)
-				except Exception:
-					wid = 0
-				if wid not in ws_by_id:
-					ws_by_id[wid] = w
-			if pref_gid and pref_gid in ws_by_id:
-				target_ws = [ws_by_id[pref_gid]]
-			else:
-				pref_title = (os.getenv("SETTLEMENT_DEFAULT_TITLE", "김찬영 일일보고서") or "").strip()
-				preferred = [w for title,w in worksheets.items() if (title or "").strip() == pref_title]
-				target_ws = preferred if preferred else list(worksheets.values())
-		else:
-			for tab in tabs:
-				ws = worksheets.get((tab or "").strip())
-				if ws:
-					target_ws.append(ws)
-
-		for ws in target_ws:
+		for tab in tabs:
+			ws = worksheets.get((tab or "").strip())
+			if not ws:
+				continue
 			try:
 				header_row, headers = _find_header_row(ws, load_settings())
 				records = _build_records(ws, header_row, headers)
@@ -612,33 +526,10 @@ def _lookup_unit_price(pricebook_items: List[Dict[str, any]], client: str, job_n
 					qty = 0
 				if not bizname:
 					continue
-				# 특수 탭 처리: '영수증리뷰'는 '항목' 우선 → 없으면 '구분(내부 소통용)' 변형
-				if _collapse_spaces(ws.title or "") == _collapse_spaces("영수증리뷰"):
-					item_val = _get_value_flexible(row_norm, "항목", "PRODUCT_NAME_COLUMN")
-					candidates = [
-						"구분(내부 소통용)",
-						"구분 (내부 소통용)",
-						"구분(내부소통용)",
-						"구분\n(내부 소통용)",
-						"구분",
-					]
-					cat = str(item_val or "").strip()
-					for key in candidates:
-						if cat:
-							break
-						val = _get_value_flexible(row_norm, key, "PRODUCT_NAME_COLUMN")
-						if val is not None and str(val).strip() != "":
-							cat = str(val).strip()
-					if not cat:
-						memo = _get_value_flexible(row_norm, "내부 소통용", "PRODUCT_NAME_COLUMN")
-						cat = str(memo or "").strip()
-					job = cat or _display_task_for_tab(ws.title or "", product, product_name)
-				else:
-					job = _display_task_for_tab(ws.title or "", product, product_name)
+				job = _display_task_for_tab(ws.title or "", product, product_name)
 				typev = _derive_type(product)
-				# 단가 매칭은 '작업명'(job)과 type을 분리하여 수행한다
 				product_key = job if typev=="공통" else f"{job} {typev}"
-				unit_price = _lookup_unit_price(price_items, agency, job, typev)
+				unit_price = _lookup_unit_price(price_items, agency, product_key, typev)
 				expense = qty * unit_price
 				income = expense
 				rows.append({
@@ -716,9 +607,6 @@ def _lookup_unit_price(pricebook_items: List[Dict[str, any]], client: str, job_n
 	return app
 
 app = create_app()
-
-# WSGI 서버를 위한 명시적 앱 노출
-application = app
 
 
 def _parse_days(days_param: str) -> List[int]:
