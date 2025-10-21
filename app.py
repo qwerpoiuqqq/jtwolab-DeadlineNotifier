@@ -496,17 +496,40 @@ def create_app() -> Flask:
 			return "트래픽"
 		return "공통"
 
-	def _lookup_unit_price(pricebook_items: List[Dict[str, any]], client: str, product: str, typev: str) -> int:
-		# 정확 타입 우선, 없으면 공통
-		for it in pricebook_items:
-			if (it.get("client") or "").strip()==client and (it.get("product") or "").strip()==product and (it.get("type") or "공통").strip()==typev:
-				try: return int(it.get("price") or 0)
-				except Exception: return 0
-		for it in pricebook_items:
-			if (it.get("client") or "").strip()==client and (it.get("product") or "").strip()==product and (it.get("type") or "공통").strip()=="공통":
-				try: return int(it.get("price") or 0)
-				except Exception: return 0
-		return 0
+def _lookup_unit_price(pricebook_items: List[Dict[str, any]], client: str, job_name: str, typev: str) -> int:
+	"""단가 탐색은 작업명(job_name)과 type을 분리하여 수행.
+	- 정확 일치: (client, product==job_name, type==요청 type)
+	- 폴백: (client, product==job_name, type=='공통')
+	- 추가 폴백: 공백/대소문자 무시 일치 시도
+	"""
+	c = (client or '').strip()
+	p = (job_name or '').strip()
+	t = (typev or '공통').strip() or '공통'
+	def norm(s): return (s or '').strip()
+	# 정확 타입 우선
+	for it in pricebook_items:
+		if norm(it.get('client'))==c and norm(it.get('product'))==p and norm(it.get('type') or '공통')==t:
+			try: return int(it.get('price') or 0)
+			except Exception: return 0
+	# 공통 타입 폴백
+	for it in pricebook_items:
+		if norm(it.get('client'))==c and norm(it.get('product'))==p and norm(it.get('type') or '공통')=='공통':
+			try: return int(it.get('price') or 0)
+			except Exception: return 0
+	# 느슨한 공백/대소문자 무시 비교 폴백
+	def collapse(s):
+		import re
+		return re.sub(r"\s+", "", (s or '').lower()).strip()
+	c2 = collapse(c); p2 = collapse(p); t2 = collapse(t)
+	for it in pricebook_items:
+		if collapse(it.get('client'))==c2 and collapse(it.get('product'))==p2 and collapse(it.get('type') or '공통')==t2:
+			try: return int(it.get('price') or 0)
+			except Exception: return 0
+	for it in pricebook_items:
+		if collapse(it.get('client'))==c2 and collapse(it.get('product'))==p2 and collapse(it.get('type') or '공통')=='공통':
+			try: return int(it.get('price') or 0)
+			except Exception: return 0
+	return 0
 
 	@app.route("/api/settlement/compute", methods=["POST"])
 	def api_settlement_compute():
@@ -613,8 +636,9 @@ def create_app() -> Flask:
 				else:
 					job = _display_task_for_tab(ws.title or "", product, product_name)
 				typev = _derive_type(product)
+				# 단가 매칭은 '작업명'(job)과 type을 분리하여 수행한다
 				product_key = job if typev=="공통" else f"{job} {typev}"
-				unit_price = _lookup_unit_price(price_items, agency, product_key, typev)
+				unit_price = _lookup_unit_price(price_items, agency, job, typev)
 				expense = qty * unit_price
 				income = expense
 				rows.append({
