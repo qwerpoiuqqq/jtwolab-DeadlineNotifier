@@ -529,10 +529,11 @@ def create_app() -> Flask:
 		by_product: Dict[str, Dict[str, Dict[str, int]]] = {}
 		by_agency: Dict[str, Dict[str, Dict[str, int]]] = {}
 
-		# 탭이 비어있으면 모든 워크시트를 처리
+		# 탭이 비어있으면 기본으로 '김찬영 일일보고서'만 처리(없으면 전체 처리)
 		target_ws = []
 		if not tabs:
-			target_ws = list(worksheets.values())
+			preferred = [w for title,w in worksheets.items() if (title or "").strip() == "김찬영 일일보고서"]
+			target_ws = preferred if preferred else list(worksheets.values())
 		else:
 			for tab in tabs:
 				ws = worksheets.get((tab or "").strip())
