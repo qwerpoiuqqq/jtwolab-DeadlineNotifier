@@ -18,7 +18,6 @@ DEFAULT_KEYS = {
 	"PRODUCT_COLUMN": "상품",
 	"PRODUCT_NAME_COLUMN": "상품 명",
 	"DAILY_WORKLOAD_COLUMN": "일작업량",
-	"RECEIVED_DATE_COLUMN": "접수일",
 }
 
 # header 동의어(공백 무시, 소문자 비교)
@@ -31,7 +30,6 @@ SYNONYMS: Dict[str, List[str]] = {
 	"PRODUCT_COLUMN": ["상품", "유형", "type", "종류"],
 	"PRODUCT_NAME_COLUMN": ["상품 명", "상품명", "작업명", "작업 명"],
 	"DAILY_WORKLOAD_COLUMN": ["일 작업량", "일작업량"],
-	"RECEIVED_DATE_COLUMN": ["접수 날짜", "접수일자", "요청일", "요청 날짜", "최근 접수일", "최근 작업 접수일"],
 }
 
 TRUTHY_VALUES = {"true", "1", "yes", "y", "o", "ok", "checked", "done", "완료", "예", "y", "yy", "ㅇ", "ㅇㅇ", "o", "O", "✓", "✔"}
@@ -48,7 +46,6 @@ class Settings:
 		self.product_col: str = kwargs.get("PRODUCT_COLUMN", DEFAULT_KEYS["PRODUCT_COLUMN"]).strip()
 		self.product_name_col: str = kwargs.get("PRODUCT_NAME_COLUMN", DEFAULT_KEYS["PRODUCT_NAME_COLUMN"]).strip()
 		self.daily_workload_col: str = kwargs.get("DAILY_WORKLOAD_COLUMN", DEFAULT_KEYS["DAILY_WORKLOAD_COLUMN"]).strip()
-		self.received_date_col: str = kwargs.get("RECEIVED_DATE_COLUMN", DEFAULT_KEYS["RECEIVED_DATE_COLUMN"]).strip()
 
 	def to_dict(self) -> Dict[str, str]:
 		return {
@@ -61,7 +58,6 @@ class Settings:
 			"PRODUCT_COLUMN": self.product_col,
 			"PRODUCT_NAME_COLUMN": self.product_name_col,
 			"DAILY_WORKLOAD_COLUMN": self.daily_workload_col,
-			"RECEIVED_DATE_COLUMN": self.received_date_col,
 		}
 
 
@@ -76,7 +72,6 @@ def load_settings() -> Settings:
 		PRODUCT_COLUMN=os.getenv("PRODUCT_COLUMN", DEFAULT_KEYS["PRODUCT_COLUMN"]),
 		PRODUCT_NAME_COLUMN=os.getenv("PRODUCT_NAME_COLUMN", DEFAULT_KEYS["PRODUCT_NAME_COLUMN"]),
 		DAILY_WORKLOAD_COLUMN=os.getenv("DAILY_WORKLOAD_COLUMN", DEFAULT_KEYS["DAILY_WORKLOAD_COLUMN"]),
-		RECEIVED_DATE_COLUMN=os.getenv("RECEIVED_DATE_COLUMN", DEFAULT_KEYS["RECEIVED_DATE_COLUMN"]),
 	)
 
 
@@ -228,34 +223,6 @@ def _parse_int_maybe(value: Any) -> int | None:
 		return int(m.group(0))
 	except ValueError:
 		return None
-
-
-def _parse_date_maybe(value: Any) -> tuple[int, int, int] | None:
-	"""가능한 여러 문자열 포맷에서 (Y,M,D)를 파싱한다. 실패 시 None.
-
-	지원 포맷 예:
-	- YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD
-	- M/D or MM/DD (연도 생략 시 현재 연도 가정)
-	- M.D or M-D
-	"""
-	if value is None:
-		return None
-	s = str(value).strip()
-	if not s:
-		return None
-	# ISO-like: 2024-09-12, 2024/9/2, 2024.9.2
-	m = re.match(r"^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$", s)
-	if m:
-		y = int(m.group(1)); mth = int(m.group(2)); d = int(m.group(3))
-		return (y, mth, d)
-	# MD: 9/2, 09/12
-	m = re.match(r"^(\d{1,2})[/.\-](\d{1,2})$", s)
-	if m:
-		from datetime import date as _date
-		y = _date.today().year
-		mth = int(m.group(1)); d = int(m.group(2))
-		return (y, mth, d)
-	return None
 
 
 def _is_truthy(value: Any) -> bool:
@@ -869,3 +836,271 @@ def diagnose_matches(selected_days: List[int], settings: Settings | None = None,
 			"excluded_reason_counts": reason_counts,
 		}
 	return report
+
+
+def list_sheet_tabs(spreadsheet_id: str | None = None) -> List[str]:
+	"""스프레드시트의 워크시트 탭 제목 목록을 반환한다.
+	spreadsheet_id를 명시하면 그것을 사용하고, 없으면 기본 설정의 SPREADSHEET_ID를 사용한다.
+	"""
+	if not spreadsheet_id:
+		settings = load_settings()
+		spreadsheet_id = settings.spreadsheet_id
+	if not spreadsheet_id:
+		raise RuntimeError("스프레드시트 ID가 비어 있습니다.")
+	client = _get_client()
+	ss = client.open_by_key(spreadsheet_id)
+	return [str((ws.title or "").strip()) for ws in ss.worksheets()]
+
+
+def inspect_sheets_by_id(spreadsheet_id: str) -> List[Dict[str, Any]]:
+	"""지정된 스프레드시트 ID에 대해 탭별 헤더 정보를 반환한다."""
+	if not spreadsheet_id:
+		raise RuntimeError("스프레드시트 ID가 비어 있습니다.")
+	client = _get_client()
+	ss = client.open_by_key(spreadsheet_id)
+	settings = load_settings()
+	results: List[Dict[str, Any]] = []
+	for ws in ss.worksheets():
+		header_row, headers = _find_header_row(ws, settings)
+		results.append({
+			"title": ws.title,
+			"header_row": header_row,
+			"headers": headers,
+		})
+	return results
+
+
+def _find_header_row_simple(values: List[List[str]]) -> int:
+	"""상단 20행 내에서 '상호명/상품명/저장/트래픽' 중 하나 이상이 있는 첫 행을 헤더로 간주한다.
+	반환: 1-based 행 번호(없으면 1)
+	"""
+	max_scan = min(len(values), 20)
+	keys = {"상호명", "상품명", "저장", "트래픽"}
+	for idx in range(max_scan):
+		row = [str(c or "").strip() for c in values[idx]]
+		row_set = set(row)
+		if any(k in row_set for k in keys):
+			return idx + 1
+	return 1
+
+
+
+def _authed_session():
+	"""Google API Authorized session 생성"""
+	from google.auth.transport.requests import AuthorizedSession
+	creds = _build_credentials()
+	return AuthorizedSession(creds)
+
+
+def _fetch_background_colors(spreadsheet_id: str, sheet_title: str, max_rows: int) -> Dict[Tuple[int, int], Tuple[float, float, float]]:
+	"""지정 탭의 A1:Z{max_rows} 배경색을 조회한다.
+	반환: {(row0,col0): (r,g,b)} 0-based
+	"""
+	sess = _authed_session()
+	url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
+	params = {
+		"includeGridData": "true",
+		"ranges": f"{sheet_title}!A1:Z{max_rows}",
+		"fields": "sheets(data(rowData(values(effectiveFormat(backgroundColor)))))",
+	}
+	try:
+		resp = sess.get(url, params=params)
+		resp.raise_for_status()
+		data = resp.json()
+	except Exception:
+		return {}
+	colors: Dict[Tuple[int, int], Tuple[float, float, float]] = {}
+	try:
+		row_data = data.get("sheets", [{}])[0].get("data", [{}])[0].get("rowData", [])
+		for r_idx, row in enumerate(row_data):
+			cells = row.get("values", [])
+			for c_idx, cell in enumerate(cells):
+				bg = cell.get("effectiveFormat", {}).get("backgroundColor", {})
+				r, g, b = bg.get("red", 0.0), bg.get("green", 0.0), bg.get("blue", 0.0)
+				colors[(r_idx, c_idx)] = (float(r or 0.0), float(g or 0.0), float(b or 0.0))
+	except Exception:
+		return {}
+	return colors
+
+
+def _is_yellow(rgb: Tuple[float, float, float]) -> bool:
+    if not rgb or len(rgb) != 3:
+        return False
+    r, g, b = rgb
+    return (abs(r - 1.0) <= 0.05 and abs(g - 1.0) <= 0.05 and abs(b - 0.0) <= 0.05)
+
+
+def _is_manage_green(rgb: Tuple[float, float, float]) -> bool:
+    """연녹색(관리형) 감지: #d9ead3 (R=217,G=234,B=211) ≈ (0.851,0.918,0.827)
+
+    구글시트 API는 0~1 float을 반환하므로 근사치 범위로 판정한다.
+    """
+    if not rgb or len(rgb) != 3:
+        return False
+    r, g, b = rgb
+    target = (217.0/255.0, 234.0/255.0, 211.0/255.0)
+    tol = 0.06  # 허용 오차
+    return (abs(r - target[0]) <= tol and abs(g - target[1]) <= tol and abs(b - target[2]) <= tol)
+
+
+def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], pricebook: List[Dict[str, Any]]) -> Dict[str, Any]:
+	"""결재선 시트에서 선택 탭의 행을 읽어 정산 행 + 집계를 생성한다.
+
+	- 단가 레코드 예: { client, product, price, account, type? }  // type 미지정=공통
+	- 자사건: 배경 노란색(#ffff00) → 지출만 산출
+	- 대행사건: 지출 + 매출(금액[vAT제외]) 산출
+	"""
+	if not spreadsheet_id:
+		raise RuntimeError("스프레드시트 ID가 비어 있습니다.")
+	client = _get_client()
+	ss = client.open_by_key(spreadsheet_id)
+	wanted = set([str(t).strip() for t in (selected_tabs or []) if str(t).strip()])
+
+	# 단가 조회: (client, product, type) → (client, product, 공통) → (product, type) → (product, 공통)
+	def find_unit_price(client_name: str, product_name: str, qty_type: str) -> float:
+		client_name = (client_name or "").strip()
+		product_name = (product_name or "").strip()
+		qty_type = (qty_type or "").strip()
+		for it in pricebook:
+			it_type = str(it.get("type") or "공통").strip()
+			if str(it.get("client") or "").strip() == client_name and str(it.get("product") or "").strip() == product_name and it_type == qty_type:
+				return float(it.get("price") or 0)
+		for it in pricebook:
+			it_type = str(it.get("type") or "공통").strip()
+			if str(it.get("client") or "").strip() == client_name and str(it.get("product") or "").strip() == product_name and it_type == "공통":
+				return float(it.get("price") or 0)
+		for it in pricebook:
+			it_type = str(it.get("type") or "공통").strip()
+			if str(it.get("product") or "").strip() == product_name and it_type == qty_type:
+				return float(it.get("price") or 0)
+		for it in pricebook:
+			it_type = str(it.get("type") or "공통").strip()
+			if str(it.get("product") or "").strip() == product_name and it_type == "공통":
+				return float(it.get("price") or 0)
+		return 0.0
+
+	rows_out: List[Dict[str, Any]] = []
+	missing: Dict[Tuple[str, str, str], int] = {}
+	by_client_expense: Dict[str, float] = {}
+	by_client_income: Dict[str, float] = {}
+	grand_expense = 0.0
+	grand_income = 0.0
+	by_product: Dict[str, Dict[str, Dict[str, float]]] = {}
+	by_agency: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+
+	for ws in ss.worksheets():
+		tab = (ws.title or "").strip()
+		if wanted and tab not in wanted:
+			continue
+		# 전체 값
+		values = _get_all_values_full_cached(ws)
+		if not values:
+			continue
+		header_row = _find_header_row_simple(values)
+		headers = [str(c or "").strip() for c in (values[header_row-1] if header_row-1 < len(values) else [])]
+		# 배경색 조회
+		bg = _fetch_background_colors(spreadsheet_id, tab, max_rows=len(values))
+		# 컬럼 인덱스
+		def col_idx(name: str) -> int | None:
+			try:
+				return headers.index(name)
+			except ValueError:
+				return None
+		ci_agency = col_idx("상호명")
+		ci_job = col_idx("상품명")
+		ci_store = col_idx("저장")
+		ci_traf = col_idx("트래픽")
+		ci_store_actual = col_idx("저장 감은타수")
+		ci_traf_actual = col_idx("트래픽 감은타수")
+		ci_amount = col_idx("금액(vat제외)")
+
+		for row_idx, r in enumerate(values[header_row:]):
+			agency = str((r[ci_agency] if (ci_agency is not None and ci_agency < len(r)) else "").strip()) if ci_agency is not None else ""
+			job = str((r[ci_job] if (ci_job is not None and ci_job < len(r)) else "").strip()) if ci_job is not None else ""
+			store_s = str((r[ci_store] if (ci_store is not None and ci_store < len(r)) else "").strip()) if ci_store is not None else ""
+			traf_s = str((r[ci_traf] if (ci_traf is not None and ci_traf < len(r)) else "").strip()) if ci_traf is not None else ""
+			store_actual_s = str((r[ci_store_actual] if (ci_store_actual is not None and ci_store_actual < len(r)) else "").strip()) if ci_store_actual is not None else ""
+			traf_actual_s = str((r[ci_traf_actual] if (ci_traf_actual is not None and ci_traf_actual < len(r)) else "").strip()) if ci_traf_actual is not None else ""
+			amount_note_s = str((r[ci_amount] if (ci_amount is not None and ci_amount < len(r)) else "").strip()) if ci_amount is not None else ""
+
+			if not agency:
+				continue
+			# 수량 파싱
+			def to_int(s: str) -> int:
+				s_clean = (s or "").replace(",", "").strip()
+				m = re.search(r"-?\d+", s_clean)
+				return int(m.group(0)) if m else 0
+			def to_float(s: str) -> float:
+				s_clean = (s or "").replace(",", "").strip()
+				m = re.search(r"-?[\d.]+", s_clean)
+				return float(m.group(0)) if m else 0.0
+			qty_store_raw = to_int(store_s)
+			qty_traf_raw = to_int(traf_s)
+			qty_store_act = to_int(store_actual_s)
+			qty_traf_act = to_int(traf_actual_s)
+			# 감은타수가 존재(>0)하면 그것을 우선 사용
+			qty_store = qty_store_act if qty_store_act > 0 else qty_store_raw
+			qty_traf = qty_traf_act if qty_traf_act > 0 else qty_traf_raw
+			income_noted = to_float(amount_note_s)  # 대행사건에만 매출 반영
+			if qty_store == 0 and qty_traf == 0:
+				continue
+
+			# 자사건/관리형 판정: 상호명 셀 배경 노란색(자사) 또는 연녹색(관리형) → 매출 0 처리
+			is_internal = False
+			internal_type = None  # 'guarantee'(노란색) or 'manage'(연녹색)
+			if ci_agency is not None:
+				rgb = bg.get((header_row + row_idx, ci_agency))
+				if _is_yellow(rgb):
+					is_internal = True
+					internal_type = "guarantee"
+				elif _is_manage_green(rgb):
+					is_internal = True
+					internal_type = "manage"
+
+			# 저장 행
+			if qty_store:
+				unit = find_unit_price(agency, job, "저장")
+				expense = float(qty_store) * unit
+				income = 0.0 if is_internal else income_noted
+				rows_out.append({"date": tab, "client": agency, "job": job, "type": "저장", "qty": qty_store, "unit_price": unit, "expense": expense, "income": income, "is_internal": is_internal, "internal_type": internal_type})
+				by_client_expense[agency] = by_client_expense.get(agency, 0.0) + expense
+				if not is_internal:
+					by_client_income[agency] = by_client_income.get(agency, 0.0) + income
+				grand_expense += expense
+				grand_income += income
+				if unit == 0:
+					missing[(agency, job, "저장")] = missing.get((agency, job, "저장"), 0) + qty_store
+				# 집계: 상품명 기준(type을 붙이지 않음)
+				bp = by_product.setdefault(tab, {}).setdefault(job, {"qty": 0.0, "expense": 0.0, "income": 0.0})
+				bp["qty"] += float(qty_store); bp["expense"] += expense; bp["income"] += income
+				by_agency.setdefault(tab, {}).setdefault(agency, []).append({"product": job, "type": "저장", "qty": qty_store, "unit_price": unit, "expense": expense, "income": income, "internal_type": internal_type})
+			# 트래픽 행
+			if qty_traf:
+				unit = find_unit_price(agency, job, "트래픽")
+				expense = float(qty_traf) * unit
+				income = 0.0 if is_internal else income_noted
+				rows_out.append({"date": tab, "client": agency, "job": job, "type": "트래픽", "qty": qty_traf, "unit_price": unit, "expense": expense, "income": income, "is_internal": is_internal, "internal_type": internal_type})
+				by_client_expense[agency] = by_client_expense.get(agency, 0.0) + expense
+				if not is_internal:
+					by_client_income[agency] = by_client_income.get(agency, 0.0) + income
+				grand_expense += expense
+				grand_income += income
+				if unit == 0:
+					missing[(agency, job, "트래픽")] = missing.get((agency, job, "트래픽"), 0) + qty_traf
+				bp = by_product.setdefault(tab, {}).setdefault(job, {"qty": 0.0, "expense": 0.0, "income": 0.0})
+				bp["qty"] += float(qty_traf); bp["expense"] += expense; bp["income"] += income
+				by_agency.setdefault(tab, {}).setdefault(agency, []).append({"product": job, "type": "트래픽", "qty": qty_traf, "unit_price": unit, "expense": expense, "income": income, "internal_type": internal_type})
+
+	# missing 리스트 가공
+	missing_list = [{"client": k[0], "job": k[1], "type": k[2], "qty_sum": v} for k, v in missing.items()]
+	return {
+		"rows": rows_out,
+		"totals": {
+			"by_client_expense": by_client_expense,
+			"by_client_income": by_client_income,
+			"grand_expense": grand_expense,
+			"grand_income": grand_income,
+		},
+		"aggregates": {"by_product": by_product, "by_agency": by_agency},
+		"missing_prices": missing_list,
+	}

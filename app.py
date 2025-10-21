@@ -7,13 +7,8 @@ from dotenv import load_dotenv
 from datetime import date, timedelta
 import re
 
-from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency, mark_checked_for_agencies, _get_client, _find_header_row, _build_records, _get_value_flexible, _normalize_key, _collapse_spaces
+from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency, mark_checked_for_agencies, list_sheet_tabs, inspect_sheets_by_id, compute_settlement_rows
 from internal_manager import load_cache as internal_load_cache, refresh_cache as internal_refresh_cache
-from internal_manager import fetch_internal_weekly_summary
-import csv
-from io import StringIO
-from pathlib import Path
-from datetime import datetime
 
 
 # .env 로드
@@ -176,9 +171,174 @@ def create_app() -> Flask:
 			initial_items=items,
 		)
 
-	@app.route("/settlement", methods=["GET"])  # 마감 체크 전용 탭
+	@app.route("/settlement", methods=["GET"])  # 결재선 · 정산 페이지 (UI 스켈레톤)
 	def settlement():
-		return render_template("settlement.html")
+		from flask import send_file
+		# 템플릿 엔진 경유 대신 파일을 직접 서빙하여, 템플릿 로더/캐시 이슈를 우회한다.
+		return send_file(os.path.join(app.root_path, "templates", "settlement.html"), mimetype="text/html; charset=utf-8")
+
+	# --- 결재선 보조 API들 ---
+	@app.route("/api/settlement/tabs", methods=["GET"])  # 시트 탭 제목 목록 (결재선 전용 시트)
+	def api_settlement_tabs():
+		try:
+			settlement_ssid = os.getenv("SETTLEMENT_SPREADSHEET_ID", "").strip()
+			tabs = list_sheet_tabs(settlement_ssid or None)
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify({"tabs": tabs}), 200
+
+	@app.route("/api/settlement/pricebook", methods=["GET", "POST"])  # 단가/계좌 저장소 - 파일 기반(로컬)
+	def api_settlement_pricebook():
+		storage_path = os.getenv("PRICEBOOK_PATH", os.path.join(os.getcwd(), "pricebook.json"))
+		if request.method == "GET":
+			try:
+				if os.path.exists(storage_path):
+					with open(storage_path, "r", encoding="utf-8") as f:
+						data = json.load(f)
+				else:
+					data = []
+			except Exception as e:
+				return jsonify({"error": str(e)}), 500
+			return jsonify({"items": data}), 200
+		# POST: 저장
+		try:
+			payload = request.get_json(force=True, silent=False) or {}
+		except Exception:
+			return jsonify({"error": "invalid_json"}), 400
+		items = payload.get("items")
+		if not isinstance(items, list):
+			return jsonify({"error": "invalid_items"}), 400
+		try:
+			with open(storage_path, "w", encoding="utf-8") as f:
+				json.dump(items, f, ensure_ascii=False, indent=2)
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify({"ok": True}), 200
+
+	@app.route("/api/settlement/pricebook/upload", methods=["POST"])  # XLSX 업로드 → 항목 파싱 반환
+	def api_settlement_pricebook_upload():
+		from io import BytesIO
+		from openpyxl import load_workbook
+		f = request.files.get("file")
+		if not f:
+			return jsonify({"error": "missing_file"}), 400
+		try:
+			buf = BytesIO(f.read())
+			wb = load_workbook(buf, data_only=True)
+			ws = wb.active
+		except Exception as e:
+			return jsonify({"error": f"xlsx_load_failed: {e}"}), 400
+		# 헤더 매핑: 거래처, 상품명, 유형, 단가, 계좌, 예금주
+		items = []
+		try:
+			headers = []
+			for cell in ws[1]:
+				headers.append(str(cell.value or "").strip())
+			def idx(name: str) -> int | None:
+				try:
+					return headers.index(name)
+				except ValueError:
+					return None
+			i_client = idx("거래처"); i_product = idx("상품명"); i_type = idx("유형"); i_price = idx("단가"); i_account = idx("계좌"); i_bank = idx("은행"); i_holder = idx("예금주")
+			if i_client is None or i_product is None or i_price is None:
+				return jsonify({"error": "missing_required_headers"}), 400
+			for r in ws.iter_rows(min_row=2):
+				def get(i):
+					if i is None: return ""
+					v = r[i].value if i < len(r) else ""
+					return str(v).strip() if v is not None else ""
+				client = get(i_client); product = get(i_product)
+				if not client and not product:
+					continue
+				type_s = get(i_type)
+				type_s = "공통" if type_s not in ("저장", "트래픽") else type_s
+				price_s = get(i_price)
+				try:
+					price = float(str(price_s).replace(",", "")) if price_s else 0.0
+				except Exception:
+					price = 0.0
+				account = get(i_account); bank = get(i_bank); holder = get(i_holder)
+				items.append({"client": client, "product": product, "type": type_s, "price": price, "account": account, "bank": bank, "holder": holder})
+		except Exception as e:
+			return jsonify({"error": f"parse_failed: {e}"}), 400
+		return jsonify({"items": items, "count": len(items)}), 200
+
+	@app.route("/api/settlement/pricebook/template", methods=["GET"])  # 대량등록 XLSX 템플릿 다운로드
+	def api_settlement_pricebook_template():
+		from io import BytesIO
+		from openpyxl import Workbook
+		wb = Workbook()
+		ws = wb.active
+		ws.title = "pricebook"
+		ws.append(["거래처", "상품명", "유형", "단가", "계좌", "은행", "예금주"])
+		ws.append(["일류기획", "호올스", "저장", 32, "123-45-67890", "국민", "류준호"])  # 샘플
+		buf = BytesIO()
+		wb.save(buf)
+		buf.seek(0)
+		return app.response_class(buf.getvalue(), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=pricebook_template.xlsx"})
+
+	@app.route("/api/settlement/inspect", methods=["GET"])  # 결재선 시트 헤더 점검
+	def api_settlement_inspect():
+		try:
+			ssid = os.getenv("SETTLEMENT_SPREADSHEET_ID", "").strip()
+			info = inspect_sheets_by_id(ssid)
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify({"tabs": info}), 200
+
+	@app.route("/api/settlement/compute", methods=["POST"])  # 결재선 집계 계산
+	def api_settlement_compute():
+		try:
+			payload = request.get_json(force=True, silent=False) or {}
+		except Exception:
+			return jsonify({"error": "invalid_json"}), 400
+		ssid = os.getenv("SETTLEMENT_SPREADSHEET_ID", "").strip()
+		selected_tabs = payload.get("tabs") or []
+		if not isinstance(selected_tabs, list):
+			return jsonify({"error": "invalid_tabs"}), 400
+		# 단가 로드
+		storage_path = os.getenv("PRICEBOOK_PATH", os.path.join(os.getcwd(), "pricebook.json"))
+		try:
+			if os.path.exists(storage_path):
+				with open(storage_path, "r", encoding="utf-8") as f:
+					pricebook = json.load(f)
+			else:
+				pricebook = []
+		except Exception:
+			pricebook = []
+		try:
+			result = compute_settlement_rows(ssid, selected_tabs, pricebook)
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify(result), 200
+
+	@app.route("/api/settlement/extra", methods=["GET", "POST"])  # 수기 추가 지출 저장소
+	def api_settlement_extra():
+		storage_path = os.getenv("EXTRA_EXPENSES_PATH", os.path.join(os.getcwd(), "extra_expenses.json"))
+		if request.method == "GET":
+			try:
+				if os.path.exists(storage_path):
+					with open(storage_path, "r", encoding="utf-8") as f:
+						data = json.load(f)
+				else:
+					data = []
+			except Exception as e:
+				return jsonify({"error": str(e)}), 500
+			return jsonify({"items": data}), 200
+		# POST 저장 (전체 치환 방식)
+		try:
+			payload = request.get_json(force=True, silent=False) or {}
+		except Exception:
+			return jsonify({"error": "invalid_json"}), 400
+		items = payload.get("items")
+		if not isinstance(items, list):
+			return jsonify({"error": "invalid_items"}), 400
+		try:
+			with open(storage_path, "w", encoding="utf-8") as f:
+				json.dump(items, f, ensure_ascii=False, indent=2)
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify({"ok": True}), 200
 
 	@app.route("/debug/headers")
 	def debug_headers():
@@ -227,28 +387,6 @@ def create_app() -> Flask:
 			"items": cache.get("items", []),
 		}), 200
 
-	@app.route("/api/internal/weekly", methods=["GET"])  # 내부 진행 주간 요약 (대행사>업체)
-	def api_internal_weekly():
-		try:
-			weeks_str = request.args.get("weeks", "3").strip()
-			weeks = int(weeks_str) if weeks_str else 3
-		except Exception:
-			weeks = 3
-		base_date_str = request.args.get("base_date", "").strip()
-		try:
-			base_dt = date.fromisoformat(base_date_str) if base_date_str else date.today()
-		except Exception:
-			base_dt = date.today()
-		try:
-			groups = fetch_internal_weekly_summary(base_dt, weeks)
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-		return jsonify({
-			"base_date": base_dt.isoformat(),
-			"weeks": weeks,
-			"groups": groups,
-		}), 200
-
 	@app.route("/api/internal/refresh", methods=["POST"])  # 수동 불러오기
 	def api_internal_refresh():
 		try:
@@ -256,308 +394,6 @@ def create_app() -> Flask:
 		except Exception as e:
 			return jsonify({"error": str(e)}), 500
 		return jsonify(data), 200
-
-	# -----------------------------
-	# Settlement(정산) API
-	# -----------------------------
-	_PRICEBOOK_FILE = os.getenv("PRICEBOOK_FILE", "settlement_pricebook.json")
-	_EXTRAS_FILE = os.getenv("EXTRAS_FILE", "settlement_extras.json")
-
-	def _read_json_file(path: str, default_value):
-		try:
-			with open(path, "r", encoding="utf-8") as f:
-				data = json.load(f)
-				return data
-		except FileNotFoundError:
-			return default_value
-		except Exception:
-			return default_value
-
-
-	def _ensure_parent_dir(path: str) -> None:
-		try:
-			p = Path(path)
-			if p.parent and not p.parent.exists():
-				p.parent.mkdir(parents=True, exist_ok=True)
-		except Exception:
-			pass
-
-	def _backup_existing_file(path: str) -> None:
-		try:
-			p = Path(path)
-			if p.exists() and p.is_file():
-				stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-				backup = p.with_name(p.stem + f".{stamp}.bak" + p.suffix)
-				p.replace(backup)
-		except Exception:
-			pass
-
-	def _write_json_file(path: str, data) -> None:
-		_ensure_parent_dir(path)
-		# 기존 파일 백업
-		_backup_existing_file(path)
-		with open(path, "w", encoding="utf-8") as f:
-			json.dump(data, f, ensure_ascii=False)
-
-	@app.route("/api/settlement/pricebook", methods=["GET"])
-	def api_pricebook_get():
-		data = _read_json_file(_PRICEBOOK_FILE, {"items": []})
-		if not isinstance(data, dict):
-			data = {"items": []}
-		items = data.get("items", [])
-		# meta 조회(파일 상태): /api/settlement/pricebook?meta=1 또는 debug=1
-		q = (request.args.get("meta") or request.args.get("debug") or "").strip().lower()
-		meta = None
-		if q in ("1", "true", "yes", "y"):
-			try:
-				p = Path(_PRICEBOOK_FILE)
-				meta = {
-					"path": str(p),
-					"exists": p.exists(),
-					"size": (p.stat().st_size if p.exists() and p.is_file() else 0),
-					"mtime": (datetime.fromtimestamp(p.stat().st_mtime).isoformat() if p.exists() and p.is_file() else None),
-				}
-			except Exception:
-				meta = {"path": _PRICEBOOK_FILE, "error": "inspect_failed"}
-		return jsonify({"items": items, "meta": meta})
-
-	@app.route("/api/settlement/pricebook", methods=["POST"])
-	def api_pricebook_save():
-		try:
-			payload = request.get_json(force=True, silent=False) or {}
-		except Exception:
-			return jsonify({"error": "invalid_json"}), 400
-		items = payload.get("items")
-		if not isinstance(items, list):
-			return jsonify({"error": "items_array_required"}), 400
-		_write_json_file(_PRICEBOOK_FILE, {"items": items})
-		return jsonify({"ok": True, "count": len(items)})
-
-	@app.route("/api/settlement/pricebook/template", methods=["GET"])
-	def api_pricebook_template():
-		# 간단 CSV 템플릿 제공
-		si = StringIO()
-		w = csv.writer(si)
-		w.writerow(["client", "product", "type", "price", "account", "bank", "holder"])
-		csv_data = si.getvalue()
-		resp = Response(csv_data, mimetype="text/csv; charset=utf-8")
-		resp.headers["Content-Disposition"] = "attachment; filename=pricebook_template.csv"
-		return resp
-
-	@app.route("/api/settlement/pricebook/upload", methods=["POST"])
-	def api_pricebook_upload():
-		file = request.files.get("file")
-		if not file:
-			return jsonify({"error": "file_required"}), 400
-		filename = file.filename or ""
-		name_lower = filename.lower()
-		# CSV만 지원 (간단 구현)
-		if not name_lower.endswith(".csv"):
-			return jsonify({"error": "csv_only_supported"}), 400
-		try:
-			text = file.stream.read().decode("utf-8", errors="replace")
-			si = StringIO(text)
-			r = csv.DictReader(si)
-			items = []
-			for row in r:
-				client = (row.get("client") or "").strip()
-				product = (row.get("product") or "").strip()
-				typev = (row.get("type") or "공통").strip() or "공통"
-				price = int(str(row.get("price") or "0").replace(",", "").strip() or "0")
-				account = (row.get("account") or "").strip()
-				bank = (row.get("bank") or "").strip()
-				holder = (row.get("holder") or "").strip()
-				if client and product:
-					items.append({"client": client, "product": product, "type": typev, "price": price, "account": account, "bank": bank, "holder": holder})
-		except Exception as e:
-			return jsonify({"error": f"parse_failed:{e}"}), 400
-		return jsonify({"items": items})
-
-	@app.route("/api/settlement/extra", methods=["GET"])
-	def api_extra_get():
-		data = _read_json_file(_EXTRAS_FILE, {"items": []})
-		if not isinstance(data, dict):
-			data = {"items": []}
-		items = data.get("items", [])
-		q = (request.args.get("meta") or request.args.get("debug") or "").strip().lower()
-		meta = None
-		if q in ("1", "true", "yes", "y"):
-			try:
-				p = Path(_EXTRAS_FILE)
-				meta = {
-					"path": str(p),
-					"exists": p.exists(),
-					"size": (p.stat().st_size if p.exists() and p.is_file() else 0),
-					"mtime": (datetime.fromtimestamp(p.stat().st_mtime).isoformat() if p.exists() and p.is_file() else None),
-				}
-			except Exception:
-				meta = {"path": _EXTRAS_FILE, "error": "inspect_failed"}
-		return jsonify({"items": items, "meta": meta})
-
-	@app.route("/api/settlement/extra", methods=["POST"])
-	def api_extra_save():
-		try:
-			payload = request.get_json(force=True, silent=False) or {}
-		except Exception:
-			return jsonify({"error": "invalid_json"}), 400
-		items = payload.get("items")
-		if not isinstance(items, list):
-			return jsonify({"error": "items_array_required"}), 400
-		_write_json_file(_EXTRAS_FILE, {"items": items})
-		return jsonify({"ok": True, "count": len(items)})
-
-	@app.route("/api/settlement/debug/files", methods=["GET"])  # 파일 상태 헬스체크
-	def api_settlement_debug_files():
-		def inspect(path: str):
-			try:
-				p = Path(path)
-				return {
-					"path": str(p),
-					"exists": p.exists(),
-					"size": (p.stat().st_size if p.exists() and p.is_file() else 0),
-					"mtime": (datetime.fromtimestamp(p.stat().st_mtime).isoformat() if p.exists() and p.is_file() else None),
-				}
-			except Exception as e:
-				return {"path": path, "error": str(e)}
-		return jsonify({
-			"pricebook": inspect(_PRICEBOOK_FILE),
-			"extras": inspect(_EXTRAS_FILE),
-		}), 200
-
-	# 별칭(일부 환경에서 'debug' 경로 필터링 시 대체)
-	@app.route("/api/settlement/files", methods=["GET"])
-	def api_settlement_files_alias():
-		return api_settlement_debug_files()
-
-	@app.route("/api/settlement/tabs", methods=["GET"])
-	def api_settlement_tabs():
-		try:
-			settings = load_settings()
-			client = _get_client()
-			ss = client.open_by_key(settings.spreadsheet_id)
-			ws = ss.worksheets()
-			titles = [ (w.title or "").strip() for w in ws ]
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-		return jsonify({"tabs": titles})
-
-	def _parse_date_from_title(title: str) -> str:
-		# YYYY-MM-DD 또는 YYYY.MM.DD 등 단순 포맷만 추출
-		m = re.search(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})", title or "")
-		if not m:
-			return title or ""
-		y = int(m.group(1)); mth = int(m.group(2)); d = int(m.group(3))
-		return f"{y:04d}-{mth:02d}-{d:02d}"
-
-	def _display_task_for_tab(tab_title: str, product: str, product_name: str) -> str:
-		base_task = (tab_title or "").strip()
-		is_misc = _collapse_spaces(base_task) == _collapse_spaces("기타")
-		if is_misc:
-			return (product_name or base_task).strip() or base_task
-		return (f"{base_task} {product}".strip() if product else base_task) or base_task
-
-	def _derive_type(product: str) -> str:
-		s = (product or "").strip()
-		if "저장" in s:
-			return "저장"
-		if "트래픽" in s:
-			return "트래픽"
-		return "공통"
-
-	def _lookup_unit_price(pricebook_items: List[Dict[str, any]], client: str, product: str, typev: str) -> int:
-		# 정확 타입 우선, 없으면 공통
-		for it in pricebook_items:
-			if (it.get("client") or "").strip()==client and (it.get("product") or "").strip()==product and (it.get("type") or "공통").strip()==typev:
-				try: return int(it.get("price") or 0)
-				except Exception: return 0
-		for it in pricebook_items:
-			if (it.get("client") or "").strip()==client and (it.get("product") or "").strip()==product and (it.get("type") or "공통").strip()=="공통":
-				try: return int(it.get("price") or 0)
-				except Exception: return 0
-		return 0
-
-	@app.route("/api/settlement/compute", methods=["POST"])
-	def api_settlement_compute():
-		try:
-			payload = request.get_json(force=True, silent=False) or {}
-		except Exception:
-			return jsonify({"error": "invalid_json"}), 400
-		tabs = payload.get("tabs") or []
-		if not isinstance(tabs, list):
-			return jsonify({"error": "tabs_array_required"}), 400
-		try:
-			settings = load_settings()
-			client = _get_client()
-			ss = client.open_by_key(settings.spreadsheet_id)
-			worksheets = { (w.title or "").strip(): w for w in ss.worksheets() }
-		except Exception as e:
-			return jsonify({"error": str(e)}), 500
-
-		pricebook = _read_json_file(_PRICEBOOK_FILE, {"items": []})
-		price_items = pricebook.get("items", []) if isinstance(pricebook, dict) else []
-
-		rows: List[Dict[str, any]] = []
-		missing_prices: List[Dict[str, str]] = []
-		# aggregates: by_product: {date: {product: {qty, expense, income}}}, by_agency: {agency: {product: {qty, expense, income}}}
-		by_product: Dict[str, Dict[str, Dict[str, int]]] = {}
-		by_agency: Dict[str, Dict[str, Dict[str, int]]] = {}
-
-		for tab in tabs:
-			ws = worksheets.get((tab or "").strip())
-			if not ws:
-				continue
-			try:
-				header_row, headers = _find_header_row(ws, load_settings())
-				records = _build_records(ws, header_row, headers)
-			except Exception:
-				records = []
-			date_str = _parse_date_from_title(ws.title or "")
-			for row in records:
-				row_norm = { _normalize_key(k): v for k, v in row.items() }
-				agency = str(_get_value_flexible(row_norm, load_settings().agency_col, "AGENCY_COLUMN") or "").strip()
-				bizname = str(_get_value_flexible(row_norm, load_settings().bizname_col, "BIZNAME_COLUMN") or "").strip()
-				product = str(_get_value_flexible(row_norm, load_settings().product_col, "PRODUCT_COLUMN") or "").strip()
-				product_name = str(_get_value_flexible(row_norm, load_settings().product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
-				workload_raw = str(_get_value_flexible(row_norm, load_settings().daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
-				qty = 0
-				try:
-					qty = int(re.search(r"-?\d+", workload_raw).group(0)) if workload_raw else 0
-				except Exception:
-					qty = 0
-				if not bizname:
-					continue
-				job = _display_task_for_tab(ws.title or "", product, product_name)
-				typev = _derive_type(product)
-				product_key = job if typev=="공통" else f"{job} {typev}"
-				unit_price = _lookup_unit_price(price_items, agency, product_key, typev)
-				expense = qty * unit_price
-				income = expense
-				rows.append({
-					"date": date_str,
-					"client": agency,
-					"job": job,
-					"type": (None if typev=="공통" else typev),
-					"qty": qty,
-					"unit_price": unit_price,
-					"expense": expense,
-					"income": income,
-				})
-				# aggregates by date/product
-				pmap = by_product.setdefault(date_str, {})
-				acc = pmap.setdefault(product_key, {"qty": 0, "expense": 0, "income": 0})
-				acc["qty"] += qty; acc["expense"] += expense; acc["income"] += income
-				# aggregates by agency/product
-				amap = by_agency.setdefault(agency or "기타", {})
-				acc2 = amap.setdefault(product_key, {"qty": 0, "expense": 0, "income": 0})
-				acc2["qty"] += qty; acc2["expense"] += expense; acc2["income"] += income
-				if unit_price <= 0:
-					missing_prices.append({"client": agency, "product": job, "type": (None if typev=="공통" else typev)})
-
-		return jsonify({
-			"rows": rows,
-			"aggregates": {"by_product": by_product, "by_agency": by_agency},
-			"missing_prices": missing_prices,
-		}), 200
 
 	@app.route("/api/mark-done", methods=["POST"])
 	def mark_done():
