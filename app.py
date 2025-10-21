@@ -460,10 +460,16 @@ def create_app() -> Flask:
 			client = _get_client()
 			ss = client.open_by_key(settings.spreadsheet_id)
 			ws = ss.worksheets()
-			titles = [ (w.title or "").strip() for w in ws ]
+			info = []
+			for w in ws:
+				try:
+					wid = int(getattr(w, 'id', 0) or 0)
+				except Exception:
+					wid = 0
+				info.append({"title": (w.title or "").strip(), "gid": wid})
 		except Exception as e:
 			return jsonify({"error": str(e)}), 500
-		return jsonify({"tabs": titles})
+		return jsonify({"tabs": info})
 
 	def _parse_date_from_title(title: str) -> str:
 		# YYYY-MM-DD 또는 YYYY.MM.DD 등 단순 포맷만 추출
@@ -529,11 +535,30 @@ def create_app() -> Flask:
 		by_product: Dict[str, Dict[str, Dict[str, int]]] = {}
 		by_agency: Dict[str, Dict[str, Dict[str, int]]] = {}
 
-		# 탭이 비어있으면 기본으로 '김찬영 일일보고서'만 처리(없으면 전체 처리)
+		# 탭이 비어있으면 기본으로 특정 시트만 처리: 우선순위 GID -> TITLE('김찬영 일일보고서') -> 전체
 		target_ws = []
 		if not tabs:
-			preferred = [w for title,w in worksheets.items() if (title or "").strip() == "김찬영 일일보고서"]
-			target_ws = preferred if preferred else list(worksheets.values())
+			# by gid
+			pref_gid_raw = os.getenv("SETTLEMENT_DEFAULT_GID", "").strip()
+			pref_gid = None
+			try:
+				pref_gid = int(pref_gid_raw) if pref_gid_raw else None
+			except Exception:
+				pref_gid = None
+			ws_by_id = {}
+			for w in ws_list:
+				try:
+					wid = int(getattr(w, 'id', 0) or 0)
+				except Exception:
+					wid = 0
+				if wid not in ws_by_id:
+					ws_by_id[wid] = w
+			if pref_gid and pref_gid in ws_by_id:
+				target_ws = [ws_by_id[pref_gid]]
+			else:
+				pref_title = (os.getenv("SETTLEMENT_DEFAULT_TITLE", "김찬영 일일보고서") or "").strip()
+				preferred = [w for title,w in worksheets.items() if (title or "").strip() == pref_title]
+				target_ws = preferred if preferred else list(worksheets.values())
 		else:
 			for tab in tabs:
 				ws = worksheets.get((tab or "").strip())
