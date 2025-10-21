@@ -458,7 +458,9 @@ def create_app() -> Flask:
 		try:
 			settings = load_settings()
 			client = _get_client()
-			ss = client.open_by_key(settings.spreadsheet_id)
+			# 정산 전용 스프레드시트 ID 우선
+			settlement_sheet_id = (os.getenv("SETTLEMENT_SPREADSHEET_ID", "") or "").strip() or settings.spreadsheet_id
+			ss = client.open_by_key(settlement_sheet_id)
 			ws = ss.worksheets()
 			info = []
 			for w in ws:
@@ -520,7 +522,8 @@ def create_app() -> Flask:
 		try:
 			settings = load_settings()
 			client = _get_client()
-			ss = client.open_by_key(settings.spreadsheet_id)
+			settlement_sheet_id = (os.getenv("SETTLEMENT_SPREADSHEET_ID", "") or "").strip() or settings.spreadsheet_id
+			ss = client.open_by_key(settlement_sheet_id)
 			ws_list = ss.worksheets()
 			worksheets = { (w.title or "").strip(): w for w in ws_list }
 		except Exception as e:
