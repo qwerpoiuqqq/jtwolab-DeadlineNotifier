@@ -47,37 +47,6 @@
     <div class="container">
       <div class="title"><a class="home-link" href="/">마감 안내 생성기</a> · <a class="home-link" href="/manage" style="font-weight:600">보장 관리</a> · <a class="home-link" href="/settlement">결재선 · 정산</a></div>
 
-      <div class="panel" style="margin-bottom:12px">
-        <div class="stack">
-          <div class="right stack">
-            <span class="muted">마지막 업데이트:</span>
-            <span id="last-updated" class="badge">{{ updated_at or '없음' }}</span>
-            <button id="refresh" class="btn">작업 불러오기</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel" style="margin-bottom:12px">
-        <div class="stack" style="align-items:flex-end">
-          <div>
-            <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">날짜 선택 (해당 날짜 기준 잔여일 재계산)</label>
-            <input id="q-date" type="date" />
-          </div>
-          <div>
-            <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">상호명</label>
-            <input id="q-biz" type="text" placeholder="상호명 검색" list="dl-biz" />
-            <datalist id="dl-biz"></datalist>
-          </div>
-          <div>
-            <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">대행사명</label>
-            <input id="q-agency" type="text" placeholder="대행사명 검색" list="dl-agency" />
-            <datalist id="dl-agency"></datalist>
-          </div>
-          <button id="search" class="btn btn-primary">검색</button>
-          <span class="muted">(둘 중 하나만 입력)</span>
-        </div>
-      </div>
-
       <!-- 탭 네비게이션 -->
       <div class="tabs">
         <div class="tab active" data-tab="internal">내부 보장건</div>
@@ -380,67 +349,15 @@
       }
 
       function applyFilter(){
-        const qb = norm(document.getElementById('q-biz').value);
-        const qa = norm(document.getElementById('q-agency').value);
-        const dateStr = document.getElementById('q-date').value;
-        const userDate = parseYMD(dateStr);
-        const snapshotDate = toUTCDateOnly(lastUpdatedAt || new Date().toISOString());
-        const userDateUTC = userDate ? userDate : toUTCDateOnly(new Date().toISOString());
-        const delta = daysBetween(userDateUTC, snapshotDate); // 사용자날짜 - 스냅샷날짜
-
-        let list = allItems.map(it=>{
-          const r = (typeof it.remain_days === 'number') ? (it.remain_days - delta) : null;
-          return Object.assign({}, it, { _effective_remain: r });
-        });
-
-        // 날짜 기준: 해당 날짜에 구동 중인 항목만 (잔여일>=0)
-        list = list.filter(it=> it._effective_remain === null ? false : (it._effective_remain >= 0));
-
-        if(qb && qa){
-          list = list.filter(it=> norm(it.bizname).includes(qb) && norm(it.agency).includes(qa));
-        }else if(qb){
-          list = list.filter(it=> norm(it.bizname).includes(qb));
-        }else if(qa){
-          list = list.filter(it=> norm(it.agency).includes(qa));
-        }
-        render(list);
+        // 필터링 없이 전체 목록 표시
+        render(allItems);
       }
 
-      document.getElementById('q-biz').addEventListener('input', ()=>{ updateDatalistFor('q-biz','dl-biz', bizOptions); applyFilter(); });
-      document.getElementById('q-agency').addEventListener('input', ()=>{ updateDatalistFor('q-agency','dl-agency', agencyOptions); applyFilter(); });
-      document.getElementById('q-date').addEventListener('change', applyFilter);
-      document.getElementById('search').addEventListener('click', applyFilter);
+      // 내부 보장건 관련 코드 제거 (deprecated)
 
-      document.getElementById('refresh').addEventListener('click', async()=>{
-        const btn = document.getElementById('refresh');
-        btn.disabled = true; btn.textContent = '불러오는 중...';
-        try{
-          const res = await fetch('/api/internal/refresh', { method: 'POST' });
-          const data = await res.json().catch(()=>({}));
-          if(!res.ok){ throw new Error(data?.error||'갱신 실패'); }
-          allItems = Array.isArray(data.items) ? data.items : [];
-          lastUpdatedAt = data.updated_at || null;
-          setUpdatedBadge();
-          buildOptionSets();
-          applyFilter();
-          toast('업데이트 완료');
-        }catch(e){
-          toast(e.message || '업데이트 실패');
-        }finally{
-          btn.disabled = false; btn.textContent = '작업 불러오기';
-        }
-      });
-
-      // 초기 상태 설정: 업데이트 시간 배지(KST), 날짜 기본값(오늘 KST), 자동완성 목록, 렌더
+      // 초기 상태 설정
       (function init(){
         setUpdatedBadge();
-        try{
-          const now = new Date();
-          const yyyy = now.getFullYear();
-          const mm = String(now.getMonth()+1).padStart(2,'0');
-          const dd = String(now.getDate()).padStart(2,'0');
-          document.getElementById('q-date').value = `${yyyy}-${mm}-${dd}`;
-        }catch(e){}
         buildOptionSets();
         applyFilter();
       })();
