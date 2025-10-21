@@ -575,16 +575,33 @@ def create_app() -> Flask:
 		"""수동 동기화"""
 		try:
 			gm = GuaranteeManager()
+			logger.info("Starting manual sync...")
 			result = gm.sync_from_google_sheets()
 			last_sync = gm.get_last_sync_time()
+			
+			# 동기화 결과 로그
+			logger.info(f"Sync completed - Added: {result['added']}, Updated: {result['updated']}, Failed: {result['failed']}")
+			
+			# 실패가 있는 경우 경고
+			if result['failed'] > 0:
+				message = f"동기화 부분 완료 - 추가: {result['added']}, 수정: {result['updated']}, 실패: {result['failed']}"
+			else:
+				message = f"동기화 완료 - 추가: {result['added']}, 수정: {result['updated']}"
+			
 			return jsonify({
 				"ok": True,
 				"result": result,
-				"last_sync": last_sync
+				"last_sync": last_sync,
+				"message": message
 			}), 200
 		except Exception as e:
-			logger.error(f"Manual sync failed: {e}")
-			return jsonify({"error": str(e)}), 500
+			logger.error(f"Manual sync failed: {str(e)}")
+			import traceback
+			logger.error(f"Traceback: {traceback.format_exc()}")
+			return jsonify({
+				"error": str(e),
+				"detail": "서버 로그를 확인하세요"
+			}), 500
 
 	@app.route("/api/guarantee/sync-status", methods=["GET"])
 	def api_guarantee_sync_status():
