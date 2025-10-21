@@ -432,10 +432,21 @@
         try{
           const res = await fetch(`/api/guarantee/items?${params}`);
           const data = await res.json();
-          renderGuaranteeTable(data.items);
+          
+          console.log('Loaded guarantee data:', data); // 디버깅용
+          
+          if(data.items && Array.isArray(data.items)){
+            renderGuaranteeTable(data.items);
+            document.getElementById('stat-total').textContent = data.count || data.items.length;
+          } else {
+            console.error('Invalid data format:', data);
+            renderGuaranteeTable([]);
+          }
+          
           updateStatistics();
         }catch(e){
-          console.error(e);
+          console.error('Failed to load guarantee data:', e);
+          toast('데이터 로드 실패');
         }
       }
       
