@@ -256,21 +256,39 @@ class GuaranteeManager:
         for company, sheet_id in sheets_config.items():
             try:
                 items = self._fetch_sheet_data(sheet_id, company)
+                logger.info(f"Fetched {len(items)} items from {company} sheet")
+                
                 for item in items:
-                    # 기존 데이터 확인 (상호명과 계약일로 중복 체크)
-                    existing = self._find_existing_item(item["business_name"], item["contract_date"], company)
-                    
-                    if existing:
-                        # 업데이트
-                        self.update_item(existing["id"], item)
-                        result["updated"] += 1
-                    else:
-                        # 신규 추가
-                        item["company"] = company
-                        self.create_item(item)
-                        result["added"] += 1
+                    try:
+                        # 상호명이 필수
+                        if not item.get("business_name"):
+                            logger.warning(f"Skipping item without business_name: {item}")
+                            continue
+                        
+                        # 기존 데이터 확인 (상호명과 계약일로 중복 체크)
+                        existing = self._find_existing_item(
+                            item.get("business_name", ""),
+                            item.get("contract_date", ""),
+                            company
+                        )
+                        
+                        if existing:
+                            # 업데이트
+                            self.update_item(existing["id"], item)
+                            result["updated"] += 1
+                        else:
+                            # 신규 추가
+                            item["company"] = company
+                            self.create_item(item)
+                            result["added"] += 1
+                    except Exception as e:
+                        logger.error(f"Failed to process item: {item}. Error: {e}")
+                        continue
             except Exception as e:
-                logger.error(f"Sync failed for {company}: {e}")
+                logger.error(f"Sync failed for {company}: {str(e)}")
+                logger.error(f"Sheet ID: {sheet_id}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 result["failed"] += 1
         
         # 마지막 동기화 시간 업데이트
@@ -281,11 +299,20 @@ class GuaranteeManager:
     
     def _find_existing_item(self, business_name: str, contract_date: str, company: str) -> Optional[Dict]:
         """중복 데이터 확인"""
+        if not business_name:
+            return None
+            
         for item in self.data.get("items", []):
-            if (item.get("business_name") == business_name and 
-                item.get("contract_date") == contract_date and
-                item.get("company") == company):
-                return item
+            # 계약일이 없는 경우 상호명과 회사로만 체크
+            if not contract_date:
+                if (item.get("business_name") == business_name and
+                    item.get("company") == company):
+                    return item
+            else:
+                if (item.get("business_name") == business_name and 
+                    item.get("contract_date") == contract_date and
+                    item.get("company") == company):
+                    return item
         return None
     
     def _fetch_sheet_data(self, sheet_id: str, company: str) -> List[Dict]:
@@ -296,18 +323,42 @@ class GuaranteeManager:
             
             # 서비스 계정 키 로드
             creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            service_account_json = os.getenv("SERVICE_ACCOUNT_JSON")
+            
             if creds_path and os.path.exists(creds_path):
+                logger.info(f"Using credentials file: {creds_path}")
                 creds = Credentials.from_service_account_file(creds_path, scopes=scope)
-            else:
+            elif service_account_json:
                 # 환경변수에서 JSON 직접 로드
                 import json
-                service_account_info = json.loads(os.getenv("SERVICE_ACCOUNT_JSON", "{}"))
+                logger.info("Using SERVICE_ACCOUNT_JSON from environment")
+                service_account_info = json.loads(service_account_json)
                 creds = Credentials.from_service_account_info(service_account_info, scopes=scope)
+            else:
+                raise ValueError("No Google credentials found. Set GOOGLE_APPLICATION_CREDENTIALS or SERVICE_ACCOUNT_JSON")
             
             # 시트 연결
+            logger.info(f"Connecting to sheet: {sheet_id}")
             client = gspread.authorize(creds)
             spreadsheet = client.open_by_key(sheet_id)
-            worksheet = spreadsheet.worksheet("보장건")
+            
+            # 탭 이름 확인
+            worksheets = spreadsheet.worksheets()
+            worksheet_names = [ws.title for ws in worksheets]
+            logger.info(f"Available worksheets: {worksheet_names}")
+            
+            # '보장건' 탭 찾기 (대소문자 무시)
+            target_sheet = None
+            for ws in worksheets:
+                if ws.title == "보장건":
+                    target_sheet = ws
+                    break
+            
+            if not target_sheet:
+                logger.error(f"'보장건' 탭을 찾을 수 없습니다. 사용 가능한 탭: {worksheet_names}")
+                raise ValueError(f"'보장건' 탭이 없습니다. 사용 가능한 탭: {', '.join(worksheet_names)}")
+            
+            worksheet = target_sheet
             
             # 데이터 가져오기
             rows = worksheet.get_all_values()
@@ -385,10 +436,13 @@ class GuaranteeManager:
                 daily_ranks = {}
                 for i in range(1, 26):
                     for idx, header in enumerate(headers):
-                        if str(i) in header and idx < len(row):
+                        # 숫자만 있는 헤더 또는 "일" 포함 헤더 찾기
+                        header_str = str(header).strip()
+                        if (header_str == str(i) or f"{i}일" in header_str) and idx < len(row):
                             rank = self._get_cell_value(row, idx)
                             if rank and rank.isdigit():
                                 daily_ranks[str(i)] = int(rank)
+                            break  # 하나 찾으면 종료
                 
                 if daily_ranks:
                     item["daily_ranks"] = daily_ranks
@@ -398,7 +452,10 @@ class GuaranteeManager:
             return items
             
         except Exception as e:
-            logger.error(f"Failed to fetch sheet data: {e}")
+            logger.error(f"Failed to fetch sheet data from {sheet_id}: {str(e)}")
+            logger.error(f"Company: {company}")
+            if "worksheet" in str(e).lower() or "not found" in str(e).lower():
+                logger.error("'보장건' 탭을 찾을 수 없습니다. 시트에 '보장건' 탭이 있는지 확인하세요.")
             raise
     
     def _get_cell_value(self, row: List, index: Optional[int]) -> str:
