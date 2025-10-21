@@ -8,8 +8,6 @@ import base64
 from datetime import datetime
 from pathlib import Path
 from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
 import logging
 import shutil
 
@@ -49,12 +47,22 @@ class DataSecurity:
         # 환경변수에서 키 가져오기 (우선순위 1)
         env_key = os.getenv("DATA_ENCRYPTION_KEY")
         if env_key:
-            return Fernet(env_key.encode() if isinstance(env_key, str) else env_key)
+            try:
+                # Fernet 키 형식 검증
+                key_bytes = env_key.encode() if isinstance(env_key, str) else env_key
+                cipher = Fernet(key_bytes)
+                logger.info("✅ Using encryption key from environment variable")
+                return cipher
+            except Exception as e:
+                logger.error(f"❌ Invalid encryption key format in DATA_ENCRYPTION_KEY: {e}")
+                logger.error("💡 Please generate a valid Fernet key using: python generate_key.py")
+                raise ValueError(f"Invalid DATA_ENCRYPTION_KEY format. Must be a valid Fernet key (44 chars, base64). Error: {e}")
         
         # 파일에서 키 가져오기 (우선순위 2)
         if key_file.exists():
             with open(key_file, 'rb') as f:
                 key = f.read()
+            logger.info("Using encryption key from file")
             return Fernet(key)
         
         # 새 키 생성
@@ -230,7 +238,7 @@ class DataSecurity:
         }
         
         # 데이터 파일 정보
-        for file in self.data_dir.glob("*.json"):
+        for file in self.data_dir.glob("*.enc"):
             stat = file.stat()
             info["data_files"].append({
                 "name": file.name,
@@ -243,3 +251,4 @@ class DataSecurity:
         info["backup_count"] = len(list(self.backup_dir.glob("*.bak")))
         
         return info
+
