@@ -1,9 +1,0 @@
-services:
-  - type: web
-    name: jtwolab-deadlinenotifier
-    runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python app.py --prod
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.10
