@@ -717,6 +717,9 @@ def _lookup_unit_price(pricebook_items: List[Dict[str, any]], client: str, job_n
 
 app = create_app()
 
+# WSGI 서버를 위한 명시적 앱 노출
+application = app
+
 
 def _parse_days(days_param: str) -> List[int]:
 	if not days_param:
