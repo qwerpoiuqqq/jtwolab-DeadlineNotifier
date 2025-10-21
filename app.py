@@ -340,7 +340,8 @@ def create_app() -> Flask:
 		si = StringIO()
 		w = csv.writer(si)
 		w.writerow(["client", "product", "type", "price", "account", "bank", "holder"])
-		csv_data = si.getvalue()
+		# Excel 호환을 위해 BOM 추가(UTF-8-SIG)
+		csv_data = "\ufeff" + si.getvalue()
 		resp = Response(csv_data, mimetype="text/csv; charset=utf-8")
 		resp.headers["Content-Disposition"] = "attachment; filename=pricebook_template.csv"
 		return resp
@@ -352,22 +353,44 @@ def create_app() -> Flask:
 			return jsonify({"error": "file_required"}), 400
 		filename = file.filename or ""
 		name_lower = filename.lower()
-		# CSV만 지원 (간단 구현)
-		if not name_lower.endswith(".csv"):
-			return jsonify({"error": "csv_only_supported"}), 400
+		# CSV/TSV만 지원
+		if not (name_lower.endswith(".csv") or name_lower.endswith(".tsv")):
+			return jsonify({"error": "csv_or_tsv_only_supported"}), 400
 		try:
-			text = file.stream.read().decode("utf-8", errors="replace")
+			raw = file.stream.read()
+			if isinstance(raw, str):
+				text = raw
+			else:
+				text = None
+				for enc in ["utf-8-sig", "utf-8", "cp949", "euc-kr"]:
+					try:
+						text = raw.decode(enc)
+						break
+					except Exception:
+						continue
+				if text is None:
+					return jsonify({"error": "unsupported_encoding"}), 400
+			# 구분자 결정
+			if name_lower.endswith(".tsv"):
+				delimiter = "\t"
+			else:
+				try:
+					dialect = csv.Sniffer().sniff(text[:2048])
+					delimiter = getattr(dialect, "delimiter", ",") or ","
+				except Exception:
+					delimiter = ","
 			si = StringIO(text)
-			r = csv.DictReader(si)
+			raw_reader = csv.DictReader(si, delimiter=delimiter, skipinitialspace=True)
 			items = []
-			for row in r:
-				client = (row.get("client") or "").strip()
-				product = (row.get("product") or "").strip()
-				typev = (row.get("type") or "공통").strip() or "공통"
-				price = int(str(row.get("price") or "0").replace(",", "").strip() or "0")
-				account = (row.get("account") or "").strip()
-				bank = (row.get("bank") or "").strip()
-				holder = (row.get("holder") or "").strip()
+			for row in raw_reader:
+				row2 = { (k or "").strip().lower(): (v if isinstance(v, str) else str(v or "")) for k, v in (row or {}).items() }
+				client = (row2.get("client") or "").strip()
+				product = (row2.get("product") or "").strip()
+				typev = (row2.get("type") or "공통").strip() or "공통"
+				price = int(str(row2.get("price") or "0").replace(",", "").strip() or "0")
+				account = (row2.get("account") or "").strip()
+				bank = (row2.get("bank") or "").strip()
+				holder = (row2.get("holder") or "").strip()
 				if client and product:
 					items.append({"client": client, "product": product, "type": typev, "price": price, "account": account, "bank": bank, "holder": holder})
 		except Exception as e:
