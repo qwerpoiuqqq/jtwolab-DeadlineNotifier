@@ -28,15 +28,10 @@
   </head>
   <body>
     <div class="container">
-      <div class="title"><a class="home-link" href="/">마감 안내 생성기</a> · <span class="muted">내부 보장건</span></div>
+      <div class="title"><a class="home-link" href="/">마감 안내 생성기</a> · <a class="home-link" href="/manage" style="font-weight:600">보장 관리</a> · <a class="home-link" href="/settlement">결재선 · 정산</a></div>
 
       <div class="panel" style="margin-bottom:12px">
         <div class="stack">
-          <div class="nav">
-            <a class="btn" href="/">마감 안내</a>
-            <a class="btn btn-primary" href="/manage">보장 관리</a>
-            <a class="btn" href="/settlement">결재선 · 정산</a>
-          </div>
           <div class="right stack">
             <span class="muted">마지막 업데이트:</span>
             <span id="last-updated" class="badge">{{ updated_at or '없음' }}</span>
@@ -64,6 +59,15 @@
           <button id="search" class="btn btn-primary">검색</button>
           <span class="muted">(둘 중 하나만 입력)</span>
         </div>
+      </div>
+
+      <!-- 월보장 업체별 최신 작업 이력: UI 스켈레톤 -->
+      <div class="panel" style="margin-bottom:12px">
+        <div class="stack" style="justify-content:space-between; align-items:center; flex-wrap:wrap">
+          <div class="muted">월보장 업체별 최신 작업 이력</div>
+          <div class="pill" id="latest-count" style="display:none"></div>
+        </div>
+        <div id="latest-grid" style="display:grid; gap:8px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); margin-top:8px"></div>
       </div>
 
       <div class="panel" style="margin-bottom:12px">
@@ -220,7 +224,18 @@
         }catch(e){}
         buildOptionSets();
         applyFilter();
+        // 월보장 최신 작업 이력: 스켈레톤 렌더(로직 추후 적용)
+        try{ renderLatestHistory(); }catch(e){}
       })();
+      // 월보장 최신 작업 이력: 스켈레톤 함수
+      function renderLatestHistory(){
+        const grid = document.getElementById('latest-grid'); if(!grid) return;
+        grid.innerHTML = '';
+        const card = document.createElement('div'); card.className='panel'; card.style.margin='0';
+        card.innerHTML = `<div class="muted">준비 중 (로직 추후 적용)</div>`;
+        grid.appendChild(card);
+        const badge = document.getElementById('latest-count'); if(badge){ badge.style.display='none'; badge.textContent=''; }
+      }
     </script>
   </body>
   </html>
