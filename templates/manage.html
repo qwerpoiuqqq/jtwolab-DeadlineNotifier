@@ -24,6 +24,23 @@
       th{ font-size:12px; color:var(--muted); font-weight:600; }
       .badge{ display:inline-block; padding:4px 8px; border-radius:999px; border:1px solid var(--line); background:var(--pill); font-size:12px; }
       .right{ margin-left:auto; }
+      .tabs{ display:flex; gap:4px; margin-bottom:12px; }
+      .tab{ padding:10px 16px; border:1px solid var(--line); background:#fff; color:var(--text); border-radius:10px 10px 0 0; cursor:pointer; }
+      .tab.active{ background:#111827; color:#fff; border-color:#111827; }
+      .tab-content{ display:none; }
+      .tab-content.active{ display:block; }
+      .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.3); z-index:100; }
+      .modal-content{ background:#fff; border-radius:12px; padding:20px; min-width:500px; max-width:90%; max-height:80vh; overflow:auto; }
+      .form-group{ margin-bottom:12px; }
+      .form-row{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+      select{ background:#fff; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px 12px; min-width:120px; outline:none; }
+      .status-badge{ padding:4px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+      .status-진행중{ background:#dbeafe; color:#1e40af; }
+      .status-완료{ background:#dcfce7; color:#166534; }
+      .status-세팅대기{ background:#fef3c7; color:#92400e; }
+      .status-중단{ background:#fee2e2; color:#991b1b; }
+      .card{ background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px; }
+      .stat-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; }
     </style>
   </head>
   <body>
@@ -61,17 +78,17 @@
         </div>
       </div>
 
-      <!-- 월보장 업체별 최신 작업 이력: UI 스켈레톤 -->
-      <div class="panel" style="margin-bottom:12px">
-        <div class="stack" style="justify-content:space-between; align-items:center; flex-wrap:wrap">
-          <div class="muted">월보장 업체별 최신 작업 이력</div>
-          <div class="pill" id="latest-count" style="display:none"></div>
-        </div>
-        <div id="latest-grid" style="display:grid; gap:8px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); margin-top:8px"></div>
+      <!-- 탭 네비게이션 -->
+      <div class="tabs">
+        <div class="tab active" data-tab="internal">내부 보장건</div>
+        <div class="tab" data-tab="guarantee">월보장 관리</div>
       </div>
 
-      <div class="panel" style="margin-bottom:12px">
-        <div class="muted" style="margin-bottom:8px">총 <span id="count">0</span>건</div>
+      <!-- 내부 보장건 탭 -->
+      <div class="tab-content active" data-content="internal">
+
+        <div class="panel" style="margin-bottom:12px">
+          <div class="muted" style="margin-bottom:8px">총 <span id="count">0</span>건</div>
         <div style="overflow:auto">
           <table id="tbl">
             <thead>
@@ -85,14 +102,216 @@
                 <th>탭</th>
               </tr>
             </thead>
-            <tbody></tbody>
+            <tbody>            </tbody>
           </table>
+        </div>
+      </div>
+      </div>
+
+      <!-- 월보장 관리 탭 -->
+      <div class="tab-content" data-content="guarantee">
+        <!-- 동기화 상태 -->
+        <div class="panel" style="margin-bottom:12px; background:#f0f9ff; border-color:#3b82f6">
+          <div class="stack" style="justify-content:space-between; align-items:center">
+            <div>
+              <div class="muted" style="font-size:12px">구글 시트 동기화</div>
+              <div class="stack" style="gap:8px; margin-top:4px">
+                <span id="sync-status" style="font-size:11px">마지막 동기화: -</span>
+                <span id="next-sync" style="font-size:11px">다음 동기화: -</span>
+              </div>
+            </div>
+            <button class="btn btn-primary" id="btn-sync">수동 동기화</button>
+          </div>
+        </div>
+        
+        <!-- 통계 -->
+        <div class="panel" style="margin-bottom:12px">
+          <div class="stack" style="justify-content:space-between; align-items:center">
+            <div class="muted">월보장 통계</div>
+            <button class="btn btn-primary" id="btn-add-guarantee">새 보장건 등록</button>
+          </div>
+          <div class="stat-grid" style="margin-top:12px">
+            <div class="card">
+              <div class="muted" style="font-size:12px">전체</div>
+              <div style="font-size:24px; font-weight:700" id="stat-total">0</div>
+            </div>
+            <div class="card">
+              <div class="muted" style="font-size:12px">진행중</div>
+              <div style="font-size:24px; font-weight:700; color:#1e40af" id="stat-active">0</div>
+            </div>
+            <div class="card">
+              <div class="muted" style="font-size:12px">완료</div>
+              <div style="font-size:24px; font-weight:700; color:#166534" id="stat-completed">0</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 필터 및 검색 -->
+        <div class="panel" style="margin-bottom:12px">
+          <div class="stack" style="gap:12px; align-items:flex-end">
+            <div>
+              <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">회사</label>
+              <select id="filter-company">
+                <option value="">전체</option>
+                <option value="제이투랩">제이투랩</option>
+                <option value="일류기획">일류기획</option>
+              </select>
+            </div>
+            <div>
+              <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">상태</label>
+              <select id="filter-status">
+                <option value="">전체</option>
+                <option value="진행중">진행중</option>
+                <option value="세팅대기">세팅대기</option>
+                <option value="완료">완료</option>
+                <option value="중단">중단</option>
+                <option value="환불">환불</option>
+              </select>
+            </div>
+            <div style="flex:1">
+              <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">검색</label>
+              <input type="text" id="search-guarantee" placeholder="상호명, 키워드, 메모 검색" style="width:100%">
+            </div>
+            <button class="btn btn-primary" id="btn-search">검색</button>
+            <button class="btn" id="btn-refresh-guarantee">새로고침</button>
+          </div>
+        </div>
+
+        <!-- 보장건 목록 테이블 -->
+        <div class="panel">
+          <div style="overflow:auto">
+            <table id="guarantee-table">
+              <thead>
+                <tr>
+                  <th>구분</th>
+                  <th>계약일</th>
+                  <th>회사</th>
+                  <th>대행사</th>
+                  <th>상태</th>
+                  <th>상호명</th>
+                  <th>키워드</th>
+                  <th>보장순위</th>
+                  <th>계약금</th>
+                  <th>작업시작</th>
+                  <th>액션</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
     </div>
 
     <div class="panel" id="toast" style="display:none; position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; border:1px solid #111827; padding:10px 12px; border-radius:10px;">완료</div>
+
+    <!-- 보장건 등록/수정 모달 -->
+    <div class="modal" id="guarantee-modal">
+      <div class="modal-content">
+        <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:16px">
+          <h3 id="modal-title">새 보장건 등록</h3>
+          <button class="btn" onclick="closeModal()">✕</button>
+        </div>
+        <form id="guarantee-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="muted">구분*</label>
+              <select name="type" required>
+                <option value="신규">신규</option>
+                <option value="연장">연장</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="muted">회사*</label>
+              <select name="company" required>
+                <option value="제이투랩">제이투랩</option>
+                <option value="일류기획">일류기획</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="muted">계약일*</label>
+              <input type="date" name="contract_date" required>
+            </div>
+            <div class="form-group">
+              <label class="muted">작업 시작일</label>
+              <input type="date" name="start_date">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="muted">대행사명</label>
+              <input type="text" name="agency" placeholder="대행사명">
+            </div>
+            <div class="form-group">
+              <label class="muted">상호명*</label>
+              <input type="text" name="business_name" required placeholder="업체 상호명">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="muted">메인 키워드</label>
+              <input type="text" name="main_keyword" placeholder="노출 키워드">
+            </div>
+            <div class="form-group">
+              <label class="muted">보장 순위</label>
+              <input type="text" name="guarantee_rank" placeholder="예: 5위 이상">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="muted">총 계약금 (VAT 제외)</label>
+              <input type="number" name="contract_amount" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label class="muted">입금액/마진 (VAT 제외)</label>
+              <input type="number" name="deposit_amount" placeholder="0">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="muted">상품</label>
+              <select name="product">
+                <option value="플레이스">플레이스</option>
+                <option value="쇼핑">쇼핑</option>
+                <option value="자동완성">자동완성</option>
+                <option value="기타">기타</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="muted">상태</label>
+              <select name="status">
+                <option value="세팅대기">세팅대기</option>
+                <option value="진행중">진행중</option>
+                <option value="완료">완료</option>
+                <option value="중단">중단</option>
+                <option value="환불">환불</option>
+                <option value="반불">반불</option>
+                <option value="후불">후불</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="muted">플레이스 계정</label>
+            <input type="text" name="place_account" placeholder="ID / PW" style="width:100%">
+          </div>
+          <div class="form-group">
+            <label class="muted">URL</label>
+            <input type="text" name="url" placeholder="네이버 플레이스 URL" style="width:100%">
+          </div>
+          <div class="form-group">
+            <label class="muted">메모</label>
+            <textarea name="memo" rows="3" style="width:100%; padding:8px; border:1px solid var(--line); border-radius:10px; outline:none"></textarea>
+          </div>
+          <div class="stack" style="justify-content:flex-end; gap:8px">
+            <button type="button" class="btn" onclick="closeModal()">취소</button>
+            <button type="submit" class="btn btn-primary">저장</button>
+          </div>
+        </form>
+      </div>
+    </div>
 
     <script>
       const initialItems = {{ (initial_items or []) | tojson | safe }};
@@ -224,18 +443,258 @@
         }catch(e){}
         buildOptionSets();
         applyFilter();
-        // 월보장 최신 작업 이력: 스켈레톤 렌더(로직 추후 적용)
-        try{ renderLatestHistory(); }catch(e){}
       })();
-      // 월보장 최신 작업 이력: 스켈레톤 함수
-      function renderLatestHistory(){
-        const grid = document.getElementById('latest-grid'); if(!grid) return;
-        grid.innerHTML = '';
-        const card = document.createElement('div'); card.className='panel'; card.style.margin='0';
-        card.innerHTML = `<div class="muted">준비 중 (로직 추후 적용)</div>`;
-        grid.appendChild(card);
-        const badge = document.getElementById('latest-count'); if(badge){ badge.style.display='none'; badge.textContent=''; }
+      // 탭 전환
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          const tabName = tab.dataset.tab;
+          // 탭 활성화
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          // 컨텐츠 전환
+          document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+          document.querySelector(`.tab-content[data-content="${tabName}"]`).classList.add('active');
+          
+          // 월보장 탭인 경우 데이터 로드
+          if(tabName === 'guarantee'){
+            loadGuaranteeData();
+            updateSyncStatus();
+          }
+        });
+      });
+
+      // 월보장 데이터 관리
+      let currentEditId = null;
+      
+      function openModal(item = null){
+        const modal = document.getElementById('guarantee-modal');
+        const form = document.getElementById('guarantee-form');
+        const title = document.getElementById('modal-title');
+        
+        if(item){
+          title.textContent = '보장건 수정';
+          currentEditId = item.id;
+          // 폼에 데이터 채우기
+          form.type.value = item.type || '신규';
+          form.company.value = item.company || '';
+          form.contract_date.value = item.contract_date || '';
+          form.start_date.value = item.start_date || '';
+          form.agency.value = item.agency || '';
+          form.business_name.value = item.business_name || '';
+          form.main_keyword.value = item.main_keyword || '';
+          form.guarantee_rank.value = item.guarantee_rank || '';
+          form.contract_amount.value = item.contract_amount || '';
+          form.deposit_amount.value = item.deposit_amount || '';
+          form.product.value = item.product || '플레이스';
+          form.status.value = item.status || '세팅대기';
+          form.place_account.value = item.place_account || '';
+          form.url.value = item.url || '';
+          form.memo.value = item.memo || '';
+        } else {
+          title.textContent = '새 보장건 등록';
+          currentEditId = null;
+          form.reset();
+        }
+        
+        modal.style.display = 'flex';
       }
+      
+      function closeModal(){
+        document.getElementById('guarantee-modal').style.display = 'none';
+        currentEditId = null;
+      }
+      
+      async function loadGuaranteeData(){
+        const company = document.getElementById('filter-company').value;
+        const status = document.getElementById('filter-status').value;
+        
+        const params = new URLSearchParams();
+        if(company) params.append('company', company);
+        if(status) params.append('status', status);
+        
+        try{
+          const res = await fetch(`/api/guarantee/items?${params}`);
+          const data = await res.json();
+          renderGuaranteeTable(data.items);
+          updateStatistics();
+        }catch(e){
+          console.error(e);
+        }
+      }
+      
+      function renderGuaranteeTable(items){
+        const tbody = document.querySelector('#guarantee-table tbody');
+        tbody.innerHTML = '';
+        
+        items.forEach(item => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${item.type || ''}</td>
+            <td>${item.contract_date || ''}</td>
+            <td>${item.company || ''}</td>
+            <td>${item.agency || ''}</td>
+            <td><span class="status-badge status-${item.status || ''}">${item.status || ''}</span></td>
+            <td>${item.business_name || ''}</td>
+            <td>${item.main_keyword || ''}</td>
+            <td>${item.guarantee_rank || ''}</td>
+            <td>${Number(item.contract_amount || 0).toLocaleString()}</td>
+            <td>${item.start_date || ''}</td>
+            <td>
+              <button class="btn btn-sm" onclick='editGuarantee(${JSON.stringify(item)})'>수정</button>
+              <button class="btn btn-sm" onclick='deleteGuarantee("${item.id}")'>삭제</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+      
+      async function updateStatistics(){
+        try{
+          const res = await fetch('/api/guarantee/statistics');
+          const stats = await res.json();
+          
+          document.getElementById('stat-total').textContent = stats.total || 0;
+          
+          let activeTotal = 0, completedTotal = 0;
+          Object.values(stats.by_company || {}).forEach(c => {
+            activeTotal += c.active || 0;
+            completedTotal += c.completed || 0;
+          });
+          
+          document.getElementById('stat-active').textContent = activeTotal;
+          document.getElementById('stat-completed').textContent = completedTotal;
+        }catch(e){
+          console.error(e);
+        }
+      }
+      
+      window.editGuarantee = function(item){
+        openModal(item);
+      }
+      
+      window.deleteGuarantee = async function(id){
+        if(!confirm('삭제하시겠습니까?')) return;
+        
+        try{
+          const res = await fetch(`/api/guarantee/items/${id}`, { method: 'DELETE' });
+          if(res.ok){
+            toast('삭제되었습니다');
+            loadGuaranteeData();
+          }
+        }catch(e){
+          toast('삭제 실패');
+        }
+      }
+      
+      // 폼 제출
+      document.getElementById('guarantee-form').addEventListener('submit', async(e) => {
+        e.preventDefault();
+        
+        const formData = new FormData(e.target);
+        const data = Object.fromEntries(formData);
+        
+        try{
+          let res;
+          if(currentEditId){
+            res = await fetch(`/api/guarantee/items/${currentEditId}`, {
+              method: 'PUT',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify(data)
+            });
+          } else {
+            res = await fetch('/api/guarantee/items', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify(data)
+            });
+          }
+          
+          if(res.ok){
+            toast(currentEditId ? '수정되었습니다' : '등록되었습니다');
+            closeModal();
+            loadGuaranteeData();
+          }
+        }catch(e){
+          toast('저장 실패');
+        }
+      });
+      
+      // 동기화 상태 업데이트
+      async function updateSyncStatus(){
+        try{
+          const res = await fetch('/api/guarantee/sync-status');
+          const data = await res.json();
+          
+          const syncStatusEl = document.getElementById('sync-status');
+          const nextSyncEl = document.getElementById('next-sync');
+          
+          if(data.last_sync){
+            const lastSync = new Date(data.last_sync);
+            const kstTime = lastSync.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+            syncStatusEl.textContent = `마지막 동기화: ${kstTime}`;
+          } else {
+            syncStatusEl.textContent = '마지막 동기화: 없음';
+          }
+          
+          if(data.next_sync_kst){
+            nextSyncEl.textContent = `다음 동기화: ${data.next_sync_kst}`;
+          }
+        }catch(e){
+          console.error(e);
+        }
+      }
+      
+      // 수동 동기화
+      document.getElementById('btn-sync').addEventListener('click', async() => {
+        const btn = document.getElementById('btn-sync');
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '동기화 중...';
+        
+        try{
+          const res = await fetch('/api/guarantee/sync', { method: 'POST' });
+          const data = await res.json();
+          
+          if(res.ok){
+            toast(`동기화 완료: 추가 ${data.result.added}건, 수정 ${data.result.updated}건`);
+            loadGuaranteeData();
+            updateSyncStatus();
+          } else {
+            toast('동기화 실패: ' + (data.error || '알 수 없는 오류'));
+          }
+        }catch(e){
+          toast('동기화 실패');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
+      });
+      
+      // 이벤트 바인딩
+      document.getElementById('btn-add-guarantee').addEventListener('click', () => openModal());
+      document.getElementById('btn-refresh-guarantee').addEventListener('click', loadGuaranteeData);
+      document.getElementById('filter-company').addEventListener('change', loadGuaranteeData);
+      document.getElementById('filter-status').addEventListener('change', loadGuaranteeData);
+      
+      // 검색
+      document.getElementById('btn-search').addEventListener('click', async() => {
+        const query = document.getElementById('search-guarantee').value;
+        if(!query) return loadGuaranteeData();
+        
+        try{
+          const res = await fetch(`/api/guarantee/search?q=${encodeURIComponent(query)}`);
+          const data = await res.json();
+          renderGuaranteeTable(data.items);
+        }catch(e){
+          console.error(e);
+        }
+      });
+      
+      document.getElementById('search-guarantee').addEventListener('keypress', (e) => {
+        if(e.key === 'Enter'){
+          document.getElementById('btn-search').click();
+        }
+      });
     </script>
   </body>
   </html>
