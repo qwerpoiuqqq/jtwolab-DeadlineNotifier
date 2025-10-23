@@ -304,13 +304,17 @@ class GuaranteeManager:
         for company, sheet_id in sheets_config.items():
             try:
                 items = self._fetch_sheet_data(sheet_id, company)
-                logger.info(f"Fetched {len(items)} items from {company} sheet")
+                logger.info(f"✅ Fetched {len(items)} items from {company} sheet")
                 
-                for item in items:
+                # 전체 데이터 수 로그
+                if items:
+                    logger.info(f"First item from {company}: {items[0]}")
+                
+                for idx, item in enumerate(items):
                     try:
                         # 상호명이 필수
                         if not item.get("business_name"):
-                            logger.warning(f"Skipping item without business_name: {item}")
+                            logger.warning(f"Skipping item without business_name at index {idx}: {item}")
                             continue
                         
                         # 기존 데이터 확인 (상호명과 계약일로 중복 체크)
@@ -324,16 +328,21 @@ class GuaranteeManager:
                             # 업데이트
                             self.update_item(existing["id"], item)
                             result["updated"] += 1
+                            if idx < 3:  # 처음 몇 개만 로그
+                                logger.info(f"Updated: {item.get('business_name')}")
                         else:
                             # 신규 추가
                             item["company"] = company
                             self.create_item(item)
                             result["added"] += 1
+                            if idx < 3:  # 처음 몇 개만 로그
+                                logger.info(f"Added: {item.get('business_name')}")
                     except Exception as e:
-                        logger.error(f"Failed to process item: {item}. Error: {e}")
+                        logger.error(f"Failed to process item at index {idx}: {item}. Error: {e}")
+                        result["failed"] += 1
                         continue
             except Exception as e:
-                logger.error(f"Sync failed for {company}: {str(e)}")
+                logger.error(f"❌ Sync failed for {company}: {str(e)}")
                 logger.error(f"Sheet ID: {sheet_id}")
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
@@ -342,6 +351,9 @@ class GuaranteeManager:
         # 마지막 동기화 시간 업데이트
         self.data["last_sync"] = datetime.now().isoformat()
         self._save_data()
+        
+        logger.info(f"📊 Sync complete - Added: {result['added']}, Updated: {result['updated']}, Failed: {result['failed']}")
+        logger.info(f"💾 Total items in database: {len(self.data.get('items', []))}")
         
         return result
     
@@ -434,8 +446,8 @@ class GuaranteeManager:
                     header_map["main_keyword"] = idx
                 elif "입금" in header or "마진" in header:
                     header_map["deposit_amount"] = idx
-                elif "계약금" in header:
-                    header_map["contract_amount"] = idx
+                elif "총" in header and "계약" in header:
+                    header_map["total_contract"] = idx
                 elif "상품" in header:
                     header_map["product"] = idx
                 elif "담당" in header:
@@ -444,16 +456,22 @@ class GuaranteeManager:
                     header_map["memo"] = idx
                 elif "플" in header and "계정" in header:
                     header_map["place_account"] = idx
-                elif "URL" in header:
+                elif "URL" in header.upper():
                     header_map["url"] = idx
+                elif "계약" in header and "당시" in header and "순위" in header:
+                    header_map["initial_rank"] = idx
                 elif "보장" in header and "순위" in header:
                     header_map["guarantee_rank"] = idx
-                elif "시작일" in header:
-                    header_map["start_date"] = idx
+                elif "작업" in header and "시작" in header:
+                    header_map["work_start_date"] = idx
+            
+            # 헤더 매핑 로그
+            logger.info(f"Header mapping created: {header_map}")
+            logger.info(f"Total headers: {len(headers)}, Headers: {headers}")
             
             # 데이터 파싱
             items = []
-            for row in data_rows:
+            for row_idx, row in enumerate(data_rows):
                 if not row or not any(row):  # 빈 행 건너뛰기
                     continue
                 
@@ -475,8 +493,14 @@ class GuaranteeManager:
                             if "date" in field_name and value:
                                 value = self._parse_date(value)
                             # 금액 필드 숫자 변환
-                            elif "amount" in field_name:
+                            elif "amount" in field_name or field_name == "total_contract":
                                 value = self._parse_amount(value)
+                            # 순위 필드 숫자 변환
+                            elif "rank" in field_name:
+                                try:
+                                    value = int(value) if value.isdigit() else value
+                                except:
+                                    pass
                             
                             item[field_name] = value
                 
@@ -496,7 +520,12 @@ class GuaranteeManager:
                     item["daily_ranks"] = daily_ranks
                 
                 items.append(item)
+                
+                # 첫 몇 개 항목은 로깅
+                if row_idx < 3:
+                    logger.info(f"Parsed item {row_idx}: {item.get('business_name')}, contract_date: {item.get('contract_date')}, status: {item.get('status')}")
             
+            logger.info(f"Total items parsed from {company} sheet: {len(items)}")
             return items
             
         except Exception as e:
