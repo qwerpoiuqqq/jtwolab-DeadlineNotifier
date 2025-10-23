@@ -592,19 +592,26 @@ def create_app() -> Flask:
 			result = gm.sync_from_google_sheets()
 			last_sync = gm.get_last_sync_time()
 			
+			# 현재 총 데이터 수 가져오기
+			total_items = len(gm.get_items())
+			
 			# 동기화 결과 로그
 			logger.info(f"Sync completed - Added: {result['added']}, Updated: {result['updated']}, Failed: {result['failed']}")
+			logger.info(f"Total items in database: {total_items}")
 			
 			# 실패가 있는 경우 경고
 			if result['failed'] > 0:
-				message = f"동기화 부분 완료 - 추가: {result['added']}, 수정: {result['updated']}, 실패: {result['failed']}"
+				message = f"동기화 부분 완료 - 추가: {result['added']}건, 수정: {result['updated']}건, 실패: {result['failed']}건 (총 {total_items}건)"
+			elif result['added'] == 0 and result['updated'] == 0:
+				message = f"변경사항 없음 (총 {total_items}건)"
 			else:
-				message = f"동기화 완료 - 추가: {result['added']}, 수정: {result['updated']}"
+				message = f"동기화 완료 - 추가: {result['added']}건, 수정: {result['updated']}건 (총 {total_items}건)"
 			
 			return jsonify({
 				"ok": True,
 				"result": result,
 				"last_sync": last_sync,
+				"total_items": total_items,
 				"message": message
 			}), 200
 		except Exception as e:
