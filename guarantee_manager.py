@@ -286,6 +286,129 @@ class GuaranteeManager:
     def get_last_sync_time(self) -> Optional[str]:
         """마지막 동기화 시간 조회"""
         return self.data.get("last_sync")
+    
+    def get_exposure_status(self, company: str = None) -> Dict:
+        """실시간 노출 현황 조회
+        
+        Args:
+            company: 회사명 (제이투랩, 일류기획) - None이면 전체
+            
+        Returns:
+            {
+                "exposed": 노출 중인 건수,
+                "not_exposed": 미노출 건수,
+                "exposure_details": [
+                    {
+                        "business_name": "상호명",
+                        "current_rank": 현재순위,
+                        "trend_1d": 1일전 대비 증감,
+                        "trend_2d": 2일전 대비 증감,
+                        "trend_3d": 3일전 대비 증감,
+                        "last_updated": "마지막 업데이트 날짜"
+                    }
+                ]
+            }
+        """
+        from datetime import date, timedelta
+        
+        # 필터 조건
+        filters = {"status": ["진행중", "후불"]}
+        if company:
+            filters["company"] = company
+        
+        items = self.get_items()
+        if company:
+            items = [i for i in items if i.get("company") == company]
+        
+        # 진행중 또는 후불만
+        items = [i for i in items if i.get("status") in ["진행중", "후불"]]
+        
+        today = date.today()
+        exposed_count = 0
+        not_exposed_count = 0
+        exposure_details = []
+        
+        for item in items:
+            daily_ranks = item.get("daily_ranks", {})
+            if not daily_ranks:
+                not_exposed_count += 1
+                continue
+            
+            # 일차별 순위를 날짜 순으로 정렬
+            sorted_days = sorted([int(k) for k in daily_ranks.keys()])
+            
+            if not sorted_days:
+                not_exposed_count += 1
+                continue
+            
+            # 가장 최신 순위
+            latest_day = sorted_days[-1]
+            current_rank = daily_ranks.get(str(latest_day))
+            
+            # 작업 시작일 기준으로 실제 날짜 계산
+            work_start_date = item.get("work_start_date")
+            if work_start_date:
+                try:
+                    start_date = date.fromisoformat(work_start_date)
+                    latest_date = start_date + timedelta(days=latest_day - 1)
+                    
+                    # 오늘이 아니면 미노출
+                    is_exposed = (latest_date == today)
+                except:
+                    is_exposed = False
+            else:
+                # 작업 시작일이 없으면 최신 데이터가 있으면 노출로 간주
+                is_exposed = True
+            
+            if is_exposed:
+                exposed_count += 1
+            else:
+                not_exposed_count += 1
+            
+            # 증감 계산
+            trend_1d = None
+            trend_2d = None
+            trend_3d = None
+            
+            if len(sorted_days) >= 2:
+                prev_rank = daily_ranks.get(str(sorted_days[-2]))
+                if current_rank and prev_rank:
+                    try:
+                        trend_1d = int(prev_rank) - int(current_rank)  # 순위가 올랐으면 양수
+                    except:
+                        pass
+            
+            if len(sorted_days) >= 3:
+                prev_rank_2 = daily_ranks.get(str(sorted_days[-3]))
+                if current_rank and prev_rank_2:
+                    try:
+                        trend_2d = int(prev_rank_2) - int(current_rank)
+                    except:
+                        pass
+            
+            if len(sorted_days) >= 4:
+                prev_rank_3 = daily_ranks.get(str(sorted_days[-4]))
+                if current_rank and prev_rank_3:
+                    try:
+                        trend_3d = int(prev_rank_3) - int(current_rank)
+                    except:
+                        pass
+            
+            exposure_details.append({
+                "business_name": item.get("business_name"),
+                "current_rank": current_rank,
+                "is_exposed": is_exposed,
+                "trend_1d": trend_1d,
+                "trend_2d": trend_2d,
+                "trend_3d": trend_3d,
+                "latest_day": latest_day
+            })
+        
+        return {
+            "exposed": exposed_count,
+            "not_exposed": not_exposed_count,
+            "exposure_details": exposure_details
+        }
 
 
     def sync_from_google_sheets(self) -> Dict[str, int]:
