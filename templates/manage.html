@@ -3,132 +3,246 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>내부 보장건 관리</title>
+  <title>월보장 관리 대시보드</title>
     <style>
-      :root{ --bg:#ffffff; --text:#1f2328; --muted:#6b778c; --line:#e5e7eb; --panel:#ffffff; --pill:#f6f8fa; --btn:#111827; }
-      html,body{ height:100% }
-      body{ margin:0; background:var(--bg); color:var(--text); font-family: ui-sans-serif, system-ui, "Noto Sans KR", Arial; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-      .container{ max-width:980px; margin:0 auto; padding:24px; }
-      .title{ font-weight:800; letter-spacing:.2px; font-size:18px; margin-bottom:16px; }
-      .home-link{ color:inherit; text-decoration:none; }
-      .home-link:hover{ text-decoration:underline; }
-      .nav{ display:flex; gap:8px; margin-bottom:12px; }
-      .btn{ border:1px solid var(--line); background:#fff; color:#111827; padding:10px 14px; border-radius:10px; cursor:pointer; }
-      .btn-primary{ background:#111827; color:#fff; border-color:#111827; }
-      .panel{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
-      .stack{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-      input[type="text"]{ background:#fff; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px 12px; min-width:220px; outline:none; }
-      .muted{ color:var(--muted); }
-      table{ width:100%; border-collapse: collapse; }
-      th, td{ border-bottom:1px solid var(--line); padding:8px 6px; text-align:left; }
-      th{ font-size:12px; color:var(--muted); font-weight:600; }
-      .badge{ display:inline-block; padding:4px 8px; border-radius:999px; border:1px solid var(--line); background:var(--pill); font-size:12px; }
-      .right{ margin-left:auto; }
-      .tabs{ display:flex; gap:4px; margin-bottom:12px; }
-      .tab{ padding:10px 16px; border:1px solid var(--line); background:#fff; color:var(--text); border-radius:10px 10px 0 0; cursor:pointer; }
-      .tab.active{ background:#111827; color:#fff; border-color:#111827; }
-      .tab-content{ display:none; }
-      .tab-content.active{ display:block; }
-      .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.3); z-index:100; }
-      .modal-content{ background:#fff; border-radius:12px; padding:20px; min-width:500px; max-width:90%; max-height:80vh; overflow:auto; }
-      .form-group{ margin-bottom:12px; }
-      .form-row{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-      select{ background:#fff; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px 12px; min-width:120px; outline:none; }
-      .status-badge{ padding:4px 8px; border-radius:4px; font-size:11px; font-weight:600; }
-      .status-진행중{ background:#dbeafe; color:#1e40af; }
-      .status-완료{ background:#dcfce7; color:#166534; }
-      .status-세팅대기{ background:#fef3c7; color:#92400e; }
-      .status-중단{ background:#fee2e2; color:#991b1b; }
-      .card{ background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px; }
-      .stat-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; }
+    :root{
+      --bg:#f8fafc; --text:#0f172a; --muted:#64748b; --line:#e2e8f0;
+      --primary:#3b82f6; --primary-dark:#2563eb; --success:#10b981; --warning:#f59e0b; --danger:#ef4444;
+      --card-bg:#ffffff; --hover:#f1f5f9;
+    }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    html,body{ height:100%; }
+    body{ background:var(--bg); color:var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif; -webkit-font-smoothing: antialiased; }
+    
+    /* 레이아웃 */
+    .header{ background:var(--card-bg); border-bottom:1px solid var(--line); padding:20px 0; position:sticky; top:0; z-index:50; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+    .container{ max-width:1400px; margin:0 auto; padding:0 24px; }
+    .header-content{ display:flex; justify-content:space-between; align-items:center; gap:20px; flex-wrap:wrap; }
+    .logo{ font-size:24px; font-weight:800; color:var(--text); text-decoration:none; }
+    .logo:hover{ color:var(--primary); }
+    .nav-links{ display:flex; gap:8px; }
+    .nav-link{ padding:8px 16px; border-radius:8px; color:var(--muted); text-decoration:none; font-size:14px; font-weight:500; transition:all .2s; }
+    .nav-link:hover{ background:var(--hover); color:var(--text); }
+    .nav-link.active{ background:var(--primary); color:#fff; }
+    
+    .main{ padding:32px 0; }
+    .section{ margin-bottom:32px; }
+    .section-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+    .section-title{ font-size:20px; font-weight:700; color:var(--text); }
+    
+    /* 버튼 */
+    .btn{ display:inline-flex; align-items:center; gap:6px; padding:10px 16px; border-radius:8px; font-size:14px; font-weight:500; cursor:pointer; border:none; transition:all .2s; white-space:nowrap; }
+    .btn-primary{ background:var(--primary); color:#fff; }
+    .btn-primary:hover{ background:var(--primary-dark); }
+    .btn-secondary{ background:#fff; color:var(--text); border:1px solid var(--line); }
+    .btn-secondary:hover{ background:var(--hover); }
+    .btn-success{ background:var(--success); color:#fff; }
+    .btn-danger{ background:var(--danger); color:#fff; }
+    .btn-sm{ padding:6px 12px; font-size:13px; }
+    .btn:disabled{ opacity:0.6; cursor:not-allowed; }
+    
+    /* 그리드 */
+    .grid{ display:grid; gap:20px; }
+    .grid-2{ grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); }
+    .grid-3{ grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); }
+    .grid-4{ grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); }
+    
+    /* 카드 */
+    .card{ background:var(--card-bg); border:1px solid var(--line); border-radius:12px; padding:20px; transition:all .2s; }
+    .card:hover{ box-shadow:0 4px 12px rgba(0,0,0,.08); }
+    
+    /* 통계 카드 */
+    .stat-card{ position:relative; overflow:hidden; }
+    .stat-icon{ position:absolute; top:16px; right:16px; font-size:32px; opacity:0.2; }
+    .stat-label{ font-size:13px; color:var(--muted); font-weight:500; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px; }
+    .stat-value{ font-size:36px; font-weight:800; line-height:1; margin-bottom:8px; }
+    .stat-change{ font-size:12px; font-weight:500; }
+    .stat-change.up{ color:var(--success); }
+    .stat-change.down{ color:var(--danger); }
+    
+    /* 동기화 배너 */
+    .sync-banner{ background:linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff; border-radius:12px; padding:20px; display:flex; justify-content:space-between; align-items:center; gap:20px; flex-wrap:wrap; }
+    .sync-info{ flex:1; }
+    .sync-title{ font-size:16px; font-weight:600; margin-bottom:4px; }
+    .sync-meta{ font-size:13px; opacity:0.9; }
+    
+    /* 차트 */
+    .chart-container{ padding:20px 0; }
+    .chart-bar-group{ margin-bottom:16px; }
+    .chart-label{ font-size:13px; color:var(--muted); margin-bottom:6px; display:flex; justify-content:space-between; }
+    .chart-bar-bg{ background:var(--line); height:32px; border-radius:6px; overflow:hidden; position:relative; }
+    .chart-bar{ background:linear-gradient(90deg, var(--primary), var(--primary-dark)); height:100%; transition:width .4s ease; display:flex; align-items:center; padding:0 12px; color:#fff; font-size:12px; font-weight:600; }
+    
+    /* 필터 */
+    .filter-bar{ background:var(--card-bg); border:1px solid var(--line); border-radius:10px; padding:16px; display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
+    .filter-group{ flex:1; min-width:150px; }
+    .filter-label{ font-size:12px; color:var(--muted); font-weight:500; margin-bottom:6px; display:block; }
+    .filter-input, .filter-select{ width:100%; padding:8px 12px; border:1px solid var(--line); border-radius:8px; font-size:14px; outline:none; transition:all .2s; }
+    .filter-input:focus, .filter-select:focus{ border-color:var(--primary); box-shadow:0 0 0 3px rgba(59,130,246,.1); }
+    
+    /* 테이블 */
+    .table-container{ overflow-x:auto; border-radius:10px; border:1px solid var(--line); }
+    table{ width:100%; border-collapse:collapse; background:var(--card-bg); }
+    th{ background:var(--hover); padding:12px 16px; text-align:left; font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; }
+    td{ padding:14px 16px; border-top:1px solid var(--line); font-size:14px; }
+    tbody tr{ transition:background .2s; }
+    tbody tr:hover{ background:var(--hover); }
+    
+    /* 배지 */
+    .badge{ display:inline-flex; align-items:center; padding:4px 10px; border-radius:12px; font-size:11px; font-weight:600; white-space:nowrap; }
+    .badge-진행중{ background:#dbeafe; color:#1e40af; }
+    .badge-완료{ background:#d1fae5; color:#065f46; }
+    .badge-세팅대기{ background:#fef3c7; color:#92400e; }
+    .badge-중단{ background:#fee2e2; color:#991b1b; }
+    .badge-환불{ background:#f3e8ff; color:#6b21a8; }
+    .badge-신규{ background:#e0f2fe; color:#075985; }
+    .badge-연장{ background:#fce7f3; color:#9f1239; }
+    
+    /* 모달 */
+    .modal{ position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:100; }
+    .modal.show{ display:flex; }
+    .modal-content{ background:#fff; border-radius:16px; max-width:600px; width:90%; max-height:90vh; overflow:auto; }
+    .modal-header{ padding:24px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+    .modal-title{ font-size:20px; font-weight:700; }
+    .modal-body{ padding:24px; }
+    .form-group{ margin-bottom:16px; }
+    .form-row{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    .form-label{ display:block; font-size:13px; font-weight:500; color:var(--muted); margin-bottom:6px; }
+    .form-input, .form-select, .form-textarea{ width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-size:14px; outline:none; transition:all .2s; }
+    .form-input:focus, .form-select:focus, .form-textarea:focus{ border-color:var(--primary); box-shadow:0 0 0 3px rgba(59,130,246,.1); }
+    .form-textarea{ resize:vertical; min-height:80px; }
+    .modal-footer{ padding:24px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:12px; }
+    
+    /* Toast */
+    .toast{ position:fixed; bottom:24px; right:24px; background:var(--text); color:#fff; padding:14px 20px; border-radius:10px; font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,.15); z-index:200; opacity:0; transform:translateY(20px); transition:all .3s; }
+    .toast.show{ opacity:1; transform:translateY(0); }
+    
+    /* 빈 상태 */
+    .empty-state{ text-align:center; padding:60px 20px; color:var(--muted); }
+    .empty-icon{ font-size:48px; margin-bottom:16px; }
+    .empty-title{ font-size:18px; font-weight:600; margin-bottom:8px; color:var(--text); }
+    .empty-desc{ font-size:14px; }
+    
+    /* 로딩 */
+    .loading{ display:inline-block; width:16px; height:16px; border:2px solid rgba(255,255,255,.3); border-top-color:#fff; border-radius:50%; animation:spin .6s linear infinite; }
+    @keyframes spin{ to{ transform:rotate(360deg); } }
+    
+    /* 반응형 */
+    @media(max-width:768px){
+      .header-content{ flex-direction:column; align-items:stretch; }
+      .grid-2, .grid-3, .grid-4{ grid-template-columns:1fr; }
+      .filter-bar{ flex-direction:column; align-items:stretch; }
+      .modal-content{ width:95%; }
+    }
     </style>
   </head>
   <body>
+  <!-- 헤더 -->
+  <header class="header">
     <div class="container">
-      <div class="title"><a class="home-link" href="/">마감 안내 생성기</a> · <a class="home-link" href="/manage" style="font-weight:600">보장 관리</a> · <a class="home-link" href="/settlement">결재선 · 정산</a></div>
-
-      <!-- 탭 네비게이션 -->
-      <div class="tabs">
-        <div class="tab active" data-tab="internal">내부 보장건</div>
-        <div class="tab" data-tab="guarantee">월보장 관리</div>
-      </div>
-
-      <!-- 내부 보장건 탭 -->
-      <div class="tab-content active" data-content="internal">
-
-        <div class="panel" style="margin-bottom:12px">
-          <div class="muted" style="margin-bottom:8px">총 <span id="count">0</span>건</div>
-        <div style="overflow:auto">
-          <table id="tbl">
-            <thead>
-              <tr>
-                <th>대행사</th>
-                <th>상호명</th>
-                <th>작업명</th>
-                <th>마감 잔여일</th>
-                <th>일작업량</th>
-                <th>체크</th>
-                <th>탭</th>
-              </tr>
-            </thead>
-            <tbody>            </tbody>
-          </table>
+      <div class="header-content">
+        <a href="/" class="logo">🏢 제이투랩 관리시스템</a>
+        <div class="nav-links">
+          <a href="/" class="nav-link">마감 안내</a>
+          <a href="/manage" class="nav-link active">월보장 관리</a>
+          <a href="/settlement" class="nav-link">결재선 · 정산</a>
         </div>
       </div>
+    </div>
+  </header>
+
+  <!-- 메인 -->
+  <main class="main">
+    <div class="container">
+      <!-- 동기화 배너 -->
+      <div class="sync-banner">
+        <div class="sync-info">
+          <div class="sync-title">📡 구글 시트 동기화</div>
+          <div class="sync-meta">
+            <span id="sync-status">마지막 동기화: -</span> · 
+            <span id="next-sync">다음: -</span>
+          </div>
+        </div>
+        <div>
+          <button class="btn btn-secondary" id="btn-sync" style="color:#fff; border-color:rgba(255,255,255,.3);">
+            <span id="sync-btn-text">🔄 수동 동기화</span>
+          </button>
+      </div>
       </div>
 
-      <!-- 월보장 관리 탭 -->
-      <div class="tab-content" data-content="guarantee">
-        <!-- 동기화 상태 -->
-        <div class="panel" style="margin-bottom:12px; background:#f0f9ff; border-color:#3b82f6">
-          <div class="stack" style="justify-content:space-between; align-items:center">
-            <div>
-              <div class="muted" style="font-size:12px">구글 시트 동기화</div>
-              <div class="stack" style="gap:8px; margin-top:4px">
-                <span id="sync-status" style="font-size:11px">마지막 동기화: -</span>
-                <span id="next-sync" style="font-size:11px">다음 동기화: -</span>
+      <!-- 주요 통계 -->
+      <div class="section" style="margin-top:32px;">
+        <div class="grid grid-4">
+          <div class="card stat-card" style="border-left:4px solid var(--primary);">
+            <div class="stat-icon">📊</div>
+            <div class="stat-label">전체 보장건</div>
+            <div class="stat-value" id="stat-total">0</div>
+          </div>
+          <div class="card stat-card" style="border-left:4px solid #3b82f6;">
+            <div class="stat-icon">🔄</div>
+            <div class="stat-label">진행중</div>
+            <div class="stat-value" style="color:#3b82f6;" id="stat-active">0</div>
               </div>
+          <div class="card stat-card" style="border-left:4px solid var(--success);">
+            <div class="stat-icon">✅</div>
+            <div class="stat-label">완료</div>
+            <div class="stat-value" style="color:var(--success);" id="stat-completed">0</div>
             </div>
-            <button class="btn btn-primary" id="btn-sync">수동 동기화</button>
+          <div class="card stat-card" style="border-left:4px solid var(--warning);">
+            <div class="stat-icon">⏸️</div>
+            <div class="stat-label">세팅대기</div>
+            <div class="stat-value" style="color:var(--warning);" id="stat-waiting">0</div>
+          </div>
           </div>
         </div>
         
-        <!-- 통계 -->
-        <div class="panel" style="margin-bottom:12px">
-          <div class="stack" style="justify-content:space-between; align-items:center">
-            <div class="muted">월보장 통계</div>
-            <button class="btn btn-primary" id="btn-add-guarantee">새 보장건 등록</button>
+      <!-- 회사별 현황 -->
+      <div class="section">
+        <h2 class="section-title">📈 회사별 현황</h2>
+        <div class="grid grid-2">
+          <div class="card">
+            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px; color:var(--primary);">🏢 제이투랩</h3>
+            <div class="chart-container" id="chart-jtwolab"></div>
           </div>
-          <div class="stat-grid" style="margin-top:12px">
             <div class="card">
-              <div class="muted" style="font-size:12px">전체</div>
-              <div style="font-size:24px; font-weight:700" id="stat-total">0</div>
+            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px; color:#8b5cf6;">🏢 일류기획</h3>
+            <div class="chart-container" id="chart-ilryu"></div>
+          </div>
+        </div>
+            </div>
+
+      <!-- 상품별 / 월별 분석 -->
+      <div class="section">
+        <div class="grid grid-2">
+            <div class="card">
+            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px;">📦 상품별 분포</h3>
+            <div class="chart-container" id="chart-products"></div>
             </div>
             <div class="card">
-              <div class="muted" style="font-size:12px">진행중</div>
-              <div style="font-size:24px; font-weight:700; color:#1e40af" id="stat-active">0</div>
-            </div>
-            <div class="card">
-              <div class="muted" style="font-size:12px">완료</div>
-              <div style="font-size:24px; font-weight:700; color:#166534" id="stat-completed">0</div>
-            </div>
+            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px;">📅 월별 계약 건수</h3>
+            <div class="chart-container" id="chart-monthly"></div>
+          </div>
           </div>
         </div>
 
         <!-- 필터 및 검색 -->
-        <div class="panel" style="margin-bottom:12px">
-          <div class="stack" style="gap:12px; align-items:flex-end">
-            <div>
-              <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">회사</label>
-              <select id="filter-company">
+      <div class="section">
+        <div class="section-header">
+          <h2 class="section-title">📋 보장건 목록</h2>
+          <button class="btn btn-success" id="btn-add">➕ 새 보장건 등록</button>
+        </div>
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label class="filter-label">회사</label>
+            <select class="filter-select" id="filter-company">
                 <option value="">전체</option>
                 <option value="제이투랩">제이투랩</option>
                 <option value="일류기획">일류기획</option>
               </select>
             </div>
-            <div>
-              <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">상태</label>
-              <select id="filter-status">
+          <div class="filter-group">
+            <label class="filter-label">상태</label>
+            <select class="filter-select" id="filter-status">
                 <option value="">전체</option>
                 <option value="진행중">진행중</option>
                 <option value="세팅대기">세팅대기</option>
@@ -137,63 +251,75 @@
                 <option value="환불">환불</option>
               </select>
             </div>
-            <div style="flex:1">
-              <label class="muted" style="display:block; font-size:12px; margin-bottom:6px">검색</label>
-              <input type="text" id="search-guarantee" placeholder="상호명, 키워드, 메모 검색" style="width:100%">
+          <div class="filter-group">
+            <label class="filter-label">상품</label>
+            <select class="filter-select" id="filter-product">
+              <option value="">전체</option>
+              <option value="플레이스">플레이스</option>
+              <option value="쇼핑">쇼핑</option>
+              <option value="자동완성">자동완성</option>
+              <option value="기타">기타</option>
+            </select>
             </div>
-            <button class="btn btn-primary" id="btn-search">검색</button>
-            <button class="btn" id="btn-refresh-guarantee">새로고침</button>
+          <div class="filter-group" style="flex:2;">
+            <label class="filter-label">검색</label>
+            <input type="text" class="filter-input" id="search-input" placeholder="상호명, 키워드, 대행사 검색...">
+          </div>
+          <button class="btn btn-primary" id="btn-search">🔍 검색</button>
+          <button class="btn btn-secondary" id="btn-reset">🔄 초기화</button>
           </div>
         </div>
 
-        <!-- 보장건 목록 테이블 -->
-        <div class="panel">
-          <div style="overflow:auto">
+      <!-- 테이블 -->
+      <div class="section">
+        <div class="table-container">
             <table id="guarantee-table">
               <thead>
                 <tr>
                   <th>구분</th>
-                  <th>계약일</th>
                   <th>회사</th>
                   <th>대행사</th>
-                  <th>상태</th>
                   <th>상호명</th>
                   <th>키워드</th>
+                <th>상품</th>
+                <th>상태</th>
                   <th>보장순위</th>
-                  <th>계약금</th>
+                <th>계약일</th>
                   <th>작업시작</th>
                   <th>액션</th>
                 </tr>
               </thead>
-              <tbody></tbody>
+            <tbody id="table-body">
+              <tr>
+                <td colspan="11" style="text-align:center; padding:40px; color:var(--muted);">데이터를 불러오는 중...</td>
+              </tr>
+            </tbody>
             </table>
-          </div>
         </div>
       </div>
-
     </div>
+  </main>
 
-    <div class="panel" id="toast" style="display:none; position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; border:1px solid #111827; padding:10px 12px; border-radius:10px;">완료</div>
-
-    <!-- 보장건 등록/수정 모달 -->
+  <!-- 모달 -->
     <div class="modal" id="guarantee-modal">
       <div class="modal-content">
-        <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:16px">
-          <h3 id="modal-title">새 보장건 등록</h3>
-          <button class="btn" onclick="closeModal()">✕</button>
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-title">새 보장건 등록</h3>
+        <button class="btn btn-sm btn-secondary" onclick="closeModal()">✕</button>
         </div>
+      <div class="modal-body">
         <form id="guarantee-form">
           <div class="form-row">
             <div class="form-group">
-              <label class="muted">구분*</label>
-              <select name="type" required>
+              <label class="form-label">구분*</label>
+              <select name="type" class="form-select" required>
                 <option value="신규">신규</option>
                 <option value="연장">연장</option>
               </select>
             </div>
             <div class="form-group">
-              <label class="muted">회사*</label>
-              <select name="company" required>
+              <label class="form-label">회사*</label>
+              <select name="company" class="form-select" required>
                 <option value="제이투랩">제이투랩</option>
                 <option value="일류기획">일류기획</option>
               </select>
@@ -201,48 +327,38 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label class="muted">계약일*</label>
-              <input type="date" name="contract_date" required>
+              <label class="form-label">계약일*</label>
+              <input type="date" name="contract_date" class="form-input" required>
             </div>
             <div class="form-group">
-              <label class="muted">작업 시작일</label>
-              <input type="date" name="start_date">
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="muted">대행사명</label>
-              <input type="text" name="agency" placeholder="대행사명">
-            </div>
-            <div class="form-group">
-              <label class="muted">상호명*</label>
-              <input type="text" name="business_name" required placeholder="업체 상호명">
+              <label class="form-label">작업 시작일</label>
+              <input type="date" name="work_start_date" class="form-input">
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label class="muted">메인 키워드</label>
-              <input type="text" name="main_keyword" placeholder="노출 키워드">
+              <label class="form-label">대행사</label>
+              <input type="text" name="agency" class="form-input" placeholder="대행사명">
             </div>
             <div class="form-group">
-              <label class="muted">보장 순위</label>
-              <input type="text" name="guarantee_rank" placeholder="예: 5위 이상">
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="muted">총 계약금 (VAT 제외)</label>
-              <input type="number" name="contract_amount" placeholder="0">
-            </div>
-            <div class="form-group">
-              <label class="muted">입금액/마진 (VAT 제외)</label>
-              <input type="number" name="deposit_amount" placeholder="0">
+              <label class="form-label">상호명*</label>
+              <input type="text" name="business_name" class="form-input" placeholder="업체 상호명" required>
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label class="muted">상품</label>
-              <select name="product">
+              <label class="form-label">메인 키워드</label>
+              <input type="text" name="main_keyword" class="form-input" placeholder="노출 키워드">
+            </div>
+            <div class="form-group">
+              <label class="form-label">보장 순위</label>
+              <input type="text" name="guarantee_rank" class="form-input" placeholder="예: 5위 이상">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">상품</label>
+              <select name="product" class="form-select">
                 <option value="플레이스">플레이스</option>
                 <option value="쇼핑">쇼핑</option>
                 <option value="자동완성">자동완성</option>
@@ -250,383 +366,371 @@
               </select>
             </div>
             <div class="form-group">
-              <label class="muted">상태</label>
-              <select name="status">
+              <label class="form-label">상태</label>
+              <select name="status" class="form-select">
                 <option value="세팅대기">세팅대기</option>
                 <option value="진행중">진행중</option>
                 <option value="완료">완료</option>
                 <option value="중단">중단</option>
                 <option value="환불">환불</option>
-                <option value="반불">반불</option>
-                <option value="후불">후불</option>
               </select>
             </div>
           </div>
+          <div class="form-row">
           <div class="form-group">
-            <label class="muted">플레이스 계정</label>
-            <input type="text" name="place_account" placeholder="ID / PW" style="width:100%">
+              <label class="form-label">총 계약금 (VAT 제외)</label>
+              <input type="number" name="total_contract" class="form-input" placeholder="0">
           </div>
           <div class="form-group">
-            <label class="muted">URL</label>
-            <input type="text" name="url" placeholder="네이버 플레이스 URL" style="width:100%">
+              <label class="form-label">입금액/마진 (VAT 제외)</label>
+              <input type="number" name="deposit_amount" class="form-input" placeholder="0">
+            </div>
           </div>
           <div class="form-group">
-            <label class="muted">메모</label>
-            <textarea name="memo" rows="3" style="width:100%; padding:8px; border:1px solid var(--line); border-radius:10px; outline:none"></textarea>
-          </div>
-          <div class="stack" style="justify-content:flex-end; gap:8px">
-            <button type="button" class="btn" onclick="closeModal()">취소</button>
-            <button type="submit" class="btn btn-primary">저장</button>
+            <label class="form-label">메모</label>
+            <textarea name="memo" class="form-textarea" placeholder="메모 입력..."></textarea>
           </div>
         </form>
       </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">취소</button>
+        <button type="submit" form="guarantee-form" class="btn btn-primary">💾 저장</button>
+      </div>
     </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
 
     <script>
-      const initialItems = {{ (initial_items or []) | tojson | safe }};
-      const initialUpdatedAt = {{ (updated_at or 'null') | tojson | safe }};
-      const $ = (sel)=>document.querySelector(sel);
-      function toast(msg){ const t=$('#toast'); if(!t) return; t.textContent=msg||'완료'; t.style.display='block'; setTimeout(()=>t.style.display='none', 1200); }
-
-      function norm(s){ return (s||'').toString().trim().toLowerCase(); }
-      let allItems = Array.isArray(initialItems) ? initialItems : [];
-      let lastUpdatedAt = typeof initialUpdatedAt==='string' ? initialUpdatedAt : null;
-
-      function toKSTString(iso){
-        try{
-          const d = new Date(iso);
-          // KST 포맷
-          return d.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }).replaceAll('.', '-').replace(' ', ' ').replace(/\.$/, '') + ' KST';
-        }catch(e){ return iso||''; }
-      }
-      function setUpdatedBadge(){
-        const el = document.getElementById('last-updated');
-        if(!el) return;
-        el.textContent = lastUpdatedAt ? toKSTString(lastUpdatedAt) : '없음';
-      }
-
-      function ymd(date){ const y=date.getFullYear(); const m=String(date.getMonth()+1).padStart(2,'0'); const d=String(date.getDate()).padStart(2,'0'); return `${y}-${m}-${d}`; }
-      function parseYMD(str){ const [y,m,d]=(str||'').split('-').map(v=>parseInt(v,10)); if(!y||!m||!d) return null; return new Date(Date.UTC(y, m-1, d)); }
-      function toUTCDateOnly(iso){ try{ const d=new Date(iso); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); }catch(e){ return null; } }
-      function daysBetween(aUTCDateOnly, bUTCDateOnly){ if(!aUTCDateOnly||!bUTCDateOnly) return 0; const ms= aUTCDateOnly.getTime()-bUTCDateOnly.getTime(); return Math.round(ms/86400000); }
-
-      let bizOptions = [];
-      let agencyOptions = [];
-      function buildOptionSets(){
-        const bizSet = new Set();
-        const agencySet = new Set();
-        for(const it of allItems){ if(it.bizname) bizSet.add(it.bizname.trim()); if(it.agency) agencySet.add(it.agency.trim()); }
-        bizOptions = Array.from(bizSet).sort((a,b)=>a.localeCompare(b,'ko'));
-        agencyOptions = Array.from(agencySet).sort((a,b)=>a.localeCompare(b,'ko'));
-      }
-      function updateDatalistFor(inputId, datalistId, options){
-        const inp = document.getElementById(inputId);
-        const dl = document.getElementById(datalistId);
-        if(!inp || !dl) return;
-        const q = norm(inp.value);
-        if(!q){ dl.innerHTML = ''; return; }
-        const filtered = options.filter(v=> norm(v).includes(q)).slice(0, 30);
-        dl.innerHTML = filtered.map(v=>`<option value="${v}"></option>`).join('');
-      }
-
-      function render(items){
-        const tb = document.querySelector('#tbl tbody');
-        tb.innerHTML = '';
-        for(const it of items){
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td>${it.agency||''}</td>
-            <td>${it.bizname||''}</td>
-            <td>${it.task_display||''}</td>
-            <td>${(it._effective_remain??'')!==''? it._effective_remain: ''}</td>
-            <td>${it.daily_workload||''}</td>
-            <td>${it.checked? '✓' : ''}</td>
-            <td>${it.tab_title||''}</td>
-          `;
-          tb.appendChild(tr);
-        }
-        document.getElementById('count').textContent = items.length.toString();
-      }
-
-      function applyFilter(){
-        // 필터링 없이 전체 목록 표시
-        render(allItems);
-      }
-
-      // 내부 보장건 관련 코드 제거 (deprecated)
-
-      // 초기 상태 설정
-      (function init(){
-        setUpdatedBadge();
-        buildOptionSets();
-        applyFilter();
-      })();
-      // 탭 전환
-      document.querySelectorAll('.tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-          const tabName = tab.dataset.tab;
-          // 탭 활성화
-          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-          tab.classList.add('active');
-          // 컨텐츠 전환
-          document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-          document.querySelector(`.tab-content[data-content="${tabName}"]`).classList.add('active');
-          
-          // 월보장 탭인 경우 데이터 로드
-          if(tabName === 'guarantee'){
-            loadGuaranteeData();
-            updateSyncStatus();
-          }
-        });
-      });
-
-      // 월보장 데이터 관리
+    let allData = [];
       let currentEditId = null;
       
-      function openModal(item = null){
+    // Toast
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // 모달
+    function openModal(item = null) {
         const modal = document.getElementById('guarantee-modal');
         const form = document.getElementById('guarantee-form');
         const title = document.getElementById('modal-title');
         
-        if(item){
+      if (item) {
           title.textContent = '보장건 수정';
           currentEditId = item.id;
-          // 폼에 데이터 채우기
-          form.type.value = item.type || '신규';
-          form.company.value = item.company || '';
-          form.contract_date.value = item.contract_date || '';
-          form.start_date.value = item.start_date || '';
-          form.agency.value = item.agency || '';
-          form.business_name.value = item.business_name || '';
-          form.main_keyword.value = item.main_keyword || '';
-          form.guarantee_rank.value = item.guarantee_rank || '';
-          form.contract_amount.value = item.contract_amount || '';
-          form.deposit_amount.value = item.deposit_amount || '';
-          form.product.value = item.product || '플레이스';
-          form.status.value = item.status || '세팅대기';
-          form.place_account.value = item.place_account || '';
-          form.url.value = item.url || '';
-          form.memo.value = item.memo || '';
+        Object.keys(item).forEach(key => {
+          if (form[key]) form[key].value = item[key] || '';
+        });
         } else {
           title.textContent = '새 보장건 등록';
           currentEditId = null;
           form.reset();
         }
         
-        modal.style.display = 'flex';
+      modal.classList.add('show');
       }
       
-      function closeModal(){
-        document.getElementById('guarantee-modal').style.display = 'none';
+    function closeModal() {
+      document.getElementById('guarantee-modal').classList.remove('show');
         currentEditId = null;
       }
       
-      async function loadGuaranteeData(){
+    // 데이터 로드
+    async function loadData() {
+      try {
         const company = document.getElementById('filter-company').value;
         const status = document.getElementById('filter-status').value;
+        const product = document.getElementById('filter-product').value;
         
         const params = new URLSearchParams();
-        if(company) params.append('company', company);
-        if(status) params.append('status', status);
+        if (company) params.append('company', company);
+        if (status) params.append('status', status);
+        if (product) params.append('product', product);
         
-        try{
           const res = await fetch(`/api/guarantee/items?${params}`);
           const data = await res.json();
           
-          console.log('Loaded guarantee data:', data); // 디버깅용
-          
-          if(data.items && Array.isArray(data.items)){
-            renderGuaranteeTable(data.items);
-            document.getElementById('stat-total').textContent = data.count || data.items.length;
-          } else {
-            console.error('Invalid data format:', data);
-            renderGuaranteeTable([]);
-          }
-          
+        allData = data.items || [];
+        renderTable(allData);
           updateStatistics();
-        }catch(e){
-          console.error('Failed to load guarantee data:', e);
-          toast('데이터 로드 실패');
-        }
+        updateCharts();
+      } catch (e) {
+        console.error(e);
+        showToast('데이터 로드 실패');
       }
+    }
+
+    // 테이블 렌더링
+    function renderTable(items) {
+      const tbody = document.getElementById('table-body');
       
-      function renderGuaranteeTable(items){
-        const tbody = document.querySelector('#guarantee-table tbody');
-        tbody.innerHTML = '';
-        
-        items.forEach(item => {
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td>${item.type || ''}</td>
-            <td>${item.contract_date || ''}</td>
-            <td>${item.company || ''}</td>
-            <td>${item.agency || ''}</td>
-            <td><span class="status-badge status-${item.status || ''}">${item.status || ''}</span></td>
-            <td>${item.business_name || ''}</td>
-            <td>${item.main_keyword || ''}</td>
-            <td>${item.guarantee_rank || ''}</td>
-            <td>${Number(item.contract_amount || 0).toLocaleString()}</td>
-            <td>${item.start_date || ''}</td>
-            <td>
-              <button class="btn btn-sm" onclick='editGuarantee(${JSON.stringify(item)})'>수정</button>
-              <button class="btn btn-sm" onclick='deleteGuarantee("${item.id}")'>삭제</button>
+      if (!items || items.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="11">
+              <div class="empty-state">
+                <div class="empty-icon">📭</div>
+                <div class="empty-title">데이터가 없습니다</div>
+                <div class="empty-desc">필터를 변경하거나 새 보장건을 등록해보세요</div>
+              </div>
             </td>
-          `;
-          tbody.appendChild(tr);
-        });
+          </tr>
+        `;
+        return;
       }
       
-      async function updateStatistics(){
-        try{
+      tbody.innerHTML = items.map(item => `
+        <tr>
+          <td><span class="badge badge-${item.type || '신규'}">${item.type || '신규'}</span></td>
+          <td>${item.company || ''}</td>
+          <td>${item.agency || '-'}</td>
+          <td><strong>${item.business_name || ''}</strong></td>
+          <td>${item.main_keyword || '-'}</td>
+          <td>${item.product || '플레이스'}</td>
+          <td><span class="badge badge-${item.status || '세팅대기'}">${item.status || '세팅대기'}</span></td>
+          <td>${item.guarantee_rank || '-'}</td>
+          <td>${item.contract_date || '-'}</td>
+          <td>${item.work_start_date || '-'}</td>
+          <td>
+            <button class="btn btn-sm btn-secondary" onclick='editItem(${JSON.stringify(item).replace(/'/g, "&apos;")})'>수정</button>
+            <button class="btn btn-sm btn-danger" onclick='deleteItem("${item.id}")'>삭제</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    // 통계 업데이트
+    async function updateStatistics() {
+      try {
           const res = await fetch('/api/guarantee/statistics');
           const stats = await res.json();
           
           document.getElementById('stat-total').textContent = stats.total || 0;
           
-          let activeTotal = 0, completedTotal = 0;
+        let activeTotal = 0, completedTotal = 0, waitingTotal = 0;
           Object.values(stats.by_company || {}).forEach(c => {
             activeTotal += c.active || 0;
             completedTotal += c.completed || 0;
           });
+        
+        // 세팅대기 수 계산
+        allData.forEach(item => {
+          if (item.status === '세팅대기') waitingTotal++;
+        });
           
           document.getElementById('stat-active').textContent = activeTotal;
           document.getElementById('stat-completed').textContent = completedTotal;
-        }catch(e){
+        document.getElementById('stat-waiting').textContent = waitingTotal;
+      } catch (e) {
           console.error(e);
         }
       }
       
-      window.editGuarantee = function(item){
-        openModal(item);
+    // 차트 업데이트
+    async function updateCharts() {
+      try {
+        const res = await fetch('/api/guarantee/statistics');
+        const stats = await res.json();
+        
+        // 회사별 차트
+        renderCompanyChart('chart-jtwolab', stats.by_company['제이투랩'] || {});
+        renderCompanyChart('chart-ilryu', stats.by_company['일류기획'] || {});
+        
+        // 상품별 차트
+        renderBarChart('chart-products', stats.by_product || {});
+        
+        // 월별 차트
+        renderBarChart('chart-monthly', stats.by_month || {});
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function renderCompanyChart(elementId, data) {
+      const el = document.getElementById(elementId);
+      const total = data.total || 0;
+      const active = data.active || 0;
+      const completed = data.completed || 0;
+      
+      el.innerHTML = `
+        <div class="chart-bar-group">
+          <div class="chart-label"><span>전체</span><span>${total}건</span></div>
+          <div class="chart-bar-bg">
+            <div class="chart-bar" style="width:${total > 0 ? 100 : 0}%; background:linear-gradient(90deg, #3b82f6, #2563eb);">${total}</div>
+          </div>
+        </div>
+        <div class="chart-bar-group">
+          <div class="chart-label"><span>진행중</span><span>${active}건</span></div>
+          <div class="chart-bar-bg">
+            <div class="chart-bar" style="width:${total > 0 ? (active/total*100) : 0}%; background:linear-gradient(90deg, #3b82f6, #2563eb);">${active}</div>
+          </div>
+        </div>
+        <div class="chart-bar-group">
+          <div class="chart-label"><span>완료</span><span>${completed}건</span></div>
+          <div class="chart-bar-bg">
+            <div class="chart-bar" style="width:${total > 0 ? (completed/total*100) : 0}%; background:linear-gradient(90deg, #10b981, #059669);">${completed}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderBarChart(elementId, data) {
+      const el = document.getElementById(elementId);
+      const entries = Object.entries(data).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      const maxValue = Math.max(...entries.map(e => typeof e[1] === 'object' ? e[1].total || 0 : e[1]), 1);
+      
+      if (entries.length === 0) {
+        el.innerHTML = '<div style="text-align:center; color:var(--muted); padding:20px;">데이터 없음</div>';
+        return;
       }
       
-      window.deleteGuarantee = async function(id){
-        if(!confirm('삭제하시겠습니까?')) return;
-        
-        try{
-          const res = await fetch(`/api/guarantee/items/${id}`, { method: 'DELETE' });
-          if(res.ok){
-            toast('삭제되었습니다');
-            loadGuaranteeData();
-          }
-        }catch(e){
-          toast('삭제 실패');
-        }
-      }
+      el.innerHTML = entries.map(([key, value]) => {
+        const val = typeof value === 'object' ? value.total || 0 : value;
+        return `
+          <div class="chart-bar-group">
+            <div class="chart-label"><span>${key}</span><span>${val}건</span></div>
+            <div class="chart-bar-bg">
+              <div class="chart-bar" style="width:${(val/maxValue*100)}%;">${val}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 동기화
+    async function syncData() {
+      const btn = document.getElementById('btn-sync');
+      const btnText = document.getElementById('sync-btn-text');
+      btn.disabled = true;
+      btnText.innerHTML = '<span class="loading"></span> 동기화 중...';
       
-      // 폼 제출
-      document.getElementById('guarantee-form').addEventListener('submit', async(e) => {
-        e.preventDefault();
+      try {
+        const res = await fetch('/api/guarantee/sync', { method: 'POST' });
+        const data = await res.json();
         
-        const formData = new FormData(e.target);
-        const data = Object.fromEntries(formData);
-        
-        try{
-          let res;
-          if(currentEditId){
-            res = await fetch(`/api/guarantee/items/${currentEditId}`, {
-              method: 'PUT',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify(data)
-            });
+        if (res.ok) {
+          showToast(data.message || '동기화 완료');
+          loadData();
+          updateSyncStatus();
           } else {
-            res = await fetch('/api/guarantee/items', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify(data)
-            });
-          }
-          
-          if(res.ok){
-            toast(currentEditId ? '수정되었습니다' : '등록되었습니다');
-            closeModal();
-            loadGuaranteeData();
-          }
-        }catch(e){
-          toast('저장 실패');
+          showToast('동기화 실패: ' + (data.error || '알 수 없는 오류'));
         }
-      });
-      
-      // 동기화 상태 업데이트
-      async function updateSyncStatus(){
-        try{
+      } catch (e) {
+        showToast('동기화 실패');
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = '🔄 수동 동기화';
+      }
+    }
+
+    async function updateSyncStatus() {
+      try {
           const res = await fetch('/api/guarantee/sync-status');
           const data = await res.json();
           
-          const syncStatusEl = document.getElementById('sync-status');
-          const nextSyncEl = document.getElementById('next-sync');
-          
-          if(data.last_sync){
-            const lastSync = new Date(data.last_sync);
-            const kstTime = lastSync.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
-            syncStatusEl.textContent = `마지막 동기화: ${kstTime}`;
-          } else {
-            syncStatusEl.textContent = '마지막 동기화: 없음';
-          }
-          
-          if(data.next_sync_kst){
-            nextSyncEl.textContent = `다음 동기화: ${data.next_sync_kst}`;
-          }
-        }catch(e){
+        if (data.last_sync) {
+          const date = new Date(data.last_sync);
+          document.getElementById('sync-status').textContent = 
+            `마지막 동기화: ${date.toLocaleString('ko-KR')}`;
+        }
+        
+        if (data.next_sync_kst) {
+          document.getElementById('next-sync').textContent = `다음: ${data.next_sync_kst}`;
+        }
+      } catch (e) {
           console.error(e);
         }
       }
       
-      // 수동 동기화
-      document.getElementById('btn-sync').addEventListener('click', async() => {
-        const btn = document.getElementById('btn-sync');
-        const originalText = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = '동기화 중...';
+    // CRUD
+    window.editItem = function(item) {
+      openModal(item);
+    };
+
+    window.deleteItem = async function(id) {
+      if (!confirm('정말 삭제하시겠습니까?')) return;
+      
+      try {
+        const res = await fetch(`/api/guarantee/items/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('삭제되었습니다');
+          loadData();
+        }
+      } catch (e) {
+        showToast('삭제 실패');
+      }
+    };
+
+    // 폼 제출
+    document.getElementById('guarantee-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const formData = new FormData(e.target);
+      const data = Object.fromEntries(formData);
+      
+      try {
+        const url = currentEditId 
+          ? `/api/guarantee/items/${currentEditId}`
+          : '/api/guarantee/items';
+        const method = currentEditId ? 'PUT' : 'POST';
         
-        try{
-          const res = await fetch('/api/guarantee/sync', { method: 'POST' });
-          const data = await res.json();
-          
-          if(res.ok){
-            // 메시지가 있으면 표시, 없으면 기본 메시지
-            const message = data.message || `동기화 완료: 추가 ${data.result.added}건, 수정 ${data.result.updated}건`;
-            toast(message);
-            loadGuaranteeData();
-            updateSyncStatus();
-          } else {
-            const errorMsg = data.error || '알 수 없는 오류';
-            const detail = data.detail ? ` (${data.detail})` : '';
-            toast('동기화 실패: ' + errorMsg + detail);
-          }
-        }catch(e){
-          toast('동기화 실패');
-        } finally {
-          btn.disabled = false;
-          btn.textContent = originalText;
-        }
-      });
-      
-      // 이벤트 바인딩
-      document.getElementById('btn-add-guarantee').addEventListener('click', () => openModal());
-      document.getElementById('btn-refresh-guarantee').addEventListener('click', loadGuaranteeData);
-      document.getElementById('filter-company').addEventListener('change', loadGuaranteeData);
-      document.getElementById('filter-status').addEventListener('change', loadGuaranteeData);
-      
-      // 검색
-      document.getElementById('btn-search').addEventListener('click', async() => {
-        const query = document.getElementById('search-guarantee').value;
-        if(!query) return loadGuaranteeData();
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
         
-        try{
-          const res = await fetch(`/api/guarantee/search?q=${encodeURIComponent(query)}`);
-          const data = await res.json();
-          renderGuaranteeTable(data.items);
-        }catch(e){
-          console.error(e);
+        if (res.ok) {
+          showToast(currentEditId ? '수정되었습니다' : '등록되었습니다');
+          closeModal();
+          loadData();
         }
-      });
+      } catch (e) {
+        showToast('저장 실패');
+      }
+    });
+
+    // 검색
+    document.getElementById('btn-search').addEventListener('click', async () => {
+      const query = document.getElementById('search-input').value.trim();
+      if (!query) return loadData();
       
-      document.getElementById('search-guarantee').addEventListener('keypress', (e) => {
-        if(e.key === 'Enter'){
-          document.getElementById('btn-search').click();
-        }
-      });
+      try {
+        const res = await fetch(`/api/guarantee/search?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        renderTable(data.items);
+      } catch (e) {
+        showToast('검색 실패');
+      }
+    });
+
+    // 초기화
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      document.getElementById('filter-company').value = '';
+      document.getElementById('filter-status').value = '';
+      document.getElementById('filter-product').value = '';
+      document.getElementById('search-input').value = '';
+      loadData();
+    });
+
+    // 이벤트
+    document.getElementById('btn-sync').addEventListener('click', syncData);
+    document.getElementById('btn-add').addEventListener('click', () => openModal());
+    document.getElementById('filter-company').addEventListener('change', loadData);
+    document.getElementById('filter-status').addEventListener('change', loadData);
+    document.getElementById('filter-product').addEventListener('change', loadData);
+    document.getElementById('search-input').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') document.getElementById('btn-search').click();
+    });
+
+    // 초기 로드
+    loadData();
+    updateSyncStatus();
     </script>
   </body>
   </html>
