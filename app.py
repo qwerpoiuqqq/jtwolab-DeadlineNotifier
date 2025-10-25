@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from sheet_client import fetch_grouped_messages, load_settings, inspect_sheets, diagnose_matches, fetch_grouped_messages_by_date, stream_grouped_messages_by_date, mark_checked_for_agency, mark_checked_for_agencies, list_sheet_tabs, inspect_sheets_by_id, compute_settlement_rows
-from internal_manager import load_cache as internal_load_cache, refresh_cache as internal_refresh_cache
+from internal_manager import load_cache as internal_load_cache, refresh_cache as internal_refresh_cache, fetch_workload_schedule
 from guarantee_manager import GuaranteeManager
 
 try:
@@ -419,6 +419,20 @@ def create_app() -> Flask:
 		except Exception as e:
 			return jsonify({"error": str(e)}), 500
 		return jsonify(data), 200
+	
+	@app.route("/api/workload/schedule", methods=["GET"])  # 작업량 스케줄 조회
+	def api_workload_schedule():
+		"""최근 3주간 작업량 스케줄 조회"""
+		company = request.args.get("company")
+		
+		try:
+			schedule = fetch_workload_schedule(company)
+			return jsonify(schedule), 200
+		except Exception as e:
+			logger.error(f"Workload schedule error: {e}")
+			import traceback
+			logger.error(traceback.format_exc())
+			return jsonify({"error": str(e)}), 500
 
 	@app.route("/api/mark-done", methods=["POST"])
 	def mark_done():
