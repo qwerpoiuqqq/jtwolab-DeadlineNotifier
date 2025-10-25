@@ -192,22 +192,9 @@ def create_app() -> Flask:
 			suggested_prefix=suggested_prefix,
 		)
 
-	@app.route("/manage", methods=["GET"])  # 내부 보장건/관리 탭
+	@app.route("/manage", methods=["GET"])  # 월보장 관리 대시보드
 	def manage():
-		cache = internal_load_cache()
-		updated_at = cache.get("updated_at")
-		items = cache.get("items", [])
-		
-		# 월보장 통계 가져오기
-		gm = GuaranteeManager()
-		stats = gm.get_statistics()
-		
-		return render_template(
-			"manage.html",
-			updated_at=updated_at,
-			initial_items=items,
-			guarantee_stats=stats,
-		)
+		return render_template("manage.html")
 
 	@app.route("/settlement", methods=["GET"])  # 결재선 · 정산 페이지 (UI 스켈레톤)
 	def settlement():
