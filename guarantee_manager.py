@@ -425,8 +425,33 @@ class GuaranteeManager:
             if len(rows) < 2:
                 return []
             
-            headers = rows[0]
-            data_rows = rows[1:]
+            # 헤더 행 자동 감지 (상위 10행 내에서 찾기)
+            header_row_idx = 0
+            max_score = 0
+            header_keywords = ["구분", "계약일", "대행사", "상호", "키워드", "작업", "상품", "입금", "마진"]
+            
+            for idx in range(min(10, len(rows))):
+                row = rows[idx]
+                score = 0
+                for cell in row:
+                    cell_str = str(cell).strip()
+                    for keyword in header_keywords:
+                        if keyword in cell_str:
+                            score += 1
+                if score > max_score:
+                    max_score = score
+                    header_row_idx = idx
+            
+            if max_score == 0:
+                logger.warning(f"Could not find header row with keywords. Using first row.")
+                header_row_idx = 0
+            else:
+                logger.info(f"Found header row at index {header_row_idx} (row {header_row_idx + 1}) with score {max_score}")
+            
+            headers = rows[header_row_idx]
+            data_rows = rows[header_row_idx + 1:]
+            
+            logger.info(f"Using headers: {headers[:10]}...")  # 처음 10개만 로그
             
             # 헤더 인덱스 매핑
             header_map = {}
