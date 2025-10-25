@@ -135,3 +135,159 @@ def refresh_cache() -> Dict[str, Any]:
 	return data
 
 
+def fetch_workload_schedule(company: str = None) -> Dict[str, Any]:
+	"""최근 3주간의 작업량 스케줄을 주차별로 반환
+	
+	Args:
+		company: 회사명 필터 (제이투랩, 일류기획)
+		
+	Returns:
+		{
+			"weeks": [
+				{
+					"start_date": "09/12",
+					"end_date": "09/18",
+					"items": [
+						{"name": "일류 저장", "workload": "300"},
+						{"name": "일류 영수증B", "workload": "10"}
+					]
+				}
+			]
+		}
+	"""
+	from datetime import date, timedelta
+	
+	settings = load_settings()
+	if not settings.spreadsheet_id:
+		raise RuntimeError("SPREADSHEET_ID 환경변수를 설정하세요.")
+	
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+	
+	today = date.today()
+	all_items = []
+	
+	ws_list = ss.worksheets()
+	for ws in ws_list:
+		tab_title = (ws.title or "").strip()
+		header_row, headers = _find_header_row(ws, settings)
+		records = _build_records(ws, header_row, headers)
+		
+		for row in records:
+			row_norm = { _normalize_key(k): v for k, v in row.items() }
+			
+			# 내부 진행건만 필터
+			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			if not is_internal:
+				continue
+			
+			# 기본 정보
+			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+			if not bizname:
+				continue
+			
+			agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
+			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
+			workload = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
+			product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
+			product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
+			
+			# 회사 필터
+			if company and agency_raw != company:
+				continue
+			
+			# 작업 시작일 파싱 (여러 컬럼명 시도)
+			start_date_str = None
+			for possible_col in ["작업 시작일", "작업시작일", "시작일", "세팅일"]:
+				start_val = _get_value_flexible(row_norm, possible_col, "")
+				if start_val:
+					start_date_str = str(start_val).strip()
+					break
+			
+			if not start_date_str:
+				continue
+			
+			# 날짜 파싱 (YYYY-MM-DD 또는 YYYY.MM.DD 형식)
+			try:
+				import re
+				# YYYY-MM-DD 또는 YYYY.MM.DD 형식
+				match = re.match(r"(\d{4})[.-](\d{1,2})[.-](\d{1,2})", start_date_str)
+				if match:
+					year, month, day = match.groups()
+					start_date = date(int(year), int(month), int(day))
+				else:
+					continue
+			except:
+				continue
+			
+			# 마감일 계산
+			if remain is not None:
+				end_date = today + timedelta(days=remain)
+			else:
+				continue
+			
+			# 작업명 생성 ('영수증리뷰' 탭은 항목 컬럼 사용)
+			is_review_tab = _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰")
+			if is_review_tab:
+				# 영수증리뷰 탭은 '항목' 컬럼 읽기
+				item_col_value = None
+				for possible_col in ["항목", "항목명"]:
+					val = _get_value_flexible(row_norm, possible_col, "")
+					if val:
+						item_col_value = str(val).strip()
+						break
+				task_display = item_col_value if item_col_value else _build_task_display(tab_title, product, product_name)
+			else:
+				task_display = _build_task_display(tab_title, product, product_name)
+			
+			all_items.append({
+				"agency": agency_raw or "내부 진행",
+				"bizname": bizname,
+				"task_display": task_display,
+				"workload": workload,
+				"start_date": start_date,
+				"end_date": end_date
+			})
+	
+	# 최근 시작일 찾기
+	if not all_items:
+		return {"weeks": []}
+	
+	latest_start = max(item["start_date"] for item in all_items)
+	three_weeks_ago = latest_start - timedelta(days=21)
+	
+	# 3주 전 이후 작업만 필터링
+	filtered_items = [item for item in all_items if item["start_date"] >= three_weeks_ago]
+	
+	# 주차별 그룹핑 (시작일-마감일 페어로)
+	week_groups = {}
+	for item in filtered_items:
+		key = (item["start_date"], item["end_date"])
+		if key not in week_groups:
+			week_groups[key] = []
+		
+		# 작업량 파싱
+		try:
+			wl_num = _parse_int_maybe(item["workload"]) or 0
+		except:
+			wl_num = 0
+		
+		workload_display = str(wl_num) if wl_num > 0 else item["workload"]
+		
+		week_groups[key].append({
+			"name": item["task_display"],
+			"workload": workload_display
+		})
+	
+	# 정렬 및 포맷팅
+	weeks = []
+	for (start_dt, end_dt), items in sorted(week_groups.items()):
+		weeks.append({
+			"start_date": start_dt.strftime("%m/%d"),
+			"end_date": end_dt.strftime("%m/%d"),
+			"items": items
+		})
+	
+	return {"weeks": weeks}
+
+
