@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="ko">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>월보장 관리 대시보드</title>
-  <style>
+    <style>
     :root{
       --bg:#f8fafc; --text:#0f172a; --muted:#64748b; --line:#e2e8f0;
       --primary:#3b82f6; --primary-dark:#2563eb; --success:#10b981; --warning:#f59e0b; --danger:#ef4444;
@@ -145,9 +145,9 @@
       .filter-bar{ flex-direction:column; align-items:stretch; }
       .modal-content{ width:95%; }
     }
-  </style>
-</head>
-<body>
+    </style>
+  </head>
+  <body>
   <!-- 헤더 -->
   <header class="header">
     <div class="container">
@@ -183,7 +183,7 @@
           <button class="btn btn-secondary" id="btn-sync" style="color:#fff; border-color:rgba(255,255,255,.3);">
             <span id="sync-btn-text">🔄 수동 동기화</span>
           </button>
-        </div>
+      </div>
       </div>
 
       <!-- 주요 통계 -->
@@ -200,21 +200,21 @@
             <div class="stat-label">실시간 노출</div>
             <div class="stat-value" style="color:var(--success);" id="stat-exposed">0</div>
             <div class="stat-change" id="stat-exposed-change"></div>
-          </div>
+              </div>
           <div class="card stat-card" style="border-left:4px solid var(--danger);">
             <div class="stat-icon">⚠️</div>
             <div class="stat-label">실시간 미노출</div>
             <div class="stat-value" style="color:var(--danger);" id="stat-not-exposed">0</div>
             <div class="stat-change" id="stat-not-exposed-change"></div>
-          </div>
+            </div>
           <div class="card stat-card" style="border-left:4px solid #8b5cf6;">
             <div class="stat-icon">💳</div>
             <div class="stat-label">후불 진행건</div>
             <div class="stat-value" style="color:#8b5cf6;" id="stat-postpaid">0</div>
           </div>
+          </div>
         </div>
-      </div>
-
+        
       <!-- 회사별 현황 -->
       <div class="section">
         <h2 class="section-title">📈 회사별 현황</h2>
@@ -223,46 +223,46 @@
             <h3 style="font-size:16px; font-weight:600; margin-bottom:16px; color:var(--primary);" id="company-chart-title-1">🏢 제이투랩</h3>
             <div class="chart-container" id="chart-company"></div>
           </div>
-          <div class="card">
+            <div class="card">
             <h3 style="font-size:16px; font-weight:600; margin-bottom:16px;">📊 상태별 분포</h3>
             <div class="chart-container" id="chart-status"></div>
           </div>
         </div>
-      </div>
+            </div>
 
       <!-- 상품별 / 월별 분석 -->
       <div class="section">
         <div class="grid grid-2">
-          <div class="card">
+            <div class="card">
             <h3 style="font-size:16px; font-weight:600; margin-bottom:16px;">📦 상품별 분포</h3>
             <div class="chart-container" id="chart-products"></div>
-          </div>
-          <div class="card">
+            </div>
+            <div class="card">
             <h3 style="font-size:16px; font-weight:600; margin-bottom:16px;">📅 월별 계약 건수</h3>
             <div class="chart-container" id="chart-monthly"></div>
           </div>
+          </div>
         </div>
-      </div>
 
-      <!-- 필터 및 검색 -->
+        <!-- 필터 및 검색 -->
       <div class="section">
         <div class="section-header">
           <h2 class="section-title">📋 보장건 목록</h2>
           <button class="btn btn-success" id="btn-add">➕ 새 보장건 등록</button>
-        </div>
+            </div>
         <div class="filter-bar">
           <div class="filter-group">
             <label class="filter-label">상태</label>
             <select class="filter-select" id="filter-status">
-              <option value="">전체</option>
-              <option value="진행중">진행중</option>
-              <option value="세팅대기">세팅대기</option>
-              <option value="완료">완료</option>
-              <option value="중단">중단</option>
-              <option value="환불">환불</option>
+                <option value="">전체</option>
+                <option value="진행중">진행중</option>
+                <option value="세팅대기">세팅대기</option>
+                <option value="완료">완료</option>
+                <option value="중단">중단</option>
+                <option value="환불">환불</option>
               <option value="후불">후불</option>
-            </select>
-          </div>
+              </select>
+            </div>
           <div class="filter-group">
             <label class="filter-label">상품</label>
             <select class="filter-select" id="filter-product">
@@ -272,53 +272,53 @@
               <option value="자동완성">자동완성</option>
               <option value="기타">기타</option>
             </select>
-          </div>
+            </div>
           <div class="filter-group" style="flex:2;">
             <label class="filter-label">검색</label>
             <input type="text" class="filter-input" id="search-input" placeholder="상호명, 키워드, 대행사 검색...">
           </div>
           <button class="btn btn-primary" id="btn-search">🔍 검색</button>
           <button class="btn btn-secondary" id="btn-reset">🔄 초기화</button>
+          </div>
         </div>
-      </div>
 
       <!-- 테이블 -->
       <div class="section">
         <div class="table-container">
-          <table id="guarantee-table">
-            <thead>
-              <tr>
-                <th>구분</th>
-                <th>대행사</th>
-                <th>상호명</th>
-                <th>키워드</th>
+            <table id="guarantee-table">
+              <thead>
+                <tr>
+                  <th>구분</th>
+                  <th>대행사</th>
+                  <th>상호명</th>
+                  <th>키워드</th>
                 <th>상품</th>
                 <th>상태</th>
                 <th>현재순위</th>
                 <th>증감</th>
                 <th>계약일</th>
-                <th>작업시작</th>
-                <th>액션</th>
-              </tr>
-            </thead>
+                  <th>작업시작</th>
+                  <th>액션</th>
+                </tr>
+              </thead>
             <tbody id="table-body">
               <tr>
                 <td colspan="11" style="text-align:center; padding:40px; color:var(--muted);">데이터를 불러오는 중...</td>
               </tr>
             </tbody>
-          </table>
+            </table>
         </div>
       </div>
     </div>
   </main>
 
   <!-- 모달 -->
-  <div class="modal" id="guarantee-modal">
-    <div class="modal-content">
+    <div class="modal" id="guarantee-modal">
+      <div class="modal-content">
       <div class="modal-header">
         <h3 class="modal-title" id="modal-title">새 보장건 등록</h3>
         <button class="btn btn-sm btn-secondary" onclick="closeModal()">✕</button>
-      </div>
+        </div>
       <div class="modal-body">
         <form id="guarantee-form">
           <div class="form-row">
@@ -390,11 +390,11 @@
             </div>
           </div>
           <div class="form-row">
-            <div class="form-group">
+          <div class="form-group">
               <label class="form-label">총 계약금 (VAT 제외)</label>
               <input type="number" name="total_contract" class="form-input" placeholder="0">
-            </div>
-            <div class="form-group">
+          </div>
+          <div class="form-group">
               <label class="form-label">입금액/마진 (VAT 제외)</label>
               <input type="number" name="deposit_amount" class="form-input" placeholder="0">
             </div>
@@ -412,10 +412,31 @@
     </div>
   </div>
 
+  <!-- 작업량 스케줄 모달 -->
+  <div class="modal" id="workload-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">📊 작업량 스케줄 (최근 3주)</h3>
+        <button class="btn btn-sm btn-secondary" onclick="closeWorkloadModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="workload-content">
+          <div style="text-align:center; padding:40px; color:var(--muted);">
+            <div class="loading" style="margin:0 auto 16px;"></div>
+            <div>데이터를 불러오는 중...</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeWorkloadModal()">닫기</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
-  <script>
+    <script>
     let allData = [];
     let currentEditId = null;
     let currentCompany = '제이투랩';  // 기본값
@@ -449,20 +470,20 @@
 
     // 모달
     function openModal(item = null) {
-      const modal = document.getElementById('guarantee-modal');
-      const form = document.getElementById('guarantee-form');
-      const title = document.getElementById('modal-title');
-      
+        const modal = document.getElementById('guarantee-modal');
+        const form = document.getElementById('guarantee-form');
+        const title = document.getElementById('modal-title');
+        
       if (item) {
-        title.textContent = '보장건 수정';
-        currentEditId = item.id;
+          title.textContent = '보장건 수정';
+          currentEditId = item.id;
         Object.keys(item).forEach(key => {
           if (form[key]) form[key].value = item[key] || '';
         });
-      } else {
-        title.textContent = '새 보장건 등록';
-        currentEditId = null;
-        form.reset();
+        } else {
+          title.textContent = '새 보장건 등록';
+          currentEditId = null;
+          form.reset();
         // 현재 선택된 회사로 기본값 설정
         form.company.value = currentCompany;
       }
@@ -472,9 +493,9 @@
 
     function closeModal() {
       document.getElementById('guarantee-modal').classList.remove('show');
-      currentEditId = null;
-    }
-
+        currentEditId = null;
+      }
+      
     // 노출 현황 로드
     async function updateExposureStatus() {
       try {
@@ -505,9 +526,9 @@
         if (status) params.append('status', status);
         if (product) params.append('product', product);
         
-        const res = await fetch(`/api/guarantee/items?${params}`);
-        const data = await res.json();
-        
+          const res = await fetch(`/api/guarantee/items?${params}`);
+          const data = await res.json();
+          
         allData = data.items || [];
         renderTable(allData);
         updateStatistics();
@@ -592,8 +613,7 @@
             <td>${item.contract_date || '-'}</td>
             <td>${item.work_start_date || '-'}</td>
             <td>
-              <button class="btn btn-sm btn-secondary" onclick='editItem(${JSON.stringify(item).replace(/'/g, "&apos;")})'>수정</button>
-              <button class="btn btn-sm btn-danger" onclick='deleteItem("${item.id}")'>삭제</button>
+              <button class="btn btn-sm btn-primary" onclick='showWorkload("${item.company}")'>📊 작업량</button>
             </td>
           </tr>
         `;
@@ -621,9 +641,9 @@
     // 차트 업데이트
     async function updateCharts() {
       try {
-        const res = await fetch('/api/guarantee/statistics');
-        const stats = await res.json();
-        
+          const res = await fetch('/api/guarantee/statistics');
+          const stats = await res.json();
+          
         // 회사별 차트
         const companyData = stats.by_company[currentCompany] || {};
         renderCompanyChart(companyData);
@@ -647,10 +667,10 @@
         // 월별 차트 (전체 통계 사용)
         renderBarChart('chart-monthly', stats.by_month || {});
       } catch (e) {
-        console.error(e);
+          console.error(e);
+        }
       }
-    }
-
+      
     function renderCompanyChart(data) {
       const el = document.getElementById('chart-company');
       const total = data.total || 0;
@@ -718,7 +738,7 @@
           loadData();
           updateExposureStatus();
           updateSyncStatus();
-        } else {
+          } else {
           showToast('동기화 실패: ' + (data.error || '알 수 없는 오류'));
         }
       } catch (e) {
@@ -731,9 +751,9 @@
 
     async function updateSyncStatus() {
       try {
-        const res = await fetch('/api/guarantee/sync-status');
-        const data = await res.json();
-        
+          const res = await fetch('/api/guarantee/sync-status');
+          const data = await res.json();
+          
         if (data.last_sync) {
           const date = new Date(data.last_sync);
           document.getElementById('sync-status').textContent = 
@@ -744,29 +764,9 @@
           document.getElementById('next-sync').textContent = `다음: ${data.next_sync_kst}`;
         }
       } catch (e) {
-        console.error(e);
-      }
-    }
-
-    // CRUD
-    window.editItem = function(item) {
-      openModal(item);
-    };
-
-    window.deleteItem = async function(id) {
-      if (!confirm('정말 삭제하시겠습니까?')) return;
-      
-      try {
-        const res = await fetch(`/api/guarantee/items/${id}`, { method: 'DELETE' });
-        if (res.ok) {
-          showToast('삭제되었습니다');
-          loadData();
-          updateExposureStatus();
+          console.error(e);
         }
-      } catch (e) {
-        showToast('삭제 실패');
       }
-    };
 
     // 폼 제출
     document.getElementById('guarantee-form').addEventListener('submit', async (e) => {
@@ -797,6 +797,73 @@
         showToast('저장 실패');
       }
     });
+
+    // 작업량 스케줄 모달
+    async function showWorkload(company) {
+      const modal = document.getElementById('workload-modal');
+      const content = document.getElementById('workload-content');
+      
+      // 모달 표시
+      modal.classList.add('show');
+      
+      // 로딩 표시
+      content.innerHTML = `
+        <div style="text-align:center; padding:40px; color:var(--muted);">
+          <div class="loading" style="margin:0 auto 16px;"></div>
+          <div>데이터를 불러오는 중...</div>
+        </div>
+      `;
+      
+      try {
+        const res = await fetch(`/api/workload/schedule?company=${encodeURIComponent(company)}`);
+        const data = await res.json();
+        
+        if (!data.weeks || data.weeks.length === 0) {
+          content.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">📭</div>
+              <div class="empty-title">작업 스케줄이 없습니다</div>
+              <div class="empty-desc">최근 3주간 진행된 작업이 없습니다</div>
+            </div>
+          `;
+          return;
+        }
+        
+        // 스케줄 렌더링
+        const html = data.weeks.map(week => `
+          <div style="margin-bottom:24px; padding:16px; background:var(--hover); border-radius:8px;">
+            <div style="font-weight:600; font-size:16px; margin-bottom:12px; color:var(--primary);">
+              ${week.start_date} ~ ${week.end_date}
+            </div>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              ${week.items.map(item => `
+                <div style="display:flex; justify-content:space-between; padding:8px 12px; background:var(--card-bg); border-radius:6px; border:1px solid var(--line);">
+                  <span style="font-weight:500;">${item.name}</span>
+                  <span style="color:var(--primary); font-weight:600;">${item.workload}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `).join('');
+        
+        content.innerHTML = html;
+      } catch (e) {
+        console.error('Workload schedule error:', e);
+        content.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">⚠️</div>
+            <div class="empty-title">데이터 로드 실패</div>
+            <div class="empty-desc">${e.message || '알 수 없는 오류가 발생했습니다'}</div>
+          </div>
+        `;
+      }
+    }
+    
+    function closeWorkloadModal() {
+      document.getElementById('workload-modal').classList.remove('show');
+    }
+    
+    window.showWorkload = showWorkload;
 
     // 검색
     document.getElementById('btn-search').addEventListener('click', async () => {
@@ -835,6 +902,6 @@
     loadData();
     updateExposureStatus();
     updateSyncStatus();
-  </script>
-</body>
-</html>
+    </script>
+  </body>
+  </html>
