@@ -161,32 +161,37 @@ def fetch_workload_schedule(company: str = None, business_name: str = None) -> D
 	import logging
 	logger = logging.getLogger(__name__)
 	
-	# 업체 필터가 있으면 캐시를 사용하지 않고 직접 조회
-	if business_name:
-		logger.info(f"Fetching workload directly for business: {business_name}")
-		result = fetch_workload_schedule_direct(company, business_name)
-		result["from_cache"] = False
-		return result
-	
 	# 캐시에서 먼저 조회
 	try:
 		from workload_cache import WorkloadCache
 		cache = WorkloadCache()
 		
 		if cache.is_cache_valid():
-			cached_data = cache.get_company_workload(company)
-			if cached_data:
-				logger.info(f"Using cached workload data for {company}")
-				result = cached_data.copy()
-				result["from_cache"] = True
-				return result
+			# 업체별 조회
+			if business_name:
+				cached_data = cache.get_business_workload(company, business_name)
+				if cached_data:
+					logger.info(f"✅ Using cached workload data for business: {business_name}")
+					result = cached_data.copy()
+					result["from_cache"] = True
+					return result
+				else:
+					logger.warning(f"⚠️ No cached data for business: {business_name}")
+			# 회사 전체 조회
+			else:
+				cached_data = cache.get_company_workload(company)
+				if cached_data:
+					logger.info(f"✅ Using cached workload data for company: {company}")
+					result = cached_data.copy()
+					result["from_cache"] = True
+					return result
 		else:
-			logger.info(f"Cache invalid or expired for {company}")
+			logger.info(f"Cache invalid or expired")
 	except Exception as e:
 		logger.warning(f"Failed to load from cache: {e}")
 	
 	# 캐시 없으면 직접 조회
-	logger.info(f"Fetching workload directly for {company}")
+	logger.info(f"Fetching workload directly for {company}/{business_name or 'all'}")
 	result = fetch_workload_schedule_direct(company, business_name)
 	result["from_cache"] = False
 	return result
