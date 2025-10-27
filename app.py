@@ -438,9 +438,10 @@ def create_app() -> Flask:
 	def api_workload_schedule():
 		"""최근 3주간 작업량 스케줄 조회 (캐시 우선)"""
 		company = request.args.get("company")
+		business_name = request.args.get("business_name")  # 업체 필터 추가
 		
 		try:
-			schedule = fetch_workload_schedule(company)
+			schedule = fetch_workload_schedule(company, business_name)
 			return jsonify(schedule), 200
 		except Exception as e:
 			logger.error(f"Workload schedule error: {e}")
