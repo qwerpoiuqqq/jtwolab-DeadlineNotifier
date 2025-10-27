@@ -819,17 +819,25 @@
       
       btn.disabled = true;
       btnText.innerHTML = '<span class="loading"></span> 갱신 중...';
-      statusEl.innerHTML = '⚡ 작업량 캐시: 갱신 중... (약 10-20초 소요)';
+      statusEl.innerHTML = '⚡ 작업량 캐시: 갱신 중... (진행중인 업체만 조회)';
       statusEl.style.color = 'rgba(255,200,0,0.9)';
+      
+      // 시작 시간 기록
+      const startTime = Date.now();
       
       try {
         const res = await fetch('/api/workload/cache/refresh', { method: 'POST' });
         const data = await res.json();
         
+        // 소요 시간 계산
+        const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
+        
         if (res.ok) {
-          const msg = data.message || '작업량 캐시 갱신 완료';
+          const businessCount = data.business_count || 0;
+          const msg = `${data.message || '작업량 캐시 갱신 완료'} (${elapsedSeconds}초 소요)`;
           showToast(msg);
           console.log('캐시 갱신 결과:', data);
+          console.log(`소요 시간: ${elapsedSeconds}초`);
           
           // 업체별 데이터 다시 로드 (캐시 상태도 함께 업데이트)
           await loadBusinessWorkloads();
