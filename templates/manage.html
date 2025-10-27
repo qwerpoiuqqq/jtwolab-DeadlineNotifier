@@ -181,7 +181,10 @@
             <button class="toggle-btn" data-company="일류기획" style="color:rgba(255,255,255,.7);">🏢 일류기획</button>
           </div>
           <button class="btn btn-secondary" id="btn-sync" style="color:#fff; border-color:rgba(255,255,255,.3);">
-            <span id="sync-btn-text">🔄 수동 동기화</span>
+            <span id="sync-btn-text">🔄 동기화</span>
+          </button>
+          <button class="btn btn-secondary" id="btn-refresh-workload" style="color:#fff; border-color:rgba(255,255,255,.3);">
+            <span id="workload-btn-text">⚡ 작업량 캐시 갱신</span>
           </button>
       </div>
       </div>
@@ -745,7 +748,34 @@
         showToast('동기화 실패');
       } finally {
         btn.disabled = false;
-        btnText.textContent = '🔄 수동 동기화';
+        btnText.textContent = '🔄 동기화';
+      }
+    }
+    
+    // 작업량 캐시 갱신
+    async function refreshWorkloadCache() {
+      const btn = document.getElementById('btn-refresh-workload');
+      const btnText = document.getElementById('workload-btn-text');
+      btn.disabled = true;
+      btnText.innerHTML = '<span class="loading"></span> 갱신 중...';
+      
+      try {
+        const res = await fetch('/api/workload/cache/refresh', { method: 'POST' });
+        const data = await res.json();
+        
+        if (res.ok) {
+          const msg = data.message || '작업량 캐시 갱신 완료';
+          showToast(msg);
+          console.log('캐시 갱신 결과:', data);
+        } else {
+          showToast('캐시 갱신 실패: ' + (data.error || '알 수 없는 오류'));
+        }
+      } catch (e) {
+        console.error('캐시 갱신 오류:', e);
+        showToast('캐시 갱신 실패');
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = '⚡ 작업량 캐시 갱신';
       }
     }
 
@@ -891,6 +921,7 @@
 
     // 이벤트
     document.getElementById('btn-sync').addEventListener('click', syncData);
+    document.getElementById('btn-refresh-workload').addEventListener('click', refreshWorkloadCache);
     document.getElementById('btn-add').addEventListener('click', () => openModal());
     document.getElementById('filter-status').addEventListener('change', loadData);
     document.getElementById('filter-product').addEventListener('change', loadData);
