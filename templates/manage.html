@@ -180,11 +180,11 @@
             <button class="toggle-btn active" data-company="제이투랩" style="color:#fff;">🏢 제이투랩</button>
             <button class="toggle-btn" data-company="일류기획" style="color:rgba(255,255,255,.7);">🏢 일류기획</button>
           </div>
-          <button class="btn btn-secondary" id="btn-sync" style="color:#fff; border-color:rgba(255,255,255,.3);">
+          <button class="btn" id="btn-sync" style="background:#fff; color:var(--primary); font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,.15);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,.2)'" onmouseout="this.style.transform=''; this.style.boxShadow='0 2px 8px rgba(0,0,0,.15)'">
             <span id="sync-btn-text">🔄 동기화</span>
           </button>
-          <button class="btn btn-secondary" id="btn-refresh-workload" style="color:#fff; border-color:rgba(255,255,255,.3);">
-            <span id="workload-btn-text">⚡ 작업량 캐시 갱신</span>
+          <button class="btn" id="btn-refresh-workload" style="background:#10b981; color:#fff; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,.15);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,.2)'; this.style.background='#059669'" onmouseout="this.style.transform=''; this.style.boxShadow='0 2px 8px rgba(0,0,0,.15)'; this.style.background='#10b981'">
+            <span id="workload-btn-text">⚡ 작업량 갱신</span>
           </button>
       </div>
       </div>
@@ -443,6 +443,7 @@
     let allData = [];
     let currentEditId = null;
     let currentCompany = '제이투랩';  // 기본값
+    let businessWorkloadCache = {};  // 업체별 작업량 캐시
 
     // Toast
     function showToast(msg) {
@@ -452,6 +453,29 @@
       setTimeout(() => toast.classList.remove('show'), 3000);
     }
 
+    // 업체별 작업량 데이터 미리 로드
+    async function loadBusinessWorkloads() {
+      try {
+        console.log(`Loading business workloads for ${currentCompany}...`);
+        const res = await fetch(`/api/workload/businesses?company=${encodeURIComponent(currentCompany)}`);
+        const data = await res.json();
+        
+        if (data.businesses && Object.keys(data.businesses).length > 0) {
+          businessWorkloadCache = data.businesses;
+          console.log(`✅ Loaded ${data.count} business workloads from ${data.from_cache ? 'cache' : 'direct'}`);
+        } else {
+          businessWorkloadCache = {};
+          console.log('⚠️ No business workload data available');
+          if (data.message) {
+            console.log(data.message);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load business workloads:', e);
+        businessWorkloadCache = {};
+      }
+    }
+    
     // 회사 토글
     document.querySelectorAll('.toggle-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -468,6 +492,7 @@
         // 데이터 재로드
         loadData();
         updateExposureStatus();
+        loadBusinessWorkloads();  // 업체별 작업량도 재로드
       });
     });
 
@@ -767,6 +792,9 @@
           const msg = data.message || '작업량 캐시 갱신 완료';
           showToast(msg);
           console.log('캐시 갱신 결과:', data);
+          
+          // 업체별 데이터 다시 로드
+          await loadBusinessWorkloads();
         } else {
           showToast('캐시 갱신 실패: ' + (data.error || '알 수 없는 오류'));
         }
@@ -775,7 +803,7 @@
         showToast('캐시 갱신 실패');
       } finally {
         btn.disabled = false;
-        btnText.textContent = '⚡ 작업량 캐시 갱신';
+        btnText.textContent = '⚡ 작업량 갱신';
       }
     }
 
@@ -828,6 +856,40 @@
       }
     });
 
+    // 작업량 데이터 렌더링
+    function renderWorkloadData(data) {
+      const content = document.getElementById('workload-content');
+      
+      if (!data.weeks || data.weeks.length === 0) {
+        content.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">📭</div>
+            <div class="empty-title">작업 스케줄이 없습니다</div>
+            <div class="empty-desc">최근 3주간 진행된 작업이 없습니다</div>
+          </div>
+        `;
+        return;
+      }
+      
+      // 스케줄 렌더링 (텍스트 기반)
+      const html = data.weeks.map(week => {
+        const itemsText = week.items.map(item => 
+          `<div style="padding-left:0; color:var(--text); line-height:1.8;">${item.name} : ${item.workload}</div>`
+        ).join('');
+        
+        return `
+          <div style="margin-bottom:20px; font-size:14px;">
+            <div style="font-weight:700; font-size:15px; color:var(--primary); margin-bottom:8px;">
+              ${week.start_date} ~ ${week.end_date}
+            </div>
+            ${itemsText}
+          </div>
+        `;
+      }).join('');
+      
+      content.innerHTML = html;
+    }
+    
     // 작업량 스케줄 모달
     async function showWorkload(company, businessName = null) {
       const modal = document.getElementById('workload-modal');
@@ -844,7 +906,14 @@
         modalTitle.textContent = `📊 작업량 스케줄 (최근 3주)`;
       }
       
-      // 로딩 표시
+      // 캐시된 데이터가 있으면 즉시 표시
+      if (businessName && businessWorkloadCache[businessName]) {
+        console.log(`✅ Using cached data for ${businessName}`);
+        renderWorkloadData(businessWorkloadCache[businessName]);
+        return;
+      }
+      
+      // 캐시가 없으면 로딩 표시
       content.innerHTML = `
         <div style="text-align:center; padding:40px; color:var(--muted);">
           <div class="loading" style="margin:0 auto 16px;"></div>
@@ -860,34 +929,7 @@
         const res = await fetch(url);
         const data = await res.json();
         
-        if (!data.weeks || data.weeks.length === 0) {
-          content.innerHTML = `
-            <div class="empty-state">
-              <div class="empty-icon">📭</div>
-              <div class="empty-title">작업 스케줄이 없습니다</div>
-              <div class="empty-desc">최근 3주간 진행된 작업이 없습니다</div>
-            </div>
-          `;
-          return;
-        }
-        
-        // 스케줄 렌더링 (텍스트 기반)
-        const html = data.weeks.map(week => {
-          const itemsText = week.items.map(item => 
-            `<div style="padding-left:0; color:var(--text); line-height:1.8;">${item.name} : ${item.workload}</div>`
-          ).join('');
-          
-          return `
-            <div style="margin-bottom:20px; font-size:14px;">
-              <div style="font-weight:700; font-size:15px; color:var(--primary); margin-bottom:8px;">
-                ${week.start_date} ~ ${week.end_date}
-              </div>
-              ${itemsText}
-            </div>
-          `;
-        }).join('');
-        
-        content.innerHTML = html;
+        renderWorkloadData(data);
       } catch (e) {
         console.error('Workload schedule error:', e);
         content.innerHTML = `
@@ -944,6 +986,7 @@
     loadData();
     updateExposureStatus();
     updateSyncStatus();
+    loadBusinessWorkloads();  // 업체별 작업량 미리 로드
     </script>
   </body>
   </html>
