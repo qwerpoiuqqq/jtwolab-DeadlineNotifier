@@ -235,25 +235,73 @@ def refresh_all_workload_cache() -> Dict[str, Any]:
             schedule = fetch_workload_schedule_direct(company)
             workload_data[company] = schedule
             
-            # 해당 회사의 모든 업체 목록 가져오기
+            # 해당 회사의 진행중인 업체만 필터링
+            from datetime import date, timedelta
             gm = GuaranteeManager()
             items = gm.get_items({"company": company})
-            business_names = [item.get("business_name") for item in items if item.get("business_name")]
             
-            logger.info(f"Fetching workload for {len(business_names)} businesses in {company}...")
+            # 진행중/후불 상태이고 작업 시작일이 최근 4주 이내인 업체만 선택
+            active_statuses = ["진행중", "후불", "세팅대기"]
+            four_weeks_ago = date.today() - timedelta(days=28)
+            
+            filtered_items = []
+            for item in items:
+                status = item.get("status")
+                work_start_date = item.get("work_start_date")
+                business_name = item.get("business_name")
+                
+                if not business_name:
+                    continue
+                
+                # 진행중인 업체만
+                if status not in active_statuses:
+                    continue
+                
+                # 작업 시작일이 있으면 최근 4주 이내인지 확인
+                if work_start_date:
+                    try:
+                        import re
+                        match = re.match(r"(\d{4})[.-](\d{1,2})[.-](\d{1,2})", work_start_date)
+                        if match:
+                            year, month, day = match.groups()
+                            start_date = date(int(year), int(month), int(day))
+                            if start_date < four_weeks_ago:
+                                continue  # 4주 이전 작업은 제외
+                    except:
+                        pass  # 날짜 파싱 실패시 포함
+                # 작업 시작일이 없으면 최근 작업으로 간주하고 포함
+                
+                filtered_items.append(item)
+            
+            business_names = [item.get("business_name") for item in filtered_items]
+            
+            logger.info(f"Fetching workload for {len(business_names)} active businesses in {company} (filtered from {len(items)} total)...")
             
             # 각 업체별 작업량 가져오기
-            for business_name in business_names:
+            cached_count = 0
+            skipped_count = 0
+            failed_count = 0
+            
+            for idx, business_name in enumerate(business_names, 1):
                 try:
+                    logger.info(f"  [{idx}/{len(business_names)}] Fetching {business_name}...")
                     business_schedule = fetch_workload_schedule_direct(company, business_name)
-                    business_key = f"{company}:{business_name}"
-                    business_workloads[business_key] = business_schedule
+                    
+                    # 작업이 있는 업체만 캐싱
+                    if business_schedule.get("weeks"):
+                        business_key = f"{company}:{business_name}"
+                        business_workloads[business_key] = business_schedule
+                        logger.info(f"  ✅ {business_name}: {len(business_schedule.get('weeks', []))} weeks")
+                        cached_count += 1
+                    else:
+                        logger.info(f"  ⊘ {business_name}: no data (skipped)")
+                        skipped_count += 1
                 except Exception as e:
-                    logger.warning(f"Failed to fetch workload for {business_name}: {e}")
-                    business_workloads[f"{company}:{business_name}"] = {"weeks": []}
+                    logger.warning(f"  ❌ Failed to fetch workload for {business_name}: {e}")
+                    failed_count += 1
             
             updated_companies.append(company)
-            logger.info(f"✅ Successfully fetched {len(schedule.get('weeks', []))} weeks for {company}")
+            logger.info(f"✅ {company} complete - Cached: {cached_count}, Skipped: {skipped_count}, Failed: {failed_count}")
         except Exception as e:
             logger.error(f"❌ Failed to fetch workload for {company}: {e}")
             failed_companies.append(company)
@@ -269,13 +317,14 @@ def refresh_all_workload_cache() -> Dict[str, Any]:
     success = cache.update_cache(cache_data)
     
     if success:
-        message = f"캐시 갱신 완료 - 성공: {', '.join(updated_companies)} ({len(business_workloads)}개 업체)"
+        message = f"✅ 캐시 갱신 완료 - {', '.join(updated_companies)} ({len(business_workloads)}개 업체 캐싱됨)"
         if failed_companies:
             message += f", 실패: {', '.join(failed_companies)}"
     else:
-        message = "캐시 저장 실패"
+        message = "❌ 캐시 저장 실패"
     
     logger.info(message)
+    logger.info(f"📊 Total cached: {len(business_workloads)} businesses")
     
     return {
         "success": success,
