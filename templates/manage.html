@@ -616,7 +616,7 @@
             <td>${item.contract_date || '-'}</td>
             <td>${item.work_start_date || '-'}</td>
             <td>
-              <button class="btn btn-sm btn-primary" onclick='showWorkload("${item.company || currentCompany}")'>📊 작업량</button>
+              <button class="btn btn-sm btn-primary" onclick='showWorkload("${item.company || currentCompany}", "${item.business_name || ''}")'>📊 작업량</button>
             </td>
           </tr>
         `;
@@ -829,12 +829,20 @@
     });
 
     // 작업량 스케줄 모달
-    async function showWorkload(company) {
+    async function showWorkload(company, businessName = null) {
       const modal = document.getElementById('workload-modal');
       const content = document.getElementById('workload-content');
       
       // 모달 표시
       modal.classList.add('show');
+      
+      // 모달 제목 업데이트
+      const modalTitle = modal.querySelector('.modal-title');
+      if (businessName) {
+        modalTitle.textContent = `📊 ${businessName} - 작업량 스케줄 (최근 3주)`;
+      } else {
+        modalTitle.textContent = `📊 작업량 스케줄 (최근 3주)`;
+      }
       
       // 로딩 표시
       content.innerHTML = `
@@ -845,7 +853,11 @@
       `;
       
       try {
-        const res = await fetch(`/api/workload/schedule?company=${encodeURIComponent(company)}`);
+        let url = `/api/workload/schedule?company=${encodeURIComponent(company)}`;
+        if (businessName) {
+          url += `&business_name=${encodeURIComponent(businessName)}`;
+        }
+        const res = await fetch(url);
         const data = await res.json();
         
         if (!data.weeks || data.weeks.length === 0) {
