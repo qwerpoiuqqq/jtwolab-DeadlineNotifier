@@ -283,6 +283,11 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 					filtered_by_company += 1
 					continue
 			
+			# 마감일 계산 (필수)
+			if remain is None:
+				continue
+			end_date = today + timedelta(days=remain)
+			
 			# 작업 시작일 파싱 (여러 컬럼명 시도)
 			start_date_str = None
 			for possible_col in ["작업 시작일", "작업시작일", "시작일", "세팅일"]:
@@ -291,18 +296,10 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 					start_date_str = str(start_val).strip()
 					break
 			
-			# 작업 시작일이 없으면 마감일로부터 역산
+			# 작업 시작일 파싱
 			start_date = None
-			if not start_date_str:
-				no_start_date += 1
-				# 마감일 기준으로 역산 (일반적으로 보장건은 25일)
-				if remain is not None:
-					end_date = today + timedelta(days=remain)
-					# 대략적인 시작일 추정 (마감일 - 25일)
-					start_date = end_date - timedelta(days=25)
-				else:
-					continue
-			else:
+			has_real_start_date = False
+			if start_date_str:
 				# 날짜 파싱 (YYYY-MM-DD 또는 YYYY.MM.DD 형식)
 				try:
 					import re
@@ -311,18 +308,15 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 					if match:
 						year, month, day = match.groups()
 						start_date = date(int(year), int(month), int(day))
-					else:
-						no_start_date += 1
-						continue
+						has_real_start_date = True
 				except:
-					no_start_date += 1
-					continue
+					pass
 			
-			# 마감일 계산
-			if remain is not None:
-				end_date = today + timedelta(days=remain)
-			else:
-				continue
+			# 작업 시작일이 없으면 마감일 기준으로 처리 (필터링에서 제외하지 않음)
+			if not has_real_start_date:
+				no_start_date += 1
+				# 현재 날짜를 시작일로 사용 (실제 진행 중인 작업으로 간주)
+				start_date = today
 			
 			# 작업명 생성 ('영수증리뷰' 탭은 항목 컬럼 사용)
 			is_review_tab = _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰")
@@ -344,7 +338,8 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 				"task_display": task_display,
 				"workload": workload,
 				"start_date": start_date,
-				"end_date": end_date
+				"end_date": end_date,
+				"has_real_start_date": has_real_start_date
 			})
 			valid_items += 1
 	
@@ -364,11 +359,25 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 		logger.warning(f"⚠️ {company}의 작업량 데이터가 없습니다.")
 		return {"weeks": []}
 	
-	latest_start = max(item["start_date"] for item in all_items)
-	three_weeks_ago = latest_start - timedelta(days=21)
+	# 실제 작업 시작일이 있는 항목들만으로 최신 날짜 계산
+	items_with_real_start = [item for item in all_items if item.get("has_real_start_date")]
 	
-	# 3주 전 이후 작업만 필터링
-	filtered_items = [item for item in all_items if item["start_date"] >= three_weeks_ago]
+	if items_with_real_start:
+		# 실제 시작일이 있는 경우: 최신 시작일 기준 3주
+		latest_start = max(item["start_date"] for item in items_with_real_start)
+		three_weeks_ago = latest_start - timedelta(days=21)
+		logger.info(f"📅 최신 작업 시작일: {latest_start}, 3주 전: {three_weeks_ago}")
+		
+		# 실제 시작일이 있는 항목은 3주 필터링, 없는 항목은 모두 포함
+		filtered_items = [
+			item for item in all_items 
+			if (item.get("has_real_start_date") and item["start_date"] >= three_weeks_ago)
+			or (not item.get("has_real_start_date"))  # 시작일이 없는 항목은 모두 포함
+		]
+	else:
+		# 실제 시작일이 없는 경우: 모든 항목 포함
+		logger.info(f"📅 실제 작업 시작일이 없어 전체 작업 포함")
+		filtered_items = all_items
 	
 	# 주차별 그룹핑 (시작일-마감일 페어로)
 	week_groups = {}
@@ -399,7 +408,9 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 			"items": items
 		})
 	
-	logger.info(f"✅ {company} 작업량 조회 완료 - {len(weeks)}주차, 총 {len(filtered_items)}개 작업")
+	# 최종 통계
+	total_workload_items = sum(len(items) for items in week_groups.values())
+	logger.info(f"✅ {company} 작업량 조회 완료 - {len(weeks)}주차, 총 {total_workload_items}개 작업 (필터링 후: {len(filtered_items)}건)")
 	
 	return {"weeks": weeks}
 
