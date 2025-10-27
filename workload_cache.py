@@ -80,6 +80,51 @@ class WorkloadCache:
         companies = self.cache_data.get("companies", {})
         return companies.get(company)
     
+    def get_business_workload(self, company: str, business_name: str) -> Optional[Dict[str, Any]]:
+        """특정 업체의 작업량 스케줄 조회
+        
+        Args:
+            company: 회사명 (제이투랩, 일류기획)
+            business_name: 상호명
+            
+        Returns:
+            작업량 스케줄 데이터 또는 None (캐시 없음/만료)
+        """
+        if not self.is_cache_valid():
+            logger.info("Cache expired or invalid")
+            return None
+        
+        companies = self.cache_data.get("companies", {})
+        businesses = companies.get("businesses", {})
+        business_key = f"{company}:{business_name}"
+        return businesses.get(business_key)
+    
+    def get_all_businesses_workload(self, company: str) -> Dict[str, Dict[str, Any]]:
+        """특정 회사의 모든 업체별 작업량 조회
+        
+        Args:
+            company: 회사명 (제이투랩, 일류기획)
+            
+        Returns:
+            업체별 작업량 데이터 {"업체명": {"weeks": [...]}, ...}
+        """
+        if not self.is_cache_valid():
+            logger.info("Cache expired or invalid")
+            return {}
+        
+        companies = self.cache_data.get("companies", {})
+        businesses = companies.get("businesses", {})
+        
+        # 해당 회사의 업체만 필터링
+        result = {}
+        prefix = f"{company}:"
+        for key, data in businesses.items():
+            if key.startswith(prefix):
+                business_name = key[len(prefix):]
+                result[business_name] = data
+        
+        return result
+    
     def update_cache(self, workload_data: Dict[str, Any]) -> bool:
         """캐시 업데이트
         
@@ -152,7 +197,7 @@ class WorkloadCache:
 
 
 def refresh_all_workload_cache() -> Dict[str, Any]:
-    """모든 회사의 작업량 캐시를 갱신
+    """모든 회사의 작업량 캐시를 갱신 (회사 전체 + 업체별)
     
     Returns:
         갱신 결과 {
@@ -163,19 +208,41 @@ def refresh_all_workload_cache() -> Dict[str, Any]:
         }
     """
     from internal_manager import fetch_workload_schedule_direct
+    from guarantee_manager import GuaranteeManager
     
-    logger.info("Starting workload cache refresh for all companies...")
+    logger.info("Starting workload cache refresh for all companies and businesses...")
     
     companies = ["제이투랩", "일류기획"]
     workload_data = {}
     updated_companies = []
     failed_companies = []
+    business_workloads = {}  # 업체별 작업량 저장
     
     for company in companies:
         try:
             logger.info(f"Fetching workload for {company}...")
+            
+            # 회사 전체 작업량
             schedule = fetch_workload_schedule_direct(company)
             workload_data[company] = schedule
+            
+            # 해당 회사의 모든 업체 목록 가져오기
+            gm = GuaranteeManager()
+            items = gm.get_items({"company": company})
+            business_names = [item.get("business_name") for item in items if item.get("business_name")]
+            
+            logger.info(f"Fetching workload for {len(business_names)} businesses in {company}...")
+            
+            # 각 업체별 작업량 가져오기
+            for business_name in business_names:
+                try:
+                    business_schedule = fetch_workload_schedule_direct(company, business_name)
+                    business_key = f"{company}:{business_name}"
+                    business_workloads[business_key] = business_schedule
+                except Exception as e:
+                    logger.warning(f"Failed to fetch workload for {business_name}: {e}")
+                    business_workloads[f"{company}:{business_name}"] = {"weeks": []}
+            
             updated_companies.append(company)
             logger.info(f"✅ Successfully fetched {len(schedule.get('weeks', []))} weeks for {company}")
         except Exception as e:
@@ -184,12 +251,16 @@ def refresh_all_workload_cache() -> Dict[str, Any]:
             # 빈 데이터라도 추가
             workload_data[company] = {"weeks": []}
     
-    # 캐시 저장
+    # 캐시 저장 (회사 전체 + 업체별)
     cache = WorkloadCache()
-    success = cache.update_cache(workload_data)
+    cache_data = {
+        **workload_data,
+        "businesses": business_workloads  # 업체별 데이터 추가
+    }
+    success = cache.update_cache(cache_data)
     
     if success:
-        message = f"캐시 갱신 완료 - 성공: {', '.join(updated_companies)}"
+        message = f"캐시 갱신 완료 - 성공: {', '.join(updated_companies)} ({len(business_workloads)}개 업체)"
         if failed_companies:
             message += f", 실패: {', '.join(failed_companies)}"
     else:
@@ -201,6 +272,7 @@ def refresh_all_workload_cache() -> Dict[str, Any]:
         "success": success,
         "updated_companies": updated_companies,
         "failed_companies": failed_companies,
+        "business_count": len(business_workloads),
         "message": message,
         "cache_status": cache.get_cache_status()
     }
