@@ -613,7 +613,7 @@
             <td>${item.contract_date || '-'}</td>
             <td>${item.work_start_date || '-'}</td>
             <td>
-              <button class="btn btn-sm btn-primary" onclick='showWorkload("${item.company}")'>📊 작업량</button>
+              <button class="btn btn-sm btn-primary" onclick='showWorkload("${item.company || currentCompany}")'>📊 작업량</button>
             </td>
           </tr>
         `;
