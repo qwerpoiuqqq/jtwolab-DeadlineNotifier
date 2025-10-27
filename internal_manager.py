@@ -379,10 +379,11 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 		logger.info(f"📅 실제 작업 시작일이 없어 전체 작업 포함")
 		filtered_items = all_items
 	
-	# 주차별 그룹핑 (시작일-마감일 페어로)
+	# 업체(상호명) + 주차별 그룹핑
 	week_groups = {}
 	for item in filtered_items:
-		key = (item["start_date"], item["end_date"])
+		# 상호명을 포함한 키로 그룹핑
+		key = (item["bizname"], item["start_date"], item["end_date"])
 		if key not in week_groups:
 			week_groups[key] = []
 		
@@ -399,12 +400,16 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 			"workload": workload_display
 		})
 	
-	# 정렬 및 포맷팅
+	# 정렬 및 포맷팅 (상호명별로 주차를 그룹화)
 	weeks = []
-	for (start_dt, end_dt), items in sorted(week_groups.items()):
+	for (bizname, start_dt, end_dt), items in sorted(week_groups.items(), key=lambda x: (x[0][1], x[0][0])):  # 날짜 우선, 상호명 순
+		# 같은 업체의 같은 주차 작업들을 하나로 묶음
+		week_label = f"{start_dt.strftime('%m/%d')} ~ {end_dt.strftime('%m/%d')}"
+		
 		weeks.append({
 			"start_date": start_dt.strftime("%m/%d"),
 			"end_date": end_dt.strftime("%m/%d"),
+			"bizname": bizname,
 			"items": items
 		})
 	
