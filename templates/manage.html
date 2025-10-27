@@ -859,11 +859,16 @@
           return;
         }
         
-        // 스케줄 렌더링
+        // 스케줄 렌더링 (업체별 구분)
         const html = data.weeks.map(week => `
           <div style="margin-bottom:24px; padding:16px; background:var(--hover); border-radius:8px;">
-            <div style="font-weight:600; font-size:16px; margin-bottom:12px; color:var(--primary);">
-              ${week.start_date} ~ ${week.end_date}
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <div style="font-weight:600; font-size:16px; color:var(--primary);">
+                ${week.start_date} ~ ${week.end_date}
+              </div>
+              <div style="font-weight:700; font-size:14px; color:var(--text); background:var(--card-bg); padding:4px 12px; border-radius:6px;">
+                ${week.bizname || '업체명 없음'}
+              </div>
             </div>
             <div style="display:flex; flex-direction:column; gap:8px;">
               ${week.items.map(item => `
