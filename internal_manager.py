@@ -135,11 +135,12 @@ def refresh_cache() -> Dict[str, Any]:
 	return data
 
 
-def fetch_workload_schedule(company: str = None) -> Dict[str, Any]:
+def fetch_workload_schedule(company: str = None, business_name: str = None) -> Dict[str, Any]:
 	"""최근 3주간의 작업량 스케줄을 주차별로 반환 (캐시 우선)
 	
 	Args:
 		company: 회사명 필터 (제이투랩, 일류기획)
+		business_name: 상호명 필터 (특정 업체만 조회)
 		
 	Returns:
 		{
@@ -147,6 +148,7 @@ def fetch_workload_schedule(company: str = None) -> Dict[str, Any]:
 				{
 					"start_date": "09/12",
 					"end_date": "09/18",
+					"bizname": "업체명",
 					"items": [
 						{"name": "일류 저장", "workload": "300"},
 						{"name": "일류 영수증B", "workload": "10"}
@@ -158,6 +160,13 @@ def fetch_workload_schedule(company: str = None) -> Dict[str, Any]:
 	"""
 	import logging
 	logger = logging.getLogger(__name__)
+	
+	# 업체 필터가 있으면 캐시를 사용하지 않고 직접 조회
+	if business_name:
+		logger.info(f"Fetching workload directly for business: {business_name}")
+		result = fetch_workload_schedule_direct(company, business_name)
+		result["from_cache"] = False
+		return result
 	
 	# 캐시에서 먼저 조회
 	try:
@@ -178,16 +187,17 @@ def fetch_workload_schedule(company: str = None) -> Dict[str, Any]:
 	
 	# 캐시 없으면 직접 조회
 	logger.info(f"Fetching workload directly for {company}")
-	result = fetch_workload_schedule_direct(company)
+	result = fetch_workload_schedule_direct(company, business_name)
 	result["from_cache"] = False
 	return result
 
 
-def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
+def fetch_workload_schedule_direct(company: str = None, business_name: str = None) -> Dict[str, Any]:
 	"""최근 3주간의 작업량 스케줄을 주차별로 반환 (직접 조회)
 	
 	Args:
 		company: 회사명 필터 (제이투랩, 일류기획)
+		business_name: 상호명 필터 (특정 업체만 조회)
 		
 	Returns:
 		{
@@ -195,6 +205,7 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 				{
 					"start_date": "09/12",
 					"end_date": "09/18",
+					"bizname": "업체명",
 					"items": [
 						{"name": "일류 저장", "workload": "300"},
 						{"name": "일류 영수증B", "workload": "10"}
@@ -265,23 +276,29 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 			if not bizname:
 				continue
 			
+			# 상호명 필터 (특정 업체만 조회)
+			if business_name:
+				if bizname != business_name:
+					continue
+			
 			agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
 			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
 			workload = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
 			product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
 			product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
 			
-			# 회사 필터 (상호명 기준으로 매칭)
-			if company and company_business_names is not None:
-				# 보장건 상호명 리스트에 있는 것만 포함
-				if bizname not in company_business_names:
-					filtered_by_company += 1
-					continue
-			elif company and company_business_names is None:
-				# 보장건 로드 실패 시 대행사명으로 폴백
-				if agency_raw != company:
-					filtered_by_company += 1
-					continue
+			# 회사 필터 (상호명 기준으로 매칭) - 상호명 필터가 없을 때만 적용
+			if not business_name:
+				if company and company_business_names is not None:
+					# 보장건 상호명 리스트에 있는 것만 포함
+					if bizname not in company_business_names:
+						filtered_by_company += 1
+						continue
+				elif company and company_business_names is None:
+					# 보장건 로드 실패 시 대행사명으로 폴백
+					if agency_raw != company:
+						filtered_by_company += 1
+						continue
 			
 			# 마감일 계산 (필수)
 			if remain is None:
