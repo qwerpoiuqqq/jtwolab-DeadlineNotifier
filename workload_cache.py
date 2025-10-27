@@ -177,21 +177,30 @@ class WorkloadCache:
     def get_cache_status(self) -> Dict[str, Any]:
         """캐시 상태 정보 조회"""
         is_valid = self.is_cache_valid()
-        companies = list(self.cache_data.get("companies", {}).keys())
+        companies_data = self.cache_data.get("companies", {})
+        
+        # 회사 목록 (businesses 키 제외)
+        companies = [k for k in companies_data.keys() if k != "businesses"]
+        
+        # 업체별 캐시 정보
+        businesses_dict = companies_data.get("businesses", {})
+        business_count = len(businesses_dict)
         
         status = {
             "is_valid": is_valid,
             "updated_at": self.cache_data.get("updated_at"),
             "expires_at": self.cache_data.get("cache_expires_at"),
             "companies": companies,
-            "company_count": len(companies)
+            "company_count": len(companies),
+            "business_count": business_count
         }
         
         # 각 회사별 주차 수 정보
         for company in companies:
-            company_data = self.cache_data["companies"][company]
-            weeks = company_data.get("weeks", [])
-            status[f"{company}_weeks"] = len(weeks)
+            company_data = companies_data[company]
+            if isinstance(company_data, dict):
+                weeks = company_data.get("weeks", [])
+                status[f"{company}_weeks"] = len(weeks)
         
         return status
 
