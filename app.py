@@ -473,6 +473,42 @@ def create_app() -> Flask:
 		except Exception as e:
 			logger.error(f"Workload cache status error: {e}")
 			return jsonify({"error": str(e)}), 500
+	
+	@app.route("/api/workload/businesses", methods=["GET"])  # 업체별 작업량 일괄 조회
+	def api_workload_businesses():
+		"""특정 회사의 모든 업체별 작업량 데이터 조회 (캐시 우선)"""
+		company = request.args.get("company")
+		
+		if not company:
+			return jsonify({"error": "company parameter required"}), 400
+		
+		try:
+			from workload_cache import WorkloadCache
+			cache = WorkloadCache()
+			
+			# 캐시에서 업체별 데이터 조회
+			businesses_data = cache.get_all_businesses_workload(company)
+			
+			if businesses_data:
+				logger.info(f"Loaded {len(businesses_data)} businesses from cache for {company}")
+				return jsonify({
+					"businesses": businesses_data,
+					"from_cache": True,
+					"count": len(businesses_data)
+				}), 200
+			else:
+				logger.warning(f"No cached data for {company}, cache may be expired")
+				return jsonify({
+					"businesses": {},
+					"from_cache": False,
+					"count": 0,
+					"message": "캐시가 없거나 만료되었습니다. '작업량 갱신' 버튼을 눌러주세요."
+				}), 200
+		except Exception as e:
+			logger.error(f"Business workload error: {e}")
+			import traceback
+			logger.error(traceback.format_exc())
+			return jsonify({"error": str(e)}), 500
 
 	@app.route("/api/mark-done", methods=["POST"])
 	def mark_done():
