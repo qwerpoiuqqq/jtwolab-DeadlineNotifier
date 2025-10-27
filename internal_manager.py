@@ -224,12 +224,18 @@ def fetch_workload_schedule_direct(company: str = None, business_name: str = Non
 	
 	# 회사 필터가 있으면 보장건 데이터에서 해당 회사의 상호명 리스트 가져오기
 	company_business_names = None
+	guarantee_data_map = {}  # 상호명 -> 보장건 데이터 매핑
 	if company:
 		try:
 			from guarantee_manager import GuaranteeManager
 			gm = GuaranteeManager()
 			items = gm.get_items({"company": company})
 			company_business_names = {item.get("business_name") for item in items if item.get("business_name")}
+			# 상호명별 데이터 매핑 (작업 시작일 참조용)
+			for item in items:
+				biz = item.get("business_name")
+				if biz:
+					guarantee_data_map[biz] = item
 			if company_business_names:
 				logger.info(f"📋 {company} 보장건 상호명: {len(company_business_names)}개")
 			else:
@@ -329,11 +335,27 @@ def fetch_workload_schedule_direct(company: str = None, business_name: str = Non
 				except:
 					pass
 			
-			# 작업 시작일이 없으면 마감일 기준으로 처리 (필터링에서 제외하지 않음)
+			# 작업 시작일이 없으면 보장건 데이터에서 가져오기
+			if not has_real_start_date and bizname in guarantee_data_map:
+				guarantee_item = guarantee_data_map[bizname]
+				work_start = guarantee_item.get("work_start_date")
+				if work_start:
+					try:
+						import re
+						match = re.match(r"(\d{4})[.-](\d{1,2})[.-](\d{1,2})", work_start)
+						if match:
+							year, month, day = match.groups()
+							start_date = date(int(year), int(month), int(day))
+							has_real_start_date = True
+							logger.debug(f"보장건 데이터에서 작업 시작일 가져옴: {bizname} -> {work_start}")
+					except:
+						pass
+			
+			# 그래도 작업 시작일이 없으면 역산 (마감일 - 14일)
 			if not has_real_start_date:
 				no_start_date += 1
-				# 현재 날짜를 시작일로 사용 (실제 진행 중인 작업으로 간주)
-				start_date = today
+				# 마감일에서 2주 전을 시작일로 추정
+				start_date = end_date - timedelta(days=14)
 			
 			# 작업명 생성 ('영수증리뷰' 탭은 항목 컬럼 사용)
 			is_review_tab = _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰")
@@ -396,13 +418,16 @@ def fetch_workload_schedule_direct(company: str = None, business_name: str = Non
 		logger.info(f"📅 실제 작업 시작일이 없어 전체 작업 포함")
 		filtered_items = all_items
 	
-	# 업체(상호명) + 주차별 그룹핑
-	week_groups = {}
+	# 기간별 그룹핑 (같은 시작일-종료일끼리 묶음)
+	period_groups = {}
 	for item in filtered_items:
-		# 상호명을 포함한 키로 그룹핑
-		key = (item["bizname"], item["start_date"], item["end_date"])
-		if key not in week_groups:
-			week_groups[key] = []
+		# 기간을 키로 그룹핑
+		key = (item["start_date"], item["end_date"])
+		if key not in period_groups:
+			period_groups[key] = {}
+		
+		# 같은 작업명이면 작업량 합산
+		task_name = item["task_display"]
 		
 		# 작업량 파싱
 		try:
@@ -410,29 +435,32 @@ def fetch_workload_schedule_direct(company: str = None, business_name: str = Non
 		except:
 			wl_num = 0
 		
-		workload_display = str(wl_num) if wl_num > 0 else item["workload"]
-		
-		week_groups[key].append({
-			"name": item["task_display"],
-			"workload": workload_display
-		})
+		if task_name in period_groups[key]:
+			# 기존 작업량에 합산
+			period_groups[key][task_name] += wl_num
+		else:
+			# 새 작업 추가
+			period_groups[key][task_name] = wl_num
 	
-	# 정렬 및 포맷팅 (상호명별로 주차를 그룹화)
+	# 정렬 및 포맷팅 (기간별로 정렬)
 	weeks = []
-	for (bizname, start_dt, end_dt), items in sorted(week_groups.items(), key=lambda x: (x[0][1], x[0][0])):  # 날짜 우선, 상호명 순
-		# 같은 업체의 같은 주차 작업들을 하나로 묶음
-		week_label = f"{start_dt.strftime('%m/%d')} ~ {end_dt.strftime('%m/%d')}"
+	for (start_dt, end_dt), tasks in sorted(period_groups.items(), key=lambda x: x[0][0]):  # 시작일 기준 정렬
+		items = []
+		for task_name, total_workload in sorted(tasks.items()):
+			items.append({
+				"name": task_name,
+				"workload": str(total_workload) if total_workload > 0 else "0"
+			})
 		
 		weeks.append({
 			"start_date": start_dt.strftime("%m/%d"),
 			"end_date": end_dt.strftime("%m/%d"),
-			"bizname": bizname,
 			"items": items
 		})
 	
 	# 최종 통계
-	total_workload_items = sum(len(items) for items in week_groups.values())
-	logger.info(f"✅ {company} 작업량 조회 완료 - {len(weeks)}주차, 총 {total_workload_items}개 작업 (필터링 후: {len(filtered_items)}건)")
+	total_workload_items = sum(len(items) for items in period_groups.values())
+	logger.info(f"✅ {company} 작업량 조회 완료 - {len(weeks)}개 기간, 총 {total_workload_items}개 작업 (필터링 후: {len(filtered_items)}건)")
 	
 	return {"weeks": weeks}
 
