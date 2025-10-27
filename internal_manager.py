@@ -217,7 +217,16 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 	today = date.today()
 	all_items = []
 	
+	# 디버깅 카운터
+	total_rows = 0
+	internal_rows = 0
+	filtered_by_company = 0
+	no_start_date = 0
+	valid_items = 0
+	
 	ws_list = ss.worksheets()
+	logger.info(f"📊 작업량 조회 시작 - 회사: {company}, 워크시트 수: {len(ws_list)}")
+	
 	for ws in ws_list:
 		tab_title = (ws.title or "").strip()
 		header_row, headers = _find_header_row(ws, settings)
@@ -225,11 +234,14 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 		
 		for row in records:
 			row_norm = { _normalize_key(k): v for k, v in row.items() }
+			total_rows += 1
 			
 			# 내부 진행건만 필터
 			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
 			if not is_internal:
 				continue
+			
+			internal_rows += 1
 			
 			# 기본 정보
 			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
@@ -244,6 +256,7 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 			
 			# 회사 필터
 			if company and agency_raw != company:
+				filtered_by_company += 1
 				continue
 			
 			# 작업 시작일 파싱 (여러 컬럼명 시도)
@@ -254,21 +267,32 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 					start_date_str = str(start_val).strip()
 					break
 			
+			# 작업 시작일이 없으면 마감일로부터 역산
+			start_date = None
 			if not start_date_str:
-				continue
-			
-			# 날짜 파싱 (YYYY-MM-DD 또는 YYYY.MM.DD 형식)
-			try:
-				import re
-				# YYYY-MM-DD 또는 YYYY.MM.DD 형식
-				match = re.match(r"(\d{4})[.-](\d{1,2})[.-](\d{1,2})", start_date_str)
-				if match:
-					year, month, day = match.groups()
-					start_date = date(int(year), int(month), int(day))
+				no_start_date += 1
+				# 마감일 기준으로 역산 (일반적으로 보장건은 25일)
+				if remain is not None:
+					end_date = today + timedelta(days=remain)
+					# 대략적인 시작일 추정 (마감일 - 25일)
+					start_date = end_date - timedelta(days=25)
 				else:
 					continue
-			except:
-				continue
+			else:
+				# 날짜 파싱 (YYYY-MM-DD 또는 YYYY.MM.DD 형식)
+				try:
+					import re
+					# YYYY-MM-DD 또는 YYYY.MM.DD 형식
+					match = re.match(r"(\d{4})[.-](\d{1,2})[.-](\d{1,2})", start_date_str)
+					if match:
+						year, month, day = match.groups()
+						start_date = date(int(year), int(month), int(day))
+					else:
+						no_start_date += 1
+						continue
+				except:
+					no_start_date += 1
+					continue
 			
 			# 마감일 계산
 			if remain is not None:
@@ -298,9 +322,19 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 				"start_date": start_date,
 				"end_date": end_date
 			})
+			valid_items += 1
+	
+	# 통계 로깅
+	logger.info(f"📈 작업량 조회 통계:")
+	logger.info(f"  - 전체 행: {total_rows}")
+	logger.info(f"  - 내부 진행건: {internal_rows}")
+	logger.info(f"  - 회사 필터로 제외: {filtered_by_company}")
+	logger.info(f"  - 작업 시작일 없음: {no_start_date}")
+	logger.info(f"  - 유효한 작업: {valid_items}")
 	
 	# 최근 시작일 찾기
 	if not all_items:
+		logger.warning(f"⚠️ {company}의 작업량 데이터가 없습니다.")
 		return {"weeks": []}
 	
 	latest_start = max(item["start_date"] for item in all_items)
@@ -337,6 +371,8 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 			"end_date": end_dt.strftime("%m/%d"),
 			"items": items
 		})
+	
+	logger.info(f"✅ {company} 작업량 조회 완료 - {len(weeks)}주차, 총 {len(filtered_items)}개 작업")
 	
 	return {"weeks": weeks}
 
