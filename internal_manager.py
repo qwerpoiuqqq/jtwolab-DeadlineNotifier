@@ -211,6 +211,23 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 	if not settings.spreadsheet_id:
 		raise RuntimeError("SPREADSHEET_ID 환경변수를 설정하세요.")
 	
+	# 회사 필터가 있으면 보장건 데이터에서 해당 회사의 상호명 리스트 가져오기
+	company_business_names = None
+	if company:
+		try:
+			from guarantee_manager import GuaranteeManager
+			gm = GuaranteeManager()
+			items = gm.get_items({"company": company})
+			company_business_names = {item.get("business_name") for item in items if item.get("business_name")}
+			if company_business_names:
+				logger.info(f"📋 {company} 보장건 상호명: {len(company_business_names)}개")
+			else:
+				logger.warning(f"⚠️ {company} 보장건 데이터가 없습니다 (전체 내부 진행건 조회)")
+				company_business_names = None
+		except Exception as e:
+			logger.warning(f"보장건 데이터 로드 실패 (전체 내부 진행건 조회): {e}")
+			company_business_names = None
+	
 	client = _get_client()
 	ss = client.open_by_key(settings.spreadsheet_id)
 	
@@ -254,10 +271,17 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 			product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
 			product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
 			
-			# 회사 필터
-			if company and agency_raw != company:
-				filtered_by_company += 1
-				continue
+			# 회사 필터 (상호명 기준으로 매칭)
+			if company and company_business_names is not None:
+				# 보장건 상호명 리스트에 있는 것만 포함
+				if bizname not in company_business_names:
+					filtered_by_company += 1
+					continue
+			elif company and company_business_names is None:
+				# 보장건 로드 실패 시 대행사명으로 폴백
+				if agency_raw != company:
+					filtered_by_company += 1
+					continue
 			
 			# 작업 시작일 파싱 (여러 컬럼명 시도)
 			start_date_str = None
@@ -328,8 +352,11 @@ def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
 	logger.info(f"📈 작업량 조회 통계:")
 	logger.info(f"  - 전체 행: {total_rows}")
 	logger.info(f"  - 내부 진행건: {internal_rows}")
-	logger.info(f"  - 회사 필터로 제외: {filtered_by_company}")
-	logger.info(f"  - 작업 시작일 없음: {no_start_date}")
+	if company and company_business_names is not None:
+		logger.info(f"  - {company} 보장건 매칭으로 제외: {filtered_by_company}")
+	else:
+		logger.info(f"  - 회사 필터로 제외: {filtered_by_company}")
+	logger.info(f"  - 작업 시작일 없음 (역산 처리): {no_start_date}")
 	logger.info(f"  - 유효한 작업: {valid_items}")
 	
 	# 최근 시작일 찾기
