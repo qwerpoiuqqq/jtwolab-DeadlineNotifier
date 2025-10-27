@@ -173,6 +173,9 @@
             <span id="sync-status">마지막 동기화: -</span> · 
             <span id="next-sync">다음: -</span>
           </div>
+          <div class="sync-meta" style="margin-top:4px; font-size:12px; opacity:0.85;">
+            <span id="workload-cache-status">⚡ 작업량 캐시: 로딩 중...</span>
+          </div>
         </div>
         <div style="display:flex; gap:12px; align-items:center;">
           <!-- 회사 토글 -->
@@ -453,6 +456,34 @@
       setTimeout(() => toast.classList.remove('show'), 3000);
     }
 
+    // 작업량 캐시 상태 업데이트
+    async function updateWorkloadCacheStatus() {
+      try {
+        const res = await fetch('/api/workload/cache/status');
+        const status = await res.json();
+        
+        const statusEl = document.getElementById('workload-cache-status');
+        if (status.is_valid && status.updated_at) {
+          const updateTime = new Date(status.updated_at);
+          const timeStr = updateTime.toLocaleString('ko-KR', {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+          const businessInfo = status.business_count > 0 ? `, ${status.business_count}개 업체` : '';
+          statusEl.innerHTML = `⚡ 작업량 캐시: ${timeStr} (${status.company_count}개 회사${businessInfo})`;
+          statusEl.style.color = 'rgba(255,255,255,0.9)';
+        } else {
+          statusEl.innerHTML = '⚡ 작업량 캐시: 없음 (갱신 필요)';
+          statusEl.style.color = 'rgba(255,200,0,0.9)';
+        }
+      } catch (e) {
+        console.error('Failed to load cache status:', e);
+        document.getElementById('workload-cache-status').innerHTML = '⚡ 작업량 캐시: 상태 확인 실패';
+      }
+    }
+    
     // 업체별 작업량 데이터 미리 로드
     async function loadBusinessWorkloads() {
       try {
@@ -470,6 +501,9 @@
             console.log(data.message);
           }
         }
+        
+        // 캐시 상태도 업데이트
+        updateWorkloadCacheStatus();
       } catch (e) {
         console.error('Failed to load business workloads:', e);
         businessWorkloadCache = {};
@@ -781,8 +815,12 @@
     async function refreshWorkloadCache() {
       const btn = document.getElementById('btn-refresh-workload');
       const btnText = document.getElementById('workload-btn-text');
+      const statusEl = document.getElementById('workload-cache-status');
+      
       btn.disabled = true;
       btnText.innerHTML = '<span class="loading"></span> 갱신 중...';
+      statusEl.innerHTML = '⚡ 작업량 캐시: 갱신 중... (약 10-20초 소요)';
+      statusEl.style.color = 'rgba(255,200,0,0.9)';
       
       try {
         const res = await fetch('/api/workload/cache/refresh', { method: 'POST' });
@@ -793,14 +831,18 @@
           showToast(msg);
           console.log('캐시 갱신 결과:', data);
           
-          // 업체별 데이터 다시 로드
+          // 업체별 데이터 다시 로드 (캐시 상태도 함께 업데이트)
           await loadBusinessWorkloads();
         } else {
           showToast('캐시 갱신 실패: ' + (data.error || '알 수 없는 오류'));
+          statusEl.innerHTML = '⚡ 작업량 캐시: 갱신 실패';
+          statusEl.style.color = 'rgba(255,100,100,0.9)';
         }
       } catch (e) {
         console.error('캐시 갱신 오류:', e);
         showToast('캐시 갱신 실패');
+        statusEl.innerHTML = '⚡ 작업량 캐시: 갱신 실패';
+        statusEl.style.color = 'rgba(255,100,100,0.9)';
       } finally {
         btn.disabled = false;
         btnText.textContent = '⚡ 작업량 갱신';
@@ -908,9 +950,13 @@
       
       // 캐시된 데이터가 있으면 즉시 표시
       if (businessName && businessWorkloadCache[businessName]) {
-        console.log(`✅ Using cached data for ${businessName}`);
+        console.log(`✅ Using cached data for ${businessName} (instant load!)`);
+        console.log('Cache data:', businessWorkloadCache[businessName]);
         renderWorkloadData(businessWorkloadCache[businessName]);
         return;
+      } else if (businessName) {
+        console.log(`⚠️ No cache for ${businessName}`);
+        console.log('Available businesses in cache:', Object.keys(businessWorkloadCache));
       }
       
       // 캐시가 없으면 로딩 표시
