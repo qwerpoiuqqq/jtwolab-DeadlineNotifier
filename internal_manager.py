@@ -136,7 +136,55 @@ def refresh_cache() -> Dict[str, Any]:
 
 
 def fetch_workload_schedule(company: str = None) -> Dict[str, Any]:
-	"""최근 3주간의 작업량 스케줄을 주차별로 반환
+	"""최근 3주간의 작업량 스케줄을 주차별로 반환 (캐시 우선)
+	
+	Args:
+		company: 회사명 필터 (제이투랩, 일류기획)
+		
+	Returns:
+		{
+			"weeks": [
+				{
+					"start_date": "09/12",
+					"end_date": "09/18",
+					"items": [
+						{"name": "일류 저장", "workload": "300"},
+						{"name": "일류 영수증B", "workload": "10"}
+					]
+				}
+			],
+			"from_cache": bool
+		}
+	"""
+	import logging
+	logger = logging.getLogger(__name__)
+	
+	# 캐시에서 먼저 조회
+	try:
+		from workload_cache import WorkloadCache
+		cache = WorkloadCache()
+		
+		if cache.is_cache_valid():
+			cached_data = cache.get_company_workload(company)
+			if cached_data:
+				logger.info(f"Using cached workload data for {company}")
+				result = cached_data.copy()
+				result["from_cache"] = True
+				return result
+		else:
+			logger.info(f"Cache invalid or expired for {company}")
+	except Exception as e:
+		logger.warning(f"Failed to load from cache: {e}")
+	
+	# 캐시 없으면 직접 조회
+	logger.info(f"Fetching workload directly for {company}")
+	result = fetch_workload_schedule_direct(company)
+	result["from_cache"] = False
+	return result
+
+
+def fetch_workload_schedule_direct(company: str = None) -> Dict[str, Any]:
+	"""최근 3주간의 작업량 스케줄을 주차별로 반환 (직접 조회)
 	
 	Args:
 		company: 회사명 필터 (제이투랩, 일류기획)
@@ -156,6 +204,8 @@ def fetch_workload_schedule(company: str = None) -> Dict[str, Any]:
 		}
 	"""
 	from datetime import date, timedelta
+	import logging
+	logger = logging.getLogger(__name__)
 	
 	settings = load_settings()
 	if not settings.spreadsheet_id:
