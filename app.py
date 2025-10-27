@@ -53,9 +53,23 @@ def create_app() -> Flask:
 		except Exception as e:
 			logger.error(f"Sync failed: {e}")
 	
-	# 매일 9시, 16시 스케줄 등록
+	# 작업량 캐시 자동 갱신 태스크
+	def refresh_workload_cache():
+		"""작업량 캐시 자동 갱신"""
+		try:
+			logger.info(f"Starting workload cache refresh at {datetime.now(pytz.timezone('Asia/Seoul'))}")
+			from workload_cache import refresh_all_workload_cache
+			result = refresh_all_workload_cache()
+			logger.info(f"Workload cache refresh completed: {result['message']}")
+		except Exception as e:
+			logger.error(f"Workload cache refresh failed: {e}")
+	
+	# 매일 9시, 16시 스케줄 등록 (보장건 동기화)
 	scheduler.add_job(func=sync_guarantee_data, trigger="cron", hour=9, minute=0, id="morning_sync")
 	scheduler.add_job(func=sync_guarantee_data, trigger="cron", hour=16, minute=0, id="afternoon_sync")
+	
+	# 매일 11시 30분 스케줄 등록 (작업량 캐시 갱신)
+	scheduler.add_job(func=refresh_workload_cache, trigger="cron", hour=11, minute=30, id="workload_cache_refresh")
 
 	@app.route("/", methods=["GET"])  # 메인 페이지: 폼 + 결과
 	def index():
@@ -422,7 +436,7 @@ def create_app() -> Flask:
 	
 	@app.route("/api/workload/schedule", methods=["GET"])  # 작업량 스케줄 조회
 	def api_workload_schedule():
-		"""최근 3주간 작업량 스케줄 조회"""
+		"""최근 3주간 작업량 스케줄 조회 (캐시 우선)"""
 		company = request.args.get("company")
 		
 		try:
@@ -432,6 +446,31 @@ def create_app() -> Flask:
 			logger.error(f"Workload schedule error: {e}")
 			import traceback
 			logger.error(traceback.format_exc())
+			return jsonify({"error": str(e)}), 500
+	
+	@app.route("/api/workload/cache/refresh", methods=["POST"])  # 작업량 캐시 수동 갱신
+	def api_workload_cache_refresh():
+		"""작업량 캐시 수동 갱신"""
+		try:
+			from workload_cache import refresh_all_workload_cache
+			result = refresh_all_workload_cache()
+			return jsonify(result), 200
+		except Exception as e:
+			logger.error(f"Workload cache refresh error: {e}")
+			import traceback
+			logger.error(traceback.format_exc())
+			return jsonify({"error": str(e)}), 500
+	
+	@app.route("/api/workload/cache/status", methods=["GET"])  # 작업량 캐시 상태 조회
+	def api_workload_cache_status():
+		"""작업량 캐시 상태 조회"""
+		try:
+			from workload_cache import WorkloadCache
+			cache = WorkloadCache()
+			status = cache.get_cache_status()
+			return jsonify(status), 200
+		except Exception as e:
+			logger.error(f"Workload cache status error: {e}")
 			return jsonify({"error": str(e)}), 500
 
 	@app.route("/api/mark-done", methods=["POST"])
