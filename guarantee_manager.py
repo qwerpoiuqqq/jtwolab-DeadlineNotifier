@@ -4,6 +4,7 @@
 """
 import os
 import json
+import pytz
 from datetime import datetime, date
 from typing import Dict, List, Optional, Any
 from pathlib import Path
@@ -81,7 +82,8 @@ class GuaranteeManager:
     def _save_data(self) -> bool:
         """데이터 저장"""
         try:
-            self.data["updated_at"] = datetime.now().isoformat()
+            kst = pytz.timezone('Asia/Seoul')
+            self.data["updated_at"] = datetime.now(kst).isoformat()
             
             # 암호화 저장
             if USE_ENCRYPTION and self.security:
@@ -101,11 +103,14 @@ class GuaranteeManager:
     
     def create_item(self, item: Dict) -> Dict:
         """새 보장건 생성"""
+        kst = pytz.timezone('Asia/Seoul')
+        now_kst = datetime.now(kst)
+        
         # ID 자동 생성
-        item_id = datetime.now().strftime("%Y%m%d%H%M%S") + str(len(self.data["items"]))
+        item_id = now_kst.strftime("%Y%m%d%H%M%S") + str(len(self.data["items"]))
         item["id"] = item_id
-        item["created_at"] = datetime.now().isoformat()
-        item["updated_at"] = datetime.now().isoformat()
+        item["created_at"] = now_kst.isoformat()
+        item["updated_at"] = now_kst.isoformat()
         
         # 필수 필드 기본값 설정
         item.setdefault("type", "신규")  # 구분: 신규/연장
@@ -173,7 +178,8 @@ class GuaranteeManager:
                 
                 # 업데이트
                 item.update(updates)
-                item["updated_at"] = datetime.now().isoformat()
+                kst = pytz.timezone('Asia/Seoul')
+                item["updated_at"] = datetime.now(kst).isoformat()
                 self.data["items"][idx] = item
                 self._save_data()
                 return item
@@ -471,8 +477,9 @@ class GuaranteeManager:
                 logger.error(f"Traceback: {traceback.format_exc()}")
                 result["failed"] += 1
         
-        # 마지막 동기화 시간 업데이트
-        self.data["last_sync"] = datetime.now().isoformat()
+        # 마지막 동기화 시간 업데이트 (한국 시간)
+        kst = pytz.timezone('Asia/Seoul')
+        self.data["last_sync"] = datetime.now(kst).isoformat()
         self._save_data()
         
         logger.info(f"📊 Sync complete - Added: {result['added']}, Updated: {result['updated']}, Failed: {result['failed']}")
