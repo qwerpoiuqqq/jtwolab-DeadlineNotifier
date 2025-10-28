@@ -1,6 +1,7 @@
 import os
 import json
-from datetime import datetime, timezone
+import pytz
+from datetime import datetime, timezone, date, timedelta
 from typing import Any, Dict, List, Tuple
 
 from sheet_client import (
@@ -31,25 +32,39 @@ def parse_date_flexible(date_str: str):
 	
 	try:
 		# YYYY-MM-DD, YYYY.MM.DD 형식
-		match = re.match(r"(\d{4})[.-](\d{1,2})[.-](\d{1,2})", date_str)
+		match = re.match(r"^(\d{4})[.-](\d{1,2})[.-](\d{1,2})$", date_str)
 		if match:
 			year, month, day = match.groups()
 			return date(int(year), int(month), int(day))
 		
 		# YY. M. D 형식 (예: 25. 10. 27)
-		match = re.match(r"(\d{2})\.\s*(\d{1,2})\.\s*(\d{1,2})", date_str)
+		match = re.match(r"^(\d{2})\.\s*(\d{1,2})\.\s*(\d{1,2})$", date_str)
 		if match:
 			year_short, month, day = match.groups()
 			year = 2000 + int(year_short)
 			return date(year, int(month), int(day))
 		
 		# YYYY. M. D 형식 (예: 2025. 10. 27)
-		match = re.match(r"(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})", date_str)
+		match = re.match(r"^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})$", date_str)
 		if match:
 			year, month, day = match.groups()
 			return date(int(year), int(month), int(day))
-	except:
-		pass
+		
+		# M/D 또는 MM/DD 형식 (예: 8/1, 10/27) - 현재 연도 기준
+		match = re.match(r"^(\d{1,2})/(\d{1,2})$", date_str)
+		if match:
+			month, day = match.groups()
+			year = date.today().year
+			return date(year, int(month), int(day))
+		
+		# YYYY/MM/DD 형식
+		match = re.match(r"^(\d{4})/(\d{1,2})/(\d{1,2})$", date_str)
+		if match:
+			year, month, day = match.groups()
+			return date(int(year), int(month), int(day))
+	except Exception as e:
+		import logging
+		logging.getLogger(__name__).warning(f"날짜 파싱 실패: '{date_str}' - {e}")
 	
 	return None
 
@@ -99,7 +114,11 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 	
 	client = _get_client()
 	ss = client.open_by_key(settings.spreadsheet_id)
-	today = date.today()
+	
+	# 한국 시간 기준 (KST)
+	kst = pytz.timezone('Asia/Seoul')
+	today = datetime.now(kst).date()
+	logger.info(f"📅 오늘 날짜 (KST): {today}")
 	
 	all_items = []
 	ws_list = ss.worksheets()
@@ -206,11 +225,12 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 	Returns:
 		{"weeks": [...]}
 	"""
-	from datetime import date, timedelta
 	import logging
 	logger = logging.getLogger(__name__)
 	
-	today = date.today()
+	# 한국 시간 기준 (KST)
+	kst = pytz.timezone('Asia/Seoul')
+	today = datetime.now(kst).date()
 	
 	if not raw_items:
 		logger.debug(f"⊘ {business_name or company}: raw_items 없음")
@@ -518,7 +538,9 @@ def fetch_workload_schedule_direct(company: str = None, business_name: str = Non
 	client = _get_client()
 	ss = client.open_by_key(settings.spreadsheet_id)
 	
-	today = date.today()
+	# 한국 시간 기준 (KST)
+	kst = pytz.timezone('Asia/Seoul')
+	today = datetime.now(kst).date()
 	all_items = []
 	
 	# 디버깅 카운터
