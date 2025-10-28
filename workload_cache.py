@@ -288,6 +288,12 @@ def refresh_all_workload_cache() -> Dict[str, Any]:
                         skipped_count += 1
                         continue
                     
+                    # 디버깅: 처음 몇 개 작업의 날짜 확인
+                    if idx <= 3:
+                        logger.info(f"  [{idx}] {business_name} raw 데이터 샘플:")
+                        for sample_idx, sample_item in enumerate(business_raw_items[:3]):
+                            logger.info(f"      - {sample_item['task_display']}: {sample_item['start_date']} ~ {sample_item['end_date']}")
+                    
                     # 업체별 스케줄 계산
                     business_schedule = process_raw_items_to_schedule(business_raw_items, company, business_name)
                     
