@@ -167,6 +167,9 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 				start_val = _get_value_flexible(row_norm, possible_col, "")
 				if start_val:
 					start_date_str = str(start_val).strip()
+					# 디버깅: 원본 값 확인
+					if len(all_items) < 5:
+						logger.info(f"  🔍 {bizname}/{product}: '{possible_col}' 컬럼 원본값 = '{start_val}' (타입: {type(start_val).__name__})")
 					break
 			
 			start_date = None
@@ -174,7 +177,8 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 				start_date = parse_date_flexible(start_date_str)
 				# 디버깅: 처음 5개만 상세 로그
 				if len(all_items) < 5:
-					logger.info(f"  ✓ {bizname}/{product}: 시작일 컬럼='{start_date_str}' → 파싱결과={start_date}, 마감일={end_date.strftime('%Y-%m-%d')} (remain={remain}일)")
+					logger.info(f"  ✓ 파싱: '{start_date_str}' → {start_date}")
+					logger.info(f"     마감일: {end_date.strftime('%Y-%m-%d')} (오늘={today}, remain={remain}일)")
 			
 			# 작업 시작일이 없으면 마감일 기준 2주 전으로 추정
 			if not start_date:
