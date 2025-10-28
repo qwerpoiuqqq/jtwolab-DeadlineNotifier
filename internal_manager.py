@@ -28,6 +28,227 @@ def _build_task_display(tab_title: str, product: str, product_name: str) -> str:
 		return (f"{base_task} {product}".strip() if product else base_task) or base_task
 
 
+def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
+	"""특정 회사의 raw 내부 진행건 데이터 가져오기 (단 1회 API 호출)
+	
+	Args:
+		company: 회사명 (제이투랩, 일류기획)
+	
+	Returns:
+		raw items 리스트: [{agency, bizname, task_display, workload, start_date, end_date, has_real_start_date}]
+	"""
+	import logging
+	logger = logging.getLogger(__name__)
+	from datetime import date, timedelta
+	
+	settings = load_settings()
+	if not settings.spreadsheet_id:
+		raise RuntimeError("SPREADSHEET_ID 환경변수를 설정하세요.")
+	
+	# 보장건 데이터에서 해당 회사의 상호명 리스트 + 작업 시작일 매핑
+	guarantee_data_map = {}
+	company_business_names = None
+	try:
+		from guarantee_manager import GuaranteeManager
+		gm = GuaranteeManager()
+		items = gm.get_items({"company": company})
+		company_business_names = {item.get("business_name") for item in items if item.get("business_name")}
+		for item in items:
+			biz = item.get("business_name")
+			if biz:
+				guarantee_data_map[biz] = item
+		logger.info(f"📋 {company} 보장건: {len(company_business_names)}개 업체")
+	except Exception as e:
+		logger.warning(f"보장건 로드 실패: {e}")
+		company_business_names = None
+	
+	client = _get_client()
+	ss = client.open_by_key(settings.spreadsheet_id)
+	today = date.today()
+	
+	all_items = []
+	ws_list = ss.worksheets()
+	logger.info(f"📊 {company} raw 데이터 조회 - 워크시트: {len(ws_list)}개")
+	
+	for ws in ws_list:
+		tab_title = (ws.title or "").strip()
+		header_row, headers = _find_header_row(ws, settings)
+		records = _build_records(ws, header_row, headers)
+		
+		for row in records:
+			row_norm = { _normalize_key(k): v for k, v in row.items() }
+			
+			# 내부 진행건만 필터
+			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			if not is_internal:
+				continue
+			
+			# 기본 정보
+			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
+			if not bizname:
+				continue
+			
+			agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
+			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
+			workload = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
+			product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
+			product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
+			
+			# 회사 필터 (상호명 기준)
+			if company_business_names is not None:
+				if bizname not in company_business_names:
+					continue
+			
+			# 마감일 계산
+			if remain is None:
+				continue
+			end_date = today + timedelta(days=remain)
+			
+			# 작업 시작일 파싱
+			start_date_str = None
+			for possible_col in ["작업 시작일", "작업시작일", "시작일", "세팅일"]:
+				start_val = _get_value_flexible(row_norm, possible_col, "")
+				if start_val:
+					start_date_str = str(start_val).strip()
+					break
+			
+			start_date = None
+			has_real_start_date = False
+			if start_date_str:
+				try:
+					import re
+					match = re.match(r"(\d{4})[.-](\d{1,2})[.-](\d{1,2})", start_date_str)
+					if match:
+						year, month, day = match.groups()
+						start_date = date(int(year), int(month), int(day))
+						has_real_start_date = True
+				except:
+					pass
+			
+			# 보장건 데이터에서 작업 시작일 가져오기
+			if not has_real_start_date and bizname in guarantee_data_map:
+				guarantee_item = guarantee_data_map[bizname]
+				work_start = guarantee_item.get("work_start_date")
+				if work_start:
+					try:
+						import re
+						match = re.match(r"(\d{4})[.-](\d{1,2})[.-](\d{1,2})", work_start)
+						if match:
+							year, month, day = match.groups()
+							start_date = date(int(year), int(month), int(day))
+							has_real_start_date = True
+					except:
+						pass
+			
+			# 그래도 없으면 역산
+			if not has_real_start_date:
+				start_date = end_date - timedelta(days=14)
+			
+			# 작업명 생성
+			is_review_tab = _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰")
+			if is_review_tab:
+				item_col_value = None
+				for possible_col in ["항목", "항목명"]:
+					val = _get_value_flexible(row_norm, possible_col, "")
+					if val:
+						item_col_value = str(val).strip()
+						break
+				task_display = item_col_value if item_col_value else _build_task_display(tab_title, product, product_name)
+			else:
+				task_display = _build_task_display(tab_title, product, product_name)
+			
+			all_items.append({
+				"agency": agency_raw or "내부 진행",
+				"bizname": bizname,
+				"task_display": task_display,
+				"workload": workload,
+				"start_date": start_date,
+				"end_date": end_date,
+				"has_real_start_date": has_real_start_date
+			})
+	
+	logger.info(f"✅ {company} raw 데이터: {len(all_items)}개")
+	return all_items
+
+
+def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str, business_name: str = None) -> Dict[str, Any]:
+	"""Raw 데이터를 스케줄 형식으로 변환 (메모리 작업, API 호출 없음)
+	
+	Args:
+		raw_items: raw 데이터 리스트
+		company: 회사명
+		business_name: 업체명 (None이면 전체)
+	
+	Returns:
+		{"weeks": [...]}
+	"""
+	from datetime import date, timedelta
+	import logging
+	logger = logging.getLogger(__name__)
+	
+	today = date.today()
+	
+	# 최근 3주 필터링
+	if business_name:
+		# 업체별: 오늘 기준 3주
+		three_weeks_ago = today - timedelta(days=21)
+		logger.debug(f"📅 업체별({business_name}): {today} ~ {three_weeks_ago}")
+		filtered_items = [
+			item for item in raw_items 
+			if item["start_date"] >= three_weeks_ago
+		]
+	else:
+		# 회사 전체: 최신 시작일 기준 3주
+		items_with_real_start = [item for item in raw_items if item.get("has_real_start_date")]
+		if items_with_real_start:
+			latest_start = max(item["start_date"] for item in items_with_real_start)
+			three_weeks_ago = latest_start - timedelta(days=21)
+			filtered_items = [
+				item for item in raw_items 
+				if (item.get("has_real_start_date") and item["start_date"] >= three_weeks_ago)
+				or (not item.get("has_real_start_date"))
+			]
+		else:
+			filtered_items = raw_items
+	
+	# 기간별 그룹핑
+	period_groups = {}
+	for item in filtered_items:
+		key = (item["start_date"], item["end_date"])
+		if key not in period_groups:
+			period_groups[key] = {}
+		
+		task_name = item["task_display"]
+		
+		try:
+			wl_num = _parse_int_maybe(item["workload"]) or 0
+		except:
+			wl_num = 0
+		
+		if task_name in period_groups[key]:
+			period_groups[key][task_name] += wl_num
+		else:
+			period_groups[key][task_name] = wl_num
+	
+	# 스케줄 포맷팅
+	weeks = []
+	for (start_dt, end_dt), tasks in sorted(period_groups.items(), key=lambda x: x[0][0]):
+		items = []
+		for task_name, total_workload in sorted(tasks.items()):
+			items.append({
+				"name": task_name,
+				"workload": str(total_workload) if total_workload > 0 else "0"
+			})
+		
+		weeks.append({
+			"start_date": start_dt.strftime("%m/%d"),
+			"end_date": end_dt.strftime("%m/%d"),
+			"items": items
+		})
+	
+	return {"weeks": weeks}
+
+
 def fetch_internal_items() -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
 	"""구글 시트 전 탭을 순회하여 내부 진행건만 평탄화하여 반환한다.
 
