@@ -104,6 +104,11 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 				continue
 			end_date = today + timedelta(days=remain)
 			
+			# 마감일이 과거인 작업은 제외 (완료된 작업)
+			if end_date < today:
+				logger.debug(f"⊘ {bizname} - 마감일 과거({end_date}) - 제외")
+				continue
+			
 			# 작업 시작일 파싱
 			start_date_str = None
 			for possible_col in ["작업 시작일", "작업시작일", "시작일", "세팅일"]:
@@ -206,28 +211,30 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 	
 	today = date.today()
 	
-	# 최근 3주 필터링
+	if not raw_items:
+		logger.debug(f"⊘ {business_name or company}: raw_items 없음")
+		return {"weeks": []}
+	
+	# 최근 3주 필터링 (마감일 기준!)
+	three_weeks_from_now = today + timedelta(days=21)
+	
 	if business_name:
-		# 업체별: 오늘 기준 3주
-		three_weeks_ago = today - timedelta(days=21)
-		logger.debug(f"📅 업체별({business_name}): {today} ~ {three_weeks_ago}")
+		# 업체별: 마감일이 오늘~3주 후 사이인 작업만
+		if len(raw_items) > 0:
+			logger.info(f"  📅 {business_name}: {len(raw_items)}개 작업 → 마감일 필터 (오늘~3주 후)")
 		filtered_items = [
 			item for item in raw_items 
-			if item["start_date"] >= three_weeks_ago
+			if today <= item["end_date"] <= three_weeks_from_now
 		]
+		if len(raw_items) > 0:
+			logger.info(f"    → {len(filtered_items)}개 작업 (마감일: {today.strftime('%m/%d')} ~ {three_weeks_from_now.strftime('%m/%d')})")
 	else:
-		# 회사 전체: 최신 시작일 기준 3주
-		items_with_real_start = [item for item in raw_items if item.get("has_real_start_date")]
-		if items_with_real_start:
-			latest_start = max(item["start_date"] for item in items_with_real_start)
-			three_weeks_ago = latest_start - timedelta(days=21)
-			filtered_items = [
-				item for item in raw_items 
-				if (item.get("has_real_start_date") and item["start_date"] >= three_weeks_ago)
-				or (not item.get("has_real_start_date"))
-			]
-		else:
-			filtered_items = raw_items
+		# 회사 전체: 마감일이 향후 3주 이내인 작업들
+		filtered_items = [
+			item for item in raw_items 
+			if item["end_date"] <= three_weeks_from_now
+		]
+		logger.info(f"  회사 전체: {len(raw_items)}개 → {len(filtered_items)}개 (마감일 3주 이내)")
 	
 	# 마감 주차별 그룹핑 (월~일 단위)
 	week_groups = {}
@@ -280,7 +287,8 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 		
 		# 디버깅: 처음 몇 개만 로그
 		if len(weeks) <= 5 and business_name:
-			logger.info(f"  📅 {week_monday.strftime('%Y-%m-%d')}(월) ~ {week_sunday.strftime('%Y-%m-%d')}(일): {len(items)}개 작업")
+			task_names = ", ".join([item["name"][:15] for item in items[:3]])
+			logger.info(f"  📅 {week_monday.strftime('%m/%d')}~{week_sunday.strftime('%m/%d')}: {len(items)}개 작업 ({task_names}...)")
 	
 	return {"weeks": weeks}
 
