@@ -132,17 +132,35 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 				if work_start:
 					try:
 						import re
+						# YYYY-MM-DD 또는 YYYY.MM.DD 형식
 						match = re.match(r"(\d{4})[.-](\d{1,2})[.-](\d{1,2})", work_start)
 						if match:
 							year, month, day = match.groups()
 							start_date = date(int(year), int(month), int(day))
 							has_real_start_date = True
-					except:
-						pass
+						else:
+							# YY. M. D 형식 (예: 25. 6. 13)
+							match = re.match(r"(\d{2})\.\s*(\d{1,2})\.\s*(\d{1,2})", work_start)
+							if match:
+								year_short, month, day = match.groups()
+								year = 2000 + int(year_short)
+								start_date = date(year, int(month), int(day))
+								has_real_start_date = True
+								logger.debug(f"보장건 날짜 파싱: {work_start} → {start_date}")
+					except Exception as e:
+						logger.warning(f"날짜 파싱 실패: {work_start} - {e}")
 			
 			# 그래도 없으면 역산
 			if not has_real_start_date:
 				start_date = end_date - timedelta(days=14)
+			
+			# 날짜 검증: start_date가 end_date보다 나중이면 수정
+			if start_date > end_date:
+				logger.warning(f"⚠️ {bizname}: 시작일({start_date})이 종료일({end_date})보다 늦음 - 수정")
+				# 종료일을 시작일로, 시작일은 2주 전으로
+				temp = start_date
+				start_date = temp - timedelta(days=14)
+				end_date = temp
 			
 			# 작업명 생성
 			is_review_tab = _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰")
@@ -211,12 +229,26 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 		else:
 			filtered_items = raw_items
 	
-	# 기간별 그룹핑
-	period_groups = {}
+	# 마감 주차별 그룹핑 (월~일 단위)
+	week_groups = {}
 	for item in filtered_items:
-		key = (item["start_date"], item["end_date"])
-		if key not in period_groups:
-			period_groups[key] = {}
+		start_dt = item["start_date"]
+		end_dt = item["end_date"]
+		
+		# 날짜 검증
+		if start_dt > end_dt:
+			logger.warning(f"⚠️ 날짜 오류: {item['bizname']} - {item['task_display']}: {start_dt} > {end_dt}")
+			# 시작일과 종료일 교체
+			start_dt, end_dt = end_dt, start_dt
+		
+		# 마감일을 기준으로 주차 계산 (월~일)
+		week_monday = end_dt - timedelta(days=end_dt.weekday())  # 해당 주의 월요일
+		week_sunday = week_monday + timedelta(days=6)  # 해당 주의 일요일
+		
+		# 주차 단위로 그룹핑 (월~일)
+		key = (week_monday, week_sunday)
+		if key not in week_groups:
+			week_groups[key] = {}
 		
 		task_name = item["task_display"]
 		
@@ -225,14 +257,14 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 		except:
 			wl_num = 0
 		
-		if task_name in period_groups[key]:
-			period_groups[key][task_name] += wl_num
+		if task_name in week_groups[key]:
+			week_groups[key][task_name] += wl_num
 		else:
-			period_groups[key][task_name] = wl_num
+			week_groups[key][task_name] = wl_num
 	
 	# 스케줄 포맷팅
 	weeks = []
-	for (start_dt, end_dt), tasks in sorted(period_groups.items(), key=lambda x: x[0][0]):
+	for (week_monday, week_sunday), tasks in sorted(week_groups.items(), key=lambda x: x[0][0]):  # 주 시작일 기준 정렬
 		items = []
 		for task_name, total_workload in sorted(tasks.items()):
 			items.append({
@@ -241,10 +273,14 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 			})
 		
 		weeks.append({
-			"start_date": start_dt.strftime("%m/%d"),
-			"end_date": end_dt.strftime("%m/%d"),
+			"start_date": week_monday.strftime("%m/%d"),
+			"end_date": week_sunday.strftime("%m/%d"),
 			"items": items
 		})
+		
+		# 디버깅: 처음 몇 개만 로그
+		if len(weeks) <= 5 and business_name:
+			logger.info(f"  📅 {week_monday.strftime('%Y-%m-%d')}(월) ~ {week_sunday.strftime('%Y-%m-%d')}(일): {len(items)}개 작업")
 	
 	return {"weeks": weeks}
 
