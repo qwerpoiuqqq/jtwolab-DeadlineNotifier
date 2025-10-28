@@ -19,6 +19,41 @@ from sheet_client import (
 CACHE_FILE = os.getenv("INTERNAL_CACHE_FILE", "internal_cache.json")
 
 
+def parse_date_flexible(date_str: str):
+	"""다양한 날짜 형식을 파싱"""
+	from datetime import date
+	import re
+	
+	if not date_str:
+		return None
+	
+	date_str = str(date_str).strip()
+	
+	try:
+		# YYYY-MM-DD, YYYY.MM.DD 형식
+		match = re.match(r"(\d{4})[.-](\d{1,2})[.-](\d{1,2})", date_str)
+		if match:
+			year, month, day = match.groups()
+			return date(int(year), int(month), int(day))
+		
+		# YY. M. D 형식 (예: 25. 10. 27)
+		match = re.match(r"(\d{2})\.\s*(\d{1,2})\.\s*(\d{1,2})", date_str)
+		if match:
+			year_short, month, day = match.groups()
+			year = 2000 + int(year_short)
+			return date(year, int(month), int(day))
+		
+		# YYYY. M. D 형식 (예: 2025. 10. 27)
+		match = re.match(r"(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})", date_str)
+		if match:
+			year, month, day = match.groups()
+			return date(int(year), int(month), int(day))
+	except:
+		pass
+	
+	return None
+
+
 def _build_task_display(tab_title: str, product: str, product_name: str) -> str:
 	base_task = (tab_title or "").strip()
 	is_misc = _collapse_spaces(base_task) == _collapse_spaces("기타")
@@ -102,82 +137,32 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 				if bizname not in company_business_names:
 					continue
 			
-			# 마감일 계산
+			# 마감일 계산: 오늘 + 남은일수(-O)
 			if remain is None:
 				continue
 			end_date = today + timedelta(days=remain)
 			
-			# 마감일이 너무 과거인 작업만 제외 (1주 이상 지난 작업)
-			one_week_ago = today - timedelta(days=7)
-			if end_date < one_week_ago:
-				logger.debug(f"⊘ {bizname} - 마감일 1주 이상 과거({end_date}) - 제외")
-				continue
-			
-			# 작업 시작일 파싱 (우선순위: 시트 컬럼 > 보장건)
-			start_date_str = None
-			for possible_col in ["작업 시작일", "작업시작일", "시작일", "세팅일"]:
-				start_val = _get_value_flexible(row_norm, possible_col, "")
-				if start_val:
-					start_date_str = str(start_val).strip()
-					break
-			
+			# 작업 시작일: 보장건 데이터에서 가져오기 (가장 정확)
 			start_date = None
 			has_real_start_date = False
-			if start_date_str:
-				try:
-					import re
-					# YYYY-MM-DD 또는 YYYY.MM.DD 형식
-					match = re.match(r"(\d{4})[.-](\d{1,2})[.-](\d{1,2})", start_date_str)
-					if match:
-						year, month, day = match.groups()
-						start_date = date(int(year), int(month), int(day))
-						has_real_start_date = True
-						logger.debug(f"시트 시작일: {bizname} - {start_date_str} → {start_date}")
-					else:
-						# YY. M. D 형식 (예: 25. 10. 27)
-						match = re.match(r"(\d{2})\.\s*(\d{1,2})\.\s*(\d{1,2})", start_date_str)
-						if match:
-							year_short, month, day = match.groups()
-							year = 2000 + int(year_short)
-							start_date = date(year, int(month), int(day))
-							has_real_start_date = True
-							logger.debug(f"시트 시작일(YY.M.D): {bizname} - {start_date_str} → {start_date}")
-				except Exception as e:
-					logger.warning(f"시작일 파싱 실패: {bizname} - {start_date_str} - {e}")
 			
-			# 보장건 데이터에서 작업 시작일 가져오기
-			if not has_real_start_date and bizname in guarantee_data_map:
+			if bizname in guarantee_data_map:
 				guarantee_item = guarantee_data_map[bizname]
 				work_start = guarantee_item.get("work_start_date")
 				if work_start:
-					try:
-						import re
-						# YYYY-MM-DD 또는 YYYY.MM.DD 형식
-						match = re.match(r"(\d{4})[.-](\d{1,2})[.-](\d{1,2})", work_start)
-						if match:
-							year, month, day = match.groups()
-							start_date = date(int(year), int(month), int(day))
-							has_real_start_date = True
-						else:
-							# YY. M. D 형식 (예: 25. 6. 13)
-							match = re.match(r"(\d{2})\.\s*(\d{1,2})\.\s*(\d{1,2})", work_start)
-							if match:
-								year_short, month, day = match.groups()
-								year = 2000 + int(year_short)
-								start_date = date(year, int(month), int(day))
-								has_real_start_date = True
-								logger.debug(f"보장건 날짜 파싱: {work_start} → {start_date}")
-					except Exception as e:
-						logger.warning(f"날짜 파싱 실패: {work_start} - {e}")
+					start_date = parse_date_flexible(work_start)
+					if start_date:
+						has_real_start_date = True
+						logger.debug(f"✓ {bizname}: 보장건 시작일 {work_start} → {start_date}, 마감일 {end_date}")
 			
-			# 그래도 없으면 역산
-			if not has_real_start_date:
+			# 보장건에 없으면 마감일 기준 2주 전으로 추정
+			if not start_date:
 				start_date = end_date - timedelta(days=14)
+				logger.debug(f"○ {bizname}: 시작일 추정 (마감일 - 14일) → {start_date}")
 			
 			# 날짜 검증: start_date가 end_date보다 나중이면 역산
 			if start_date > end_date:
-				logger.warning(f"⚠️ {bizname}: 시작일({start_date})이 마감일({end_date})보다 늦음 - 시작일을 마감일 기준 2주 전으로 재계산")
-				# 마감일이 정확하므로, 시작일을 역산
+				logger.warning(f"⚠️ {bizname}: 시작일({start_date}) > 마감일({end_date}) - 시작일 재계산")
 				start_date = end_date - timedelta(days=14)
 			
 			# 작업명 생성
@@ -250,26 +235,21 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 		]
 		logger.info(f"  회사 전체: {len(raw_items)}개 → {len(filtered_items)}개 (마감일: {one_week_ago.strftime('%m/%d')}~{three_weeks_from_now.strftime('%m/%d')})")
 	
-	# 마감 주차별 그룹핑 (월~일 단위)
-	week_groups = {}
+	# 실제 작업 기간별 그룹핑 (작업 시작일~마감일 그대로 사용)
+	period_groups = {}
 	for item in filtered_items:
 		start_dt = item["start_date"]
 		end_dt = item["end_date"]
 		
 		# 날짜 검증
 		if start_dt > end_dt:
-			logger.warning(f"⚠️ 날짜 오류: {item['bizname']} - {item['task_display']}: {start_dt} > {end_dt}")
-			# 시작일과 종료일 교체
-			start_dt, end_dt = end_dt, start_dt
+			logger.warning(f"⚠️ {item['bizname']}: 시작일({start_dt}) > 마감일({end_dt}) - 스킵")
+			continue  # 잘못된 데이터는 제외
 		
-		# 마감일을 기준으로 주차 계산 (월~일)
-		week_monday = end_dt - timedelta(days=end_dt.weekday())  # 해당 주의 월요일
-		week_sunday = week_monday + timedelta(days=6)  # 해당 주의 일요일
-		
-		# 주차 단위로 그룹핑 (월~일)
-		key = (week_monday, week_sunday)
-		if key not in week_groups:
-			week_groups[key] = {}
+		# 실제 시작일~마감일 그대로 그룹핑
+		key = (start_dt, end_dt)
+		if key not in period_groups:
+			period_groups[key] = {}
 		
 		task_name = item["task_display"]
 		
@@ -278,14 +258,14 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 		except:
 			wl_num = 0
 		
-		if task_name in week_groups[key]:
-			week_groups[key][task_name] += wl_num
+		if task_name in period_groups[key]:
+			period_groups[key][task_name] += wl_num
 		else:
-			week_groups[key][task_name] = wl_num
+			period_groups[key][task_name] = wl_num
 	
-	# 스케줄 포맷팅
+	# 스케줄 포맷팅 (마감일 기준 정렬)
 	weeks = []
-	for (week_monday, week_sunday), tasks in sorted(week_groups.items(), key=lambda x: x[0][0]):  # 주 시작일 기준 정렬
+	for (start_dt, end_dt), tasks in sorted(period_groups.items(), key=lambda x: x[0][1]):  # 마감일 기준 정렬
 		items = []
 		for task_name, total_workload in sorted(tasks.items()):
 			items.append({
@@ -294,15 +274,15 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 			})
 		
 		weeks.append({
-			"start_date": week_monday.strftime("%m/%d"),
-			"end_date": week_sunday.strftime("%m/%d"),
+			"start_date": start_dt.strftime("%m/%d"),
+			"end_date": end_dt.strftime("%m/%d"),
 			"items": items
 		})
 		
 		# 디버깅: 처음 몇 개만 로그
 		if len(weeks) <= 5 and business_name:
 			task_names = ", ".join([item["name"][:15] for item in items[:3]])
-			logger.info(f"  📅 {week_monday.strftime('%m/%d')}~{week_sunday.strftime('%m/%d')}: {len(items)}개 작업 ({task_names}...)")
+			logger.info(f"  📅 {start_dt.strftime('%m/%d')} ~ {end_dt.strftime('%m/%d')}: {len(items)}개 작업 ({task_names}...)")
 	
 	return {"weeks": weeks}
 
