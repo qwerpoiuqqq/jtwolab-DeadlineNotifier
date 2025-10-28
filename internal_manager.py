@@ -68,12 +68,15 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 	
 	all_items = []
 	ws_list = ss.worksheets()
+	tab_titles = [ws.title for ws in ws_list]
 	logger.info(f"📊 {company} raw 데이터 조회 - 워크시트: {len(ws_list)}개")
+	logger.info(f"   탭 목록: {', '.join(tab_titles)}")
 	
 	for ws in ws_list:
 		tab_title = (ws.title or "").strip()
 		header_row, headers = _find_header_row(ws, settings)
 		records = _build_records(ws, header_row, headers)
+		logger.debug(f"   [{tab_title}] {len(records)}개 행")
 		
 		for row in records:
 			row_norm = { _normalize_key(k): v for k, v in row.items() }
@@ -104,12 +107,13 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 				continue
 			end_date = today + timedelta(days=remain)
 			
-			# 마감일이 과거인 작업은 제외 (완료된 작업)
-			if end_date < today:
-				logger.debug(f"⊘ {bizname} - 마감일 과거({end_date}) - 제외")
+			# 마감일이 너무 과거인 작업만 제외 (1주 이상 지난 작업)
+			one_week_ago = today - timedelta(days=7)
+			if end_date < one_week_ago:
+				logger.debug(f"⊘ {bizname} - 마감일 1주 이상 과거({end_date}) - 제외")
 				continue
 			
-			# 작업 시작일 파싱
+			# 작업 시작일 파싱 (우선순위: 시트 컬럼 > 보장건)
 			start_date_str = None
 			for possible_col in ["작업 시작일", "작업시작일", "시작일", "세팅일"]:
 				start_val = _get_value_flexible(row_norm, possible_col, "")
@@ -122,13 +126,24 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 			if start_date_str:
 				try:
 					import re
+					# YYYY-MM-DD 또는 YYYY.MM.DD 형식
 					match = re.match(r"(\d{4})[.-](\d{1,2})[.-](\d{1,2})", start_date_str)
 					if match:
 						year, month, day = match.groups()
 						start_date = date(int(year), int(month), int(day))
 						has_real_start_date = True
-				except:
-					pass
+						logger.debug(f"시트 시작일: {bizname} - {start_date_str} → {start_date}")
+					else:
+						# YY. M. D 형식 (예: 25. 10. 27)
+						match = re.match(r"(\d{2})\.\s*(\d{1,2})\.\s*(\d{1,2})", start_date_str)
+						if match:
+							year_short, month, day = match.groups()
+							year = 2000 + int(year_short)
+							start_date = date(year, int(month), int(day))
+							has_real_start_date = True
+							logger.debug(f"시트 시작일(YY.M.D): {bizname} - {start_date_str} → {start_date}")
+				except Exception as e:
+					logger.warning(f"시작일 파싱 실패: {bizname} - {start_date_str} - {e}")
 			
 			# 보장건 데이터에서 작업 시작일 가져오기
 			if not has_real_start_date and bizname in guarantee_data_map:
@@ -159,13 +174,11 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 			if not has_real_start_date:
 				start_date = end_date - timedelta(days=14)
 			
-			# 날짜 검증: start_date가 end_date보다 나중이면 수정
+			# 날짜 검증: start_date가 end_date보다 나중이면 역산
 			if start_date > end_date:
-				logger.warning(f"⚠️ {bizname}: 시작일({start_date})이 종료일({end_date})보다 늦음 - 수정")
-				# 종료일을 시작일로, 시작일은 2주 전으로
-				temp = start_date
-				start_date = temp - timedelta(days=14)
-				end_date = temp
+				logger.warning(f"⚠️ {bizname}: 시작일({start_date})이 마감일({end_date})보다 늦음 - 시작일을 마감일 기준 2주 전으로 재계산")
+				# 마감일이 정확하므로, 시작일을 역산
+				start_date = end_date - timedelta(days=14)
 			
 			# 작업명 생성
 			is_review_tab = _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰")
@@ -215,26 +228,27 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 		logger.debug(f"⊘ {business_name or company}: raw_items 없음")
 		return {"weeks": []}
 	
-	# 최근 3주 필터링 (마감일 기준!)
+	# 최근 3주 필터링 (마감일 기준: 과거 1주 ~ 향후 3주)
+	one_week_ago = today - timedelta(days=7)
 	three_weeks_from_now = today + timedelta(days=21)
 	
 	if business_name:
-		# 업체별: 마감일이 오늘~3주 후 사이인 작업만
+		# 업체별: 마감일이 과거1주~향후3주 사이인 작업
 		if len(raw_items) > 0:
-			logger.info(f"  📅 {business_name}: {len(raw_items)}개 작업 → 마감일 필터 (오늘~3주 후)")
+			logger.info(f"  📅 {business_name}: {len(raw_items)}개 작업 → 마감일 필터 적용")
 		filtered_items = [
 			item for item in raw_items 
-			if today <= item["end_date"] <= three_weeks_from_now
+			if one_week_ago <= item["end_date"] <= three_weeks_from_now
 		]
 		if len(raw_items) > 0:
-			logger.info(f"    → {len(filtered_items)}개 작업 (마감일: {today.strftime('%m/%d')} ~ {three_weeks_from_now.strftime('%m/%d')})")
+			logger.info(f"    → {len(filtered_items)}개 작업 (마감일: {one_week_ago.strftime('%m/%d')} ~ {three_weeks_from_now.strftime('%m/%d')})")
 	else:
 		# 회사 전체: 마감일이 향후 3주 이내인 작업들
 		filtered_items = [
 			item for item in raw_items 
-			if item["end_date"] <= three_weeks_from_now
+			if one_week_ago <= item["end_date"] <= three_weeks_from_now
 		]
-		logger.info(f"  회사 전체: {len(raw_items)}개 → {len(filtered_items)}개 (마감일 3주 이내)")
+		logger.info(f"  회사 전체: {len(raw_items)}개 → {len(filtered_items)}개 (마감일: {one_week_ago.strftime('%m/%d')}~{three_weeks_from_now.strftime('%m/%d')})")
 	
 	# 마감 주차별 그룹핑 (월~일 단위)
 	week_groups = {}
