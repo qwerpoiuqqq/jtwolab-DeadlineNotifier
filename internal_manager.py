@@ -142,27 +142,52 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 				continue
 			end_date = today + timedelta(days=remain)
 			
-			# 작업 시작일: 보장건 데이터에서 가져오기 (가장 정확)
+			# 작업 시작일: 각 행의 '작업 시작일' 컬럼 우선
+			start_date_str = None
+			for possible_col in ["작업 시작일", "작업시작일", "시작일", "세팅일"]:
+				start_val = _get_value_flexible(row_norm, possible_col, "")
+				if start_val:
+					start_date_str = str(start_val).strip()
+					break
+			
 			start_date = None
 			has_real_start_date = False
 			
-			if bizname in guarantee_data_map:
+			# 1순위: 시트의 '작업 시작일' 컬럼
+			if start_date_str:
+				start_date = parse_date_flexible(start_date_str)
+				if start_date:
+					has_real_start_date = True
+					# 디버깅: 처음 몇 개만 INFO로 출력
+					if len(all_items) < 5:
+						logger.info(f"✓ {bizname}/{product}: 시트 시작일 '{start_date_str}' → {start_date}")
+					else:
+						logger.debug(f"✓ {bizname}/{product}: 시트 시작일 {start_date_str} → {start_date}")
+			
+			# 2순위: 보장건 데이터의 work_start_date (행에 없을 때만)
+			if not start_date and bizname in guarantee_data_map:
 				guarantee_item = guarantee_data_map[bizname]
 				work_start = guarantee_item.get("work_start_date")
 				if work_start:
 					start_date = parse_date_flexible(work_start)
 					if start_date:
 						has_real_start_date = True
-						logger.debug(f"✓ {bizname}: 보장건 시작일 {work_start} → {start_date}, 마감일 {end_date}")
+						if len(all_items) < 5:
+							logger.info(f"✓ {bizname}/{product}: 보장건 시작일 '{work_start}' → {start_date}")
+						else:
+							logger.debug(f"✓ {bizname}/{product}: 보장건 시작일 {work_start} → {start_date}")
 			
-			# 보장건에 없으면 마감일 기준 2주 전으로 추정
+			# 3순위: 마감일 기준 2주 전으로 추정
 			if not start_date:
 				start_date = end_date - timedelta(days=14)
-				logger.debug(f"○ {bizname}: 시작일 추정 (마감일 - 14일) → {start_date}")
+				if len(all_items) < 5:
+					logger.info(f"○ {bizname}/{product}: 시작일 추정 (마감일 - 14일) → {start_date}")
+				else:
+					logger.debug(f"○ {bizname}/{product}: 시작일 추정 (마감일 - 14일) → {start_date}")
 			
 			# 날짜 검증: start_date가 end_date보다 나중이면 역산
 			if start_date > end_date:
-				logger.warning(f"⚠️ {bizname}: 시작일({start_date}) > 마감일({end_date}) - 시작일 재계산")
+				logger.warning(f"⚠️ {bizname}/{product}: 시작일({start_date}) > 마감일({end_date}) - 시작일 재계산")
 				start_date = end_date - timedelta(days=14)
 			
 			# 작업명 생성
@@ -235,8 +260,8 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 		]
 		logger.info(f"  회사 전체: {len(raw_items)}개 → {len(filtered_items)}개 (마감일: {one_week_ago.strftime('%m/%d')}~{four_weeks_from_now.strftime('%m/%d')})")
 	
-	# 작업+기간별 그룹핑 (같은 작업, 같은 기간이면 작업량 합산)
-	task_period_groups = {}
+	# 기간별 그룹핑 (같은 시작일-마감일을 가진 작업들을 묶음)
+	period_groups = {}
 	for item in filtered_items:
 		start_dt = item["start_date"]
 		end_dt = item["end_date"]
@@ -246,35 +271,43 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 			logger.warning(f"⚠️ {item['bizname']}: 시작일({start_dt}) > 마감일({end_dt}) - 스킵")
 			continue  # 잘못된 데이터는 제외
 		
-		# 작업명 + 기간으로 그룹핑 (같은 작업의 같은 기간은 합산)
+		# 같은 기간(시작일-마감일)끼리 그룹핑
+		key = (start_dt, end_dt)
+		if key not in period_groups:
+			period_groups[key] = {}
+		
 		task_name = item["task_display"]
-		key = (start_dt, end_dt, task_name)
 		
 		try:
 			wl_num = _parse_int_maybe(item["workload"]) or 0
 		except:
 			wl_num = 0
 		
-		if key in task_period_groups:
-			task_period_groups[key] += wl_num
+		# 같은 작업명이면 작업량 합산
+		if task_name in period_groups[key]:
+			period_groups[key][task_name] += wl_num
 		else:
-			task_period_groups[key] = wl_num
+			period_groups[key][task_name] = wl_num
 	
-	# 스케줄 포맷팅 (마감일, 시작일 기준 정렬)
+	# 스케줄 포맷팅 (마감일 기준 정렬)
 	weeks = []
-	for (start_dt, end_dt, task_name), total_workload in sorted(task_period_groups.items(), key=lambda x: (x[0][1], x[0][0])):
+	for (start_dt, end_dt), tasks in sorted(period_groups.items(), key=lambda x: x[0][1]):  # 마감일 기준 정렬
+		items = []
+		for task_name, total_workload in sorted(tasks.items()):
+			items.append({
+				"name": task_name,
+				"workload": str(total_workload) if total_workload > 0 else "0"
+			})
+		
 		weeks.append({
 			"start_date": start_dt.strftime("%m/%d"),
 			"end_date": end_dt.strftime("%m/%d"),
-			"items": [{
-				"name": task_name,
-				"workload": str(total_workload) if total_workload > 0 else "0"
-			}]
+			"items": items
 		})
 	
 	# 디버깅: 처음 몇 개만 로그
 	if business_name and len(weeks) > 0:
-		logger.info(f"  📊 총 {len(weeks)}개 기간별 작업:")
+		logger.info(f"  📊 총 {len(weeks)}개 기간:")
 		for idx, week in enumerate(weeks[:5]):
 			items_str = ", ".join([f"{item['name'][:20]}:{item['workload']}" for item in week['items']])
 			logger.info(f"    [{idx+1}] {week['start_date']} ~ {week['end_date']}: {items_str}")
