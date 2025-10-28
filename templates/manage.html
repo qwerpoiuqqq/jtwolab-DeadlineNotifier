@@ -422,7 +422,7 @@
   <div class="modal" id="workload-modal">
     <div class="modal-content" style="max-width:700px;">
       <div class="modal-header">
-        <h3 class="modal-title">📊 작업량 스케줄 (최근 3주)</h3>
+        <h3 class="modal-title">📊 작업량 스케줄 (최근 4주)</h3>
         <button class="btn btn-sm btn-secondary" onclick="closeWorkloadModal()">✕</button>
       </div>
       <div class="modal-body" style="padding:32px; background:var(--bg);">
@@ -434,6 +434,7 @@
         </div>
       </div>
       <div class="modal-footer">
+        <button type="button" class="btn btn-success" id="btn-copy-workload" onclick="copyWorkloadToClipboard()" style="display:inline-flex;">📋 복사</button>
         <button type="button" class="btn btn-secondary" onclick="closeWorkloadModal()">닫기</button>
       </div>
     </div>
@@ -447,6 +448,7 @@
     let currentEditId = null;
     let currentCompany = '제이투랩';  // 기본값
     let businessWorkloadCache = {};  // 업체별 작업량 캐시
+    let currentWorkloadData = null;  // 현재 표시중인 작업량 데이터
 
     // Toast
     function showToast(msg) {
@@ -914,18 +916,52 @@
       }
     });
 
+    // 복사 버튼 함수
+    function copyWorkloadToClipboard() {
+      if (!currentWorkloadData || !currentWorkloadData.weeks || currentWorkloadData.weeks.length === 0) {
+        showToast('복사할 데이터가 없습니다');
+        return;
+      }
+      
+      // 텍스트 형식으로 변환
+      const lines = [];
+      currentWorkloadData.weeks.forEach(week => {
+        lines.push(`${week.start_date} ~ ${week.end_date}`);
+        week.items.forEach(item => {
+          lines.push(`${item.name} : ${item.workload}`);
+        });
+        lines.push(''); // 빈 줄
+      });
+      
+      const text = lines.join('\n').trim();
+      
+      // 클립보드에 복사
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('📋 클립보드에 복사되었습니다');
+      }).catch(err => {
+        console.error('복사 실패:', err);
+        showToast('복사 실패');
+      });
+    }
+    
     // 작업량 데이터 렌더링
     function renderWorkloadData(data) {
       const content = document.getElementById('workload-content');
+      const copyBtn = document.getElementById('btn-copy-workload');
+      
+      // 현재 데이터 저장 (복사용)
+      currentWorkloadData = data;
       
       if (!data.weeks || data.weeks.length === 0) {
         content.innerHTML = `
           <div class="empty-state">
             <div class="empty-icon">📭</div>
             <div class="empty-title">작업 스케줄이 없습니다</div>
-            <div class="empty-desc">최근 3주간 진행된 작업이 없습니다</div>
+            <div class="empty-desc">최근 4주간 진행된 작업이 없습니다</div>
           </div>
         `;
+        currentWorkloadData = null;
+        if (copyBtn) copyBtn.style.display = 'none';
         return;
       }
       
@@ -959,9 +995,9 @@
       // 모달 제목 업데이트
       const modalTitle = modal.querySelector('.modal-title');
       if (businessName) {
-        modalTitle.textContent = `📊 ${businessName} - 작업량 스케줄 (최근 3주)`;
+        modalTitle.textContent = `📊 ${businessName} - 작업량 스케줄 (최근 4주)`;
       } else {
-        modalTitle.textContent = `📊 작업량 스케줄 (최근 3주)`;
+        modalTitle.textContent = `📊 작업량 스케줄 (최근 4주)`;
       }
       
       // 업체별 조회: 캐시만 사용
@@ -974,6 +1010,11 @@
           // 캐시가 없으면 안내 메시지
           console.log(`⚠️ No cache for ${businessName}`);
           console.log('Available businesses in cache:', Object.keys(businessWorkloadCache));
+          
+          // 복사 버튼 숨기기
+          const copyBtn = document.getElementById('btn-copy-workload');
+          if (copyBtn) copyBtn.style.display = 'none';
+          
           content.innerHTML = `
             <div class="empty-state">
               <div class="empty-icon">⏱️</div>
