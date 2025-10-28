@@ -172,17 +172,15 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 			start_date = None
 			if start_date_str:
 				start_date = parse_date_flexible(start_date_str)
+				# 디버깅: 처음 5개만 상세 로그
+				if len(all_items) < 5:
+					logger.info(f"  ✓ {bizname}/{product}: 시작일 컬럼='{start_date_str}' → 파싱결과={start_date}, 마감일={end_date.strftime('%Y-%m-%d')} (remain={remain}일)")
 			
 			# 작업 시작일이 없으면 마감일 기준 2주 전으로 추정
 			if not start_date:
 				start_date = end_date - timedelta(days=14)
-			
-			# 디버깅: 처음 5개 작업만 출력
-			if len(all_items) < 5:
-				if start_date_str:
-					logger.info(f"  ✓ {bizname}/{product}: 시작일='{start_date_str}'→{start_date.strftime('%m/%d')}, 마감일={end_date.strftime('%m/%d')} (remain={remain}일)")
-				else:
-					logger.info(f"  ○ {bizname}/{product}: 시작일(추정)={start_date.strftime('%m/%d')}, 마감일={end_date.strftime('%m/%d')} (remain={remain}일)")
+				if len(all_items) < 5:
+					logger.info(f"  ○ {bizname}/{product}: 시작일(추정)={start_date.strftime('%Y-%m-%d')}, 마감일={end_date.strftime('%Y-%m-%d')} (remain={remain}일)")
 			
 			# 작업명 생성
 			is_review_tab = _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰")
