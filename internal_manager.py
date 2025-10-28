@@ -142,53 +142,15 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 				continue
 			end_date = today + timedelta(days=remain)
 			
-			# 작업 시작일: 각 행의 '작업 시작일' 컬럼 우선
-			start_date_str = None
-			for possible_col in ["작업 시작일", "작업시작일", "시작일", "세팅일"]:
-				start_val = _get_value_flexible(row_norm, possible_col, "")
-				if start_val:
-					start_date_str = str(start_val).strip()
-					break
-			
-			start_date = None
+			# 작업 시작일: 무조건 마감일 역산 (가장 정확!)
+			# 시트의 작업 시작일 컬럼은 신뢰할 수 없음
+			# 마감일(-O)이 가장 정확한 정보이므로, 거기서 역산
+			start_date = end_date - timedelta(days=14)
 			has_real_start_date = False
 			
-			# 1순위: 시트의 '작업 시작일' 컬럼
-			if start_date_str:
-				start_date = parse_date_flexible(start_date_str)
-				if start_date:
-					has_real_start_date = True
-					# 디버깅: 처음 몇 개만 INFO로 출력
-					if len(all_items) < 5:
-						logger.info(f"✓ {bizname}/{product}: 시트 시작일 '{start_date_str}' → {start_date}")
-					else:
-						logger.debug(f"✓ {bizname}/{product}: 시트 시작일 {start_date_str} → {start_date}")
-			
-			# 2순위: 보장건 데이터의 work_start_date (행에 없을 때만)
-			if not start_date and bizname in guarantee_data_map:
-				guarantee_item = guarantee_data_map[bizname]
-				work_start = guarantee_item.get("work_start_date")
-				if work_start:
-					start_date = parse_date_flexible(work_start)
-					if start_date:
-						has_real_start_date = True
-						if len(all_items) < 5:
-							logger.info(f"✓ {bizname}/{product}: 보장건 시작일 '{work_start}' → {start_date}")
-						else:
-							logger.debug(f"✓ {bizname}/{product}: 보장건 시작일 {work_start} → {start_date}")
-			
-			# 3순위: 마감일 기준 2주 전으로 추정
-			if not start_date:
-				start_date = end_date - timedelta(days=14)
-				if len(all_items) < 5:
-					logger.info(f"○ {bizname}/{product}: 시작일 추정 (마감일 - 14일) → {start_date}")
-				else:
-					logger.debug(f"○ {bizname}/{product}: 시작일 추정 (마감일 - 14일) → {start_date}")
-			
-			# 날짜 검증: start_date가 end_date보다 나중이면 역산
-			if start_date > end_date:
-				logger.warning(f"⚠️ {bizname}/{product}: 시작일({start_date}) > 마감일({end_date}) - 시작일 재계산")
-				start_date = end_date - timedelta(days=14)
+			# 디버깅: 처음 몇 개만 출력
+			if len(all_items) < 3:
+				logger.info(f"✓ {bizname}/{product}: 시작일={start_date.strftime('%m/%d')}, 마감일={end_date.strftime('%m/%d')} (remain={remain}일)")
 			
 			# 작업명 생성
 			is_review_tab = _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰")
@@ -266,9 +228,9 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 		start_dt = item["start_date"]
 		end_dt = item["end_date"]
 		
-		# 날짜 검증
+		# 날짜 검증 (이제는 발생하지 않아야 함)
 		if start_dt > end_dt:
-			logger.warning(f"⚠️ {item['bizname']}: 시작일({start_dt}) > 마감일({end_dt}) - 스킵")
+			logger.error(f"❌ {item['bizname']}: 시작일({start_dt}) > 마감일({end_dt}) - 논리 오류!")
 			continue  # 잘못된 데이터는 제외
 		
 		# 같은 기간(시작일-마감일)끼리 그룹핑
