@@ -188,26 +188,11 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 				"has_real_start_date": bool(start_date_str)  # 시트에 시작일 컬럼이 있었는지
 			})
 	
-	logger.info(f"✅ {company} raw 데이터: {len(all_items)}개 (중복 포함)")
+	logger.info(f"✅ {company} raw 데이터: {len(all_items)}개")
 	
-	# 같은 작업의 최신 데이터만 남기기 (remain이 가장 작은 = 가장 최근 업데이트)
-	# key = (bizname, task_display)
-	latest_items_map = {}
-	for item in all_items:
-		key = (item["bizname"], item["task_display"])
-		
-		if key not in latest_items_map:
-			latest_items_map[key] = item
-		else:
-			# 마감일이 더 최근인 것을 사용 (매일 업데이트되므로)
-			existing = latest_items_map[key]
-			if item["end_date"] > existing["end_date"]:
-				latest_items_map[key] = item
-	
-	deduplicated_items = list(latest_items_map.values())
-	logger.info(f"✅ {company} 중복 제거 후: {len(deduplicated_items)}개")
-	
-	return deduplicated_items
+	# 중복 제거 없음! 각 행을 그대로 유지
+	# 같은 작업이라도 시작일-마감일이 다르면 별도로 표시
+	return all_items
 
 
 def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str, business_name: str = None) -> Dict[str, Any]:
