@@ -142,15 +142,28 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 				continue
 			end_date = today + timedelta(days=remain)
 			
-			# 작업 시작일: 무조건 마감일 역산 (가장 정확!)
-			# 시트의 작업 시작일 컬럼은 신뢰할 수 없음
-			# 마감일(-O)이 가장 정확한 정보이므로, 거기서 역산
-			start_date = end_date - timedelta(days=14)
-			has_real_start_date = False
+			# 작업 시작일: 각 행의 '작업 시작일' 컬럼 읽기
+			start_date_str = None
+			for possible_col in ["작업 시작일", "작업시작일", "시작일", "세팅일"]:
+				start_val = _get_value_flexible(row_norm, possible_col, "")
+				if start_val:
+					start_date_str = str(start_val).strip()
+					break
 			
-			# 디버깅: 처음 몇 개만 출력
-			if len(all_items) < 3:
-				logger.info(f"✓ {bizname}/{product}: 시작일={start_date.strftime('%m/%d')}, 마감일={end_date.strftime('%m/%d')} (remain={remain}일)")
+			start_date = None
+			if start_date_str:
+				start_date = parse_date_flexible(start_date_str)
+			
+			# 작업 시작일이 없으면 마감일 기준 2주 전으로 추정
+			if not start_date:
+				start_date = end_date - timedelta(days=14)
+			
+			# 디버깅: 처음 5개 작업만 출력
+			if len(all_items) < 5:
+				if start_date_str:
+					logger.info(f"  ✓ {bizname}/{product}: 시작일='{start_date_str}'→{start_date.strftime('%m/%d')}, 마감일={end_date.strftime('%m/%d')} (remain={remain}일)")
+				else:
+					logger.info(f"  ○ {bizname}/{product}: 시작일(추정)={start_date.strftime('%m/%d')}, 마감일={end_date.strftime('%m/%d')} (remain={remain}일)")
 			
 			# 작업명 생성
 			is_review_tab = _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰")
@@ -172,11 +185,29 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 				"workload": workload,
 				"start_date": start_date,
 				"end_date": end_date,
-				"has_real_start_date": has_real_start_date
+				"has_real_start_date": bool(start_date_str)  # 시트에 시작일 컬럼이 있었는지
 			})
 	
-	logger.info(f"✅ {company} raw 데이터: {len(all_items)}개")
-	return all_items
+	logger.info(f"✅ {company} raw 데이터: {len(all_items)}개 (중복 포함)")
+	
+	# 같은 작업의 최신 데이터만 남기기 (remain이 가장 작은 = 가장 최근 업데이트)
+	# key = (bizname, task_display)
+	latest_items_map = {}
+	for item in all_items:
+		key = (item["bizname"], item["task_display"])
+		
+		if key not in latest_items_map:
+			latest_items_map[key] = item
+		else:
+			# 마감일이 더 최근인 것을 사용 (매일 업데이트되므로)
+			existing = latest_items_map[key]
+			if item["end_date"] > existing["end_date"]:
+				latest_items_map[key] = item
+	
+	deduplicated_items = list(latest_items_map.values())
+	logger.info(f"✅ {company} 중복 제거 후: {len(deduplicated_items)}개")
+	
+	return deduplicated_items
 
 
 def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str, business_name: str = None) -> Dict[str, Any]:
