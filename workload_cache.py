@@ -205,20 +205,6 @@ class WorkloadCache:
         return status
 
 
-def filter_workload_by_business_with_delay(business_name: str, company: str, delay: float = 0.5) -> Dict[str, Any]:
-    """업체별 데이터를 조회 (API 호출 제한 우회를 위한 지연 포함)"""
-    import time
-    from internal_manager import fetch_workload_schedule_direct
-    
-    # API 호출 전 지연
-    time.sleep(delay)
-    
-    try:
-        business_schedule = fetch_workload_schedule_direct(company, business_name)
-        return business_schedule
-    except Exception as e:
-        logger.error(f"Failed to fetch {business_name}: {e}")
-        return {"weeks": []}
 
 
 def refresh_all_workload_cache() -> Dict[str, Any]:
@@ -245,22 +231,29 @@ def refresh_all_workload_cache() -> Dict[str, Any]:
     
     for company in companies:
         try:
-            logger.info(f"Fetching workload for {company}...")
+            logger.info(f"🚀 Fetching raw workload data for {company}...")
             
-            # 회사 전체 작업량 (한 번만 조회)
-            schedule = fetch_workload_schedule_direct(company)
+            # RAW 데이터를 한 번만 가져오기 (가장 효율적)
+            from internal_manager import fetch_internal_items_for_company, process_raw_items_to_schedule
+            
+            raw_items = fetch_internal_items_for_company(company)
+            logger.info(f"  ✅ Raw data fetched: {len(raw_items)} items (단 1회 API 호출!)")
+            
+            # 회사 전체 작업량 계산
+            schedule = process_raw_items_to_schedule(raw_items, company, None)
             workload_data[company] = schedule
+            logger.info(f"  📊 {company} 전체: {len(schedule.get('weeks', []))} weeks")
             
-            # 해당 회사의 진행중인 업체만 필터링
+            # 해당 회사의 진행중인 업체 목록
             from datetime import date, timedelta
             gm = GuaranteeManager()
-            items = gm.get_items({"company": company})
+            guarantee_items = gm.get_items({"company": company})
             
             # 진행중/후불/세팅대기 상태인 업체 선택
             active_statuses = ["진행중", "후불", "세팅대기"]
             
-            filtered_items = []
-            for item in items:
+            filtered_guarantee_items = []
+            for item in guarantee_items:
                 status = item.get("status")
                 business_name = item.get("business_name")
                 
@@ -271,46 +264,45 @@ def refresh_all_workload_cache() -> Dict[str, Any]:
                 if status not in active_statuses:
                     continue
                 
-                filtered_items.append(item)
+                filtered_guarantee_items.append(item)
             
-            business_names = [item.get("business_name") for item in filtered_items]
+            business_names = [item.get("business_name") for item in filtered_guarantee_items]
             
-            logger.info(f"Processing {len(business_names)} active businesses in {company} (filtered from {len(items)} total)...")
-            logger.info(f"📊 한 번의 API 호출로 전체 데이터를 가져와서 메모리에서 분할합니다...")
+            logger.info(f"  📋 Processing {len(business_names)} active businesses (메모리 필터링)...")
             
-            # 회사 전체 데이터를 한 번만 조회하고 메모리에서 업체별로 분할
+            # 메모리에서 업체별로 분할 (초고속, API 호출 없음!)
             cached_count = 0
             skipped_count = 0
             failed_count = 0
             
-            # 전체 스케줄 데이터에서 업체별로 필터링
-            all_weeks_data = schedule.get("weeks", [])
-            logger.info(f"  총 {len(all_weeks_data)}개 기간의 데이터 조회 완료")
-            
             for idx, business_name in enumerate(business_names, 1):
                 try:
-                    logger.info(f"  [{idx}/{len(business_names)}] Processing {business_name}...")
+                    # Raw 데이터에서 해당 업체만 필터링
+                    business_raw_items = [
+                        item for item in raw_items 
+                        if item.get("bizname") == business_name
+                    ]
                     
-                    # API 호출 제한 우회를 위한 지연 (1초)
-                    business_schedule = filter_workload_by_business_with_delay(business_name, company, delay=1.0)
+                    if not business_raw_items:
+                        logger.info(f"  [{idx}/{len(business_names)}] ⊘ {business_name}: no data")
+                        skipped_count += 1
+                        continue
+                    
+                    # 업체별 스케줄 계산
+                    business_schedule = process_raw_items_to_schedule(business_raw_items, company, business_name)
                     
                     # 작업이 있는 업체만 캐싱
                     if business_schedule.get("weeks"):
                         business_key = f"{company}:{business_name}"
                         business_workloads[business_key] = business_schedule
-                        logger.info(f"  ✅ {business_name}: {len(business_schedule.get('weeks', []))} weeks")
+                        logger.info(f"  [{idx}/{len(business_names)}] ✅ {business_name}: {len(business_schedule.get('weeks', []))} weeks")
                         cached_count += 1
                     else:
-                        logger.info(f"  ⊘ {business_name}: no data (skipped)")
+                        logger.info(f"  [{idx}/{len(business_names)}] ⊘ {business_name}: no weeks data")
                         skipped_count += 1
                 except Exception as e:
-                    logger.warning(f"  ❌ Failed to process {business_name}: {e}")
+                    logger.warning(f"  [{idx}/{len(business_names)}] ❌ {business_name}: {e}")
                     failed_count += 1
-                    # API 제한 에러인 경우 더 긴 지연
-                    if "429" in str(e) or "Quota exceeded" in str(e):
-                        logger.warning(f"  ⏸️ API 제한 감지, 5초 대기 후 계속...")
-                        import time
-                        time.sleep(5)
             
             updated_companies.append(company)
             logger.info(f"✅ {company} complete - Cached: {cached_count}, Skipped: {skipped_count}, Failed: {failed_count}")
