@@ -213,30 +213,30 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 		logger.debug(f"⊘ {business_name or company}: raw_items 없음")
 		return {"weeks": []}
 	
-	# 최근 3주 필터링 (마감일 기준: 과거 1주 ~ 향후 3주)
+	# 최근 4주 필터링 (마감일 기준: 과거 1주 ~ 향후 4주)
 	one_week_ago = today - timedelta(days=7)
-	three_weeks_from_now = today + timedelta(days=21)
+	four_weeks_from_now = today + timedelta(days=28)
 	
 	if business_name:
-		# 업체별: 마감일이 과거1주~향후3주 사이인 작업
+		# 업체별: 마감일이 과거1주~향후4주 사이인 작업
 		if len(raw_items) > 0:
 			logger.info(f"  📅 {business_name}: {len(raw_items)}개 작업 → 마감일 필터 적용")
 		filtered_items = [
 			item for item in raw_items 
-			if one_week_ago <= item["end_date"] <= three_weeks_from_now
+			if one_week_ago <= item["end_date"] <= four_weeks_from_now
 		]
 		if len(raw_items) > 0:
-			logger.info(f"    → {len(filtered_items)}개 작업 (마감일: {one_week_ago.strftime('%m/%d')} ~ {three_weeks_from_now.strftime('%m/%d')})")
+			logger.info(f"    → {len(filtered_items)}개 작업 (마감일: {one_week_ago.strftime('%m/%d')} ~ {four_weeks_from_now.strftime('%m/%d')})")
 	else:
-		# 회사 전체: 마감일이 향후 3주 이내인 작업들
+		# 회사 전체: 마감일이 향후 4주 이내인 작업들
 		filtered_items = [
 			item for item in raw_items 
-			if one_week_ago <= item["end_date"] <= three_weeks_from_now
+			if one_week_ago <= item["end_date"] <= four_weeks_from_now
 		]
-		logger.info(f"  회사 전체: {len(raw_items)}개 → {len(filtered_items)}개 (마감일: {one_week_ago.strftime('%m/%d')}~{three_weeks_from_now.strftime('%m/%d')})")
+		logger.info(f"  회사 전체: {len(raw_items)}개 → {len(filtered_items)}개 (마감일: {one_week_ago.strftime('%m/%d')}~{four_weeks_from_now.strftime('%m/%d')})")
 	
-	# 실제 작업 기간별 그룹핑 (작업 시작일~마감일 그대로 사용)
-	period_groups = {}
+	# 작업+기간별 그룹핑 (같은 작업, 같은 기간이면 작업량 합산)
+	task_period_groups = {}
 	for item in filtered_items:
 		start_dt = item["start_date"]
 		end_dt = item["end_date"]
@@ -246,43 +246,38 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 			logger.warning(f"⚠️ {item['bizname']}: 시작일({start_dt}) > 마감일({end_dt}) - 스킵")
 			continue  # 잘못된 데이터는 제외
 		
-		# 실제 시작일~마감일 그대로 그룹핑
-		key = (start_dt, end_dt)
-		if key not in period_groups:
-			period_groups[key] = {}
-		
+		# 작업명 + 기간으로 그룹핑 (같은 작업의 같은 기간은 합산)
 		task_name = item["task_display"]
+		key = (start_dt, end_dt, task_name)
 		
 		try:
 			wl_num = _parse_int_maybe(item["workload"]) or 0
 		except:
 			wl_num = 0
 		
-		if task_name in period_groups[key]:
-			period_groups[key][task_name] += wl_num
+		if key in task_period_groups:
+			task_period_groups[key] += wl_num
 		else:
-			period_groups[key][task_name] = wl_num
+			task_period_groups[key] = wl_num
 	
-	# 스케줄 포맷팅 (마감일 기준 정렬)
+	# 스케줄 포맷팅 (마감일, 시작일 기준 정렬)
 	weeks = []
-	for (start_dt, end_dt), tasks in sorted(period_groups.items(), key=lambda x: x[0][1]):  # 마감일 기준 정렬
-		items = []
-		for task_name, total_workload in sorted(tasks.items()):
-			items.append({
-				"name": task_name,
-				"workload": str(total_workload) if total_workload > 0 else "0"
-			})
-		
+	for (start_dt, end_dt, task_name), total_workload in sorted(task_period_groups.items(), key=lambda x: (x[0][1], x[0][0])):
 		weeks.append({
 			"start_date": start_dt.strftime("%m/%d"),
 			"end_date": end_dt.strftime("%m/%d"),
-			"items": items
+			"items": [{
+				"name": task_name,
+				"workload": str(total_workload) if total_workload > 0 else "0"
+			}]
 		})
-		
-		# 디버깅: 처음 몇 개만 로그
-		if len(weeks) <= 5 and business_name:
-			task_names = ", ".join([item["name"][:15] for item in items[:3]])
-			logger.info(f"  📅 {start_dt.strftime('%m/%d')} ~ {end_dt.strftime('%m/%d')}: {len(items)}개 작업 ({task_names}...)")
+	
+	# 디버깅: 처음 몇 개만 로그
+	if business_name and len(weeks) > 0:
+		logger.info(f"  📊 총 {len(weeks)}개 기간별 작업:")
+		for idx, week in enumerate(weeks[:5]):
+			items_str = ", ".join([f"{item['name'][:20]}:{item['workload']}" for item in week['items']])
+			logger.info(f"    [{idx+1}] {week['start_date']} ~ {week['end_date']}: {items_str}")
 	
 	return {"weeks": weeks}
 
