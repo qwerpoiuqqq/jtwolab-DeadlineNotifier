@@ -486,14 +486,20 @@
     
     // 업체별 작업량 데이터 미리 로드
     async function loadBusinessWorkloads() {
+      const statusEl = document.getElementById('workload-cache-status');
+      
       try {
         console.log(`Loading business workloads for ${currentCompany}...`);
+        statusEl.innerHTML = '⚡ 작업량 캐시: 로딩 중...';
+        statusEl.style.color = 'rgba(255,200,0,0.9)';
+        
         const res = await fetch(`/api/workload/businesses?company=${encodeURIComponent(currentCompany)}`);
         const data = await res.json();
         
         if (data.businesses && Object.keys(data.businesses).length > 0) {
           businessWorkloadCache = data.businesses;
           console.log(`✅ Loaded ${data.count} business workloads from ${data.from_cache ? 'cache' : 'direct'}`);
+          console.log(`📋 업체 목록: ${Object.keys(data.businesses).join(', ')}`);
         } else {
           businessWorkloadCache = {};
           console.log('⚠️ No business workload data available');
@@ -507,6 +513,8 @@
       } catch (e) {
         console.error('Failed to load business workloads:', e);
         businessWorkloadCache = {};
+        statusEl.innerHTML = '⚡ 작업량 캐시: 로드 실패';
+        statusEl.style.color = 'rgba(255,100,100,0.9)';
       }
     }
     
@@ -956,18 +964,34 @@
         modalTitle.textContent = `📊 작업량 스케줄 (최근 3주)`;
       }
       
-      // 캐시된 데이터가 있으면 즉시 표시
-      if (businessName && businessWorkloadCache[businessName]) {
-        console.log(`✅ Using cached data for ${businessName} (instant load!)`);
-        console.log('Cache data:', businessWorkloadCache[businessName]);
-        renderWorkloadData(businessWorkloadCache[businessName]);
-        return;
-      } else if (businessName) {
-        console.log(`⚠️ No cache for ${businessName}`);
-        console.log('Available businesses in cache:', Object.keys(businessWorkloadCache));
+      // 업체별 조회: 캐시만 사용
+      if (businessName) {
+        if (businessWorkloadCache[businessName]) {
+          console.log(`✅ Using cached data for ${businessName} (instant load!)`);
+          renderWorkloadData(businessWorkloadCache[businessName]);
+          return;
+        } else {
+          // 캐시가 없으면 안내 메시지
+          console.log(`⚠️ No cache for ${businessName}`);
+          console.log('Available businesses in cache:', Object.keys(businessWorkloadCache));
+          content.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">⏱️</div>
+              <div class="empty-title">캐시된 데이터가 없습니다</div>
+              <div class="empty-desc" style="margin-bottom:16px;">
+                상단의 <strong style="color:var(--success);">'⚡ 작업량 갱신'</strong> 버튼을 눌러<br>
+                업체별 작업량을 미리 불러온 후 다시 시도해주세요.
+              </div>
+              <button class="btn btn-success" onclick="closeWorkloadModal(); document.getElementById('btn-refresh-workload').click();">
+                ⚡ 지금 갱신하기
+              </button>
+            </div>
+          `;
+          return;
+        }
       }
       
-      // 캐시가 없으면 로딩 표시
+      // 회사 전체 조회: API 호출
       content.innerHTML = `
         <div style="text-align:center; padding:40px; color:var(--muted);">
           <div class="loading" style="margin:0 auto 16px;"></div>
@@ -976,10 +1000,7 @@
       `;
       
       try {
-        let url = `/api/workload/schedule?company=${encodeURIComponent(company)}`;
-        if (businessName) {
-          url += `&business_name=${encodeURIComponent(businessName)}`;
-        }
+        const url = `/api/workload/schedule?company=${encodeURIComponent(company)}`;
         const res = await fetch(url);
         const data = await res.json();
         
