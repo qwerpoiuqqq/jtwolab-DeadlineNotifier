@@ -406,8 +406,18 @@ def fetch_workload_schedule_direct(company: str = None, business_name: str = Non
 	# 실제 작업 시작일이 있는 항목들만으로 최신 날짜 계산
 	items_with_real_start = [item for item in all_items if item.get("has_real_start_date")]
 	
-	if items_with_real_start:
-		# 실제 시작일이 있는 경우: 최신 시작일 기준 3주
+	# 업체별 조회시에는 오늘 기준 3주만 표시 (더 엄격)
+	if business_name:
+		three_weeks_ago = today - timedelta(days=21)
+		logger.info(f"📅 업체별 조회({business_name}): 오늘({today})부터 3주 전({three_weeks_ago})")
+		
+		filtered_items = [
+			item for item in all_items 
+			if item["start_date"] >= three_weeks_ago
+		]
+		logger.info(f"📊 필터링 결과: {len(all_items)}개 → {len(filtered_items)}개 (최근 3주)")
+	elif items_with_real_start:
+		# 회사 전체 조회: 최신 시작일 기준 3주
 		latest_start = max(item["start_date"] for item in items_with_real_start)
 		three_weeks_ago = latest_start - timedelta(days=21)
 		logger.info(f"📅 최신 작업 시작일: {latest_start}, 3주 전: {three_weeks_ago}")
