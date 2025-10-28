@@ -874,12 +874,23 @@
           
         if (data.last_sync) {
           const date = new Date(data.last_sync);
+          const dateStr = date.toLocaleString('ko-KR', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+          });
           document.getElementById('sync-status').textContent = 
-            `마지막 동기화: ${date.toLocaleString('ko-KR')}`;
+            `마지막 동기화: ${dateStr}`;
         }
         
         if (data.next_sync_kst) {
-          document.getElementById('next-sync').textContent = `다음: ${data.next_sync_kst}`;
+          // KST 제거
+          const nextSyncStr = data.next_sync_kst.replace(' KST', '');
+          document.getElementById('next-sync').textContent = `다음: ${nextSyncStr}`;
         }
       } catch (e) {
           console.error(e);
