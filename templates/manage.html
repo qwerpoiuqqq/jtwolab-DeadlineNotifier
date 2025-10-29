@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/png" href="/static/favicon.png">
   <title>월보장 관리 대시보드</title>
     <style>
     :root{
@@ -468,10 +469,12 @@
         if (status.is_valid && status.updated_at) {
           const updateTime = new Date(status.updated_at);
           const timeStr = updateTime.toLocaleString('ko-KR', {
+            year: 'numeric',
             month: '2-digit',
             day: '2-digit',
             hour: '2-digit',
-            minute: '2-digit'
+            minute: '2-digit',
+            hour12: false
           });
           const businessInfo = status.business_count > 0 ? `, ${status.business_count}개 업체` : '';
           statusEl.innerHTML = `⚡ 작업량 캐시: ${timeStr} (${status.company_count}개 회사${businessInfo})`;
