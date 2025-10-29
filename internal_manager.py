@@ -238,27 +238,23 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 		logger.debug(f"⊘ {business_name or company}: raw_items 없음")
 		return {"weeks": []}
 	
-	# 최근 4주 필터링 (마감일 기준: 과거 1주 ~ 향후 4주)
-	one_week_ago = today - timedelta(days=7)
-	four_weeks_from_now = today + timedelta(days=28)
-	
-	if business_name:
-		# 업체별: 마감일이 과거1주~향후4주 사이인 작업
-		if len(raw_items) > 0:
-			logger.info(f"  📅 {business_name}: {len(raw_items)}개 작업 → 마감일 필터 적용")
+	# 가장 최근 작업 시작일 기준 4주 필터링
+	if raw_items:
+		# 모든 시작일 중 가장 최근 날짜 찾기
+		latest_start = max(item["start_date"] for item in raw_items)
+		four_weeks_ago = latest_start - timedelta(days=28)
+		
+		logger.info(f"  📅 가장 최근 작업 시작일: {latest_start.strftime('%Y-%m-%d')}, 4주 전: {four_weeks_ago.strftime('%Y-%m-%d')}")
+		
+		# 4주 이내 작업만 포함
 		filtered_items = [
 			item for item in raw_items 
-			if one_week_ago <= item["end_date"] <= four_weeks_from_now
+			if item["start_date"] >= four_weeks_ago
 		]
-		if len(raw_items) > 0:
-			logger.info(f"    → {len(filtered_items)}개 작업 (마감일: {one_week_ago.strftime('%m/%d')} ~ {four_weeks_from_now.strftime('%m/%d')})")
+		
+		logger.info(f"  📊 필터 결과: {len(raw_items)}개 → {len(filtered_items)}개 (시작일 {four_weeks_ago.strftime('%m/%d')} 이후)")
 	else:
-		# 회사 전체: 마감일이 향후 4주 이내인 작업들
-		filtered_items = [
-			item for item in raw_items 
-			if one_week_ago <= item["end_date"] <= four_weeks_from_now
-		]
-		logger.info(f"  회사 전체: {len(raw_items)}개 → {len(filtered_items)}개 (마감일: {one_week_ago.strftime('%m/%d')}~{four_weeks_from_now.strftime('%m/%d')})")
+		filtered_items = []
 	
 	# 기간별 그룹핑 (같은 시작일-마감일을 가진 작업들을 묶음)
 	period_groups = {}
