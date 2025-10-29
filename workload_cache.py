@@ -307,7 +307,8 @@ def refresh_all_workload_cache() -> Dict[str, Any]:
                     if idx <= 3 or business_name == "청류 은평한옥마을본점":
                         logger.info(f"  [{idx}] {business_name} raw 데이터 샘플 (최대 10개):")
                         for sample_idx, sample_item in enumerate(business_raw_items[:10]):
-                            logger.info(f"      {sample_idx+1}. {sample_item['task_display']}: 시작={sample_item['start_date'].strftime('%m/%d')}, 마감={sample_item['end_date'].strftime('%m/%d')}, 작업량={sample_item['workload']}")
+                            start_str = sample_item['start_date'].strftime('%m/%d') if sample_item['start_date'] else "미정"
+                            logger.info(f"      {sample_idx+1}. {sample_item['task_display']}: 시작={start_str}, 마감={sample_item['end_date'].strftime('%m/%d')}, 작업량={sample_item['workload']}")
                     
                     # 업체별 스케줄 계산
                     business_schedule = process_raw_items_to_schedule(business_raw_items, company, business_name)
