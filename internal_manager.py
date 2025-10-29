@@ -304,9 +304,9 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 		else:
 			period_groups[key][task_name] = wl_num
 	
-	# 스케줄 포맷팅 (마감일 기준 정렬)
+	# 스케줄 포맷팅 (시작일 기준 정렬 - 오래된 것부터)
 	weeks = []
-	for (start_dt, end_dt), tasks in sorted(period_groups.items(), key=lambda x: x[0][1]):  # 마감일 기준 정렬
+	for (start_dt, end_dt), tasks in sorted(period_groups.items(), key=lambda x: x[0][0]):  # 시작일 기준 정렬
 		items = []
 		for task_name, total_workload in sorted(tasks.items()):
 			items.append({
