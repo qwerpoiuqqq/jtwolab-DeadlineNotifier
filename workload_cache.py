@@ -60,9 +60,18 @@ class WorkloadCache:
         
         try:
             kst = pytz.timezone('Asia/Seoul')
-            expires_at = datetime.fromisoformat(self.cache_data["cache_expires_at"])
+            expires_at_str = self.cache_data["cache_expires_at"]
+            expires_at = datetime.fromisoformat(expires_at_str)
+            
+            # timezone-aware로 변환
+            if expires_at.tzinfo is None:
+                expires_at = kst.localize(expires_at)
+            
             now_kst = datetime.now(kst)
-            return now_kst < expires_at
+            
+            is_valid = now_kst < expires_at
+            logger.info(f"Cache validation: now={now_kst.strftime('%Y-%m-%d %H:%M')}, expires={expires_at.strftime('%Y-%m-%d %H:%M')}, valid={is_valid}")
+            return is_valid
         except Exception as e:
             logger.error(f"Cache validation error: {e}")
             return False
