@@ -57,6 +57,13 @@ def parse_date_flexible(date_str: str):
 			year = date.today().year
 			return date(year, int(month), int(day))
 		
+		# M-D 또는 MM-DD 형식 (예: 8-1, 10-24) - 현재 연도 기준
+		match = re.match(r"^(\d{1,2})-(\d{1,2})$", date_str)
+		if match:
+			month, day = match.groups()
+			year = date.today().year
+			return date(year, int(month), int(day))
+		
 		# YYYY/MM/DD 형식
 		match = re.match(r"^(\d{4})/(\d{1,2})/(\d{1,2})$", date_str)
 		if match:
