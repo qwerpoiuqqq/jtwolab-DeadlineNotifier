@@ -195,12 +195,10 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 				if len(all_items) < 5:
 					logger.info(f"  ✓ 파싱: '{start_date_str}' → {start_date}")
 					logger.info(f"     마감일: {end_date.strftime('%Y-%m-%d')} (오늘={today}, remain={remain}일)")
-			
-			# 작업 시작일이 없으면 마감일 기준 2주 전으로 추정
-			if not start_date:
-				start_date = end_date - timedelta(days=14)
+			else:
+				# 작업 시작일이 없으면 None으로 유지 (추정하지 않음)
 				if len(all_items) < 5:
-					logger.info(f"  ○ {bizname}/{product}: 시작일(추정)={start_date.strftime('%Y-%m-%d')}, 마감일={end_date.strftime('%Y-%m-%d')} (remain={remain}일)")
+					logger.info(f"  ○ {bizname}/{product}: 시작일(없음), 마감일={end_date.strftime('%Y-%m-%d')} (remain={remain}일)")
 			
 			# 작업명 생성
 			is_review_tab = _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰")
@@ -267,13 +265,14 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 	
 	logger.info(f"  📅 오늘: {today}, 4주 전: {four_weeks_ago}")
 	
-	# 시작일이 4주 이내인 작업만 포함
+	# 시작일이 4주 이내인 작업만 포함 (시작일이 없으면 마감일로 판단)
 	filtered_items = [
 		item for item in raw_items 
-		if item["start_date"] >= four_weeks_ago
+		if (item["start_date"] is not None and item["start_date"] >= four_weeks_ago) or
+		   (item["start_date"] is None and item["end_date"] >= today)
 	]
 	
-	logger.info(f"  📊 필터 결과: {len(raw_items)}개 → {len(filtered_items)}개 (시작일 {four_weeks_ago.strftime('%m/%d')} 이후)")
+	logger.info(f"  📊 필터 결과: {len(raw_items)}개 → {len(filtered_items)}개 (시작일 {four_weeks_ago.strftime('%m/%d')} 이후 또는 시작일 미정)")
 	
 	# 기간별 그룹핑 (같은 시작일-마감일을 가진 작업들을 묶음)
 	period_groups = {}
@@ -288,19 +287,22 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 			unique_periods[key].append(f"{item['task_display']}:{item.get('workload', 0)}")
 		
 		logger.info(f"  🔍 {business_name} 고유 기간: {len(unique_periods)}개")
-		for (s, e), tasks in sorted(unique_periods.items())[:10]:
-			logger.info(f"    [{s.strftime('%m/%d')} ~ {e.strftime('%m/%d')}] {len(tasks)}개 작업")
+		# None 처리하여 정렬 (None은 맨 뒤로)
+		sorted_periods = sorted(unique_periods.items(), key=lambda x: (x[0][0] is None, x[0][0] if x[0][0] else date.max, x[0][1]))
+		for (s, e), tasks in sorted_periods[:10]:
+			s_str = s.strftime('%m/%d') if s else "미정"
+			logger.info(f"    [{s_str} ~ {e.strftime('%m/%d')}] {len(tasks)}개 작업")
 	
 	for item in filtered_items:
-		start_dt = item["start_date"]
+		start_dt = item["start_date"]  # None 가능
 		end_dt = item["end_date"]
 		
-		# 날짜 검증 (이제는 발생하지 않아야 함)
-		if start_dt > end_dt:
+		# 날짜 검증 (시작일이 있는 경우만)
+		if start_dt is not None and start_dt > end_dt:
 			logger.error(f"❌ {item['bizname']}: 시작일({start_dt}) > 마감일({end_dt}) - 논리 오류!")
 			continue  # 잘못된 데이터는 제외
 		
-		# 같은 기간(시작일-마감일)끼리 그룹핑
+		# 같은 기간(시작일-마감일)끼리 그룹핑 (시작일 None도 허용)
 		key = (start_dt, end_dt)
 		if key not in period_groups:
 			period_groups[key] = {}
@@ -318,9 +320,11 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 		else:
 			period_groups[key][task_name] = wl_num
 	
-	# 스케줄 포맷팅 (시작일 기준 정렬 - 오래된 것부터)
+	# 스케줄 포맷팅 (시작일 기준 정렬 - 오래된 것부터, None은 맨 뒤)
 	weeks = []
-	for (start_dt, end_dt), tasks in sorted(period_groups.items(), key=lambda x: x[0][0]):  # 시작일 기준 정렬
+	sorted_groups = sorted(period_groups.items(), key=lambda x: (x[0][0] is None, x[0][0] if x[0][0] else date.max, x[0][1]))
+	
+	for (start_dt, end_dt), tasks in sorted_groups:
 		items = []
 		for task_name, total_workload in sorted(tasks.items()):
 			items.append({
@@ -329,7 +333,7 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 			})
 		
 		weeks.append({
-			"start_date": start_dt.strftime("%m/%d"),
+			"start_date": start_dt.strftime("%m/%d") if start_dt else "",
 			"end_date": end_dt.strftime("%m/%d"),
 			"items": items
 		})
