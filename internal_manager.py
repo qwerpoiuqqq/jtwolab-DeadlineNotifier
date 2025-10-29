@@ -277,6 +277,20 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 	
 	# 기간별 그룹핑 (같은 시작일-마감일을 가진 작업들을 묶음)
 	period_groups = {}
+	
+	# 디버깅: 각 고유 기간 확인
+	if business_name and len(filtered_items) > 0:
+		unique_periods = {}
+		for item in filtered_items:
+			key = (item["start_date"], item["end_date"])
+			if key not in unique_periods:
+				unique_periods[key] = []
+			unique_periods[key].append(f"{item['task_display']}:{item.get('workload', 0)}")
+		
+		logger.info(f"  🔍 {business_name} 고유 기간: {len(unique_periods)}개")
+		for (s, e), tasks in sorted(unique_periods.items())[:10]:
+			logger.info(f"    [{s.strftime('%m/%d')} ~ {e.strftime('%m/%d')}] {len(tasks)}개 작업")
+	
 	for item in filtered_items:
 		start_dt = item["start_date"]
 		end_dt = item["end_date"]
