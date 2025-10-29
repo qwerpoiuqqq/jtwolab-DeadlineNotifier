@@ -312,7 +312,7 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 		except:
 			wl_num = 0
 		
-		# 같은 작업명이면 작업량 합산
+		# 같은 기간 내에서 같은 작업명은 합산
 		if task_name in period_groups[key]:
 			period_groups[key][task_name] += wl_num
 		else:
