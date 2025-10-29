@@ -154,15 +154,16 @@ class WorkloadCache:
             kst = pytz.timezone('Asia/Seoul')
             now = datetime.now(kst)
             
-            # 다음날 11:30까지 유효
-            tomorrow = now + timedelta(days=1)
-            expires_at = tomorrow.replace(hour=11, minute=30, second=0, microsecond=0)
-            
-            # 이미 오늘 11:30이 지났다면, 내일 11:30
-            if now.hour >= 11 and now.minute >= 30:
-                expires_at = (now + timedelta(days=1)).replace(hour=11, minute=30, second=0, microsecond=0)
-            else:
+            # 만료 시간 설정: 다음 11:30
+            if now.hour < 11 or (now.hour == 11 and now.minute < 30):
+                # 오늘 11:30 이전이면 오늘 11:30
                 expires_at = now.replace(hour=11, minute=30, second=0, microsecond=0)
+            else:
+                # 오늘 11:30 이후면 내일 11:30
+                tomorrow = now.date() + timedelta(days=1)
+                expires_at = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 11, 30, 0, tzinfo=kst)
+            
+            logger.info(f"Cache expiry set: now={now.strftime('%Y-%m-%d %H:%M')}, expires={expires_at.strftime('%Y-%m-%d %H:%M')}")
             
             self.cache_data = {
                 "updated_at": now.isoformat(),
