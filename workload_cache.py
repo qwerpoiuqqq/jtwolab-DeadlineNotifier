@@ -4,6 +4,7 @@
 """
 import os
 import json
+import pytz
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Any
 import logging
@@ -58,8 +59,10 @@ class WorkloadCache:
             return False
         
         try:
+            kst = pytz.timezone('Asia/Seoul')
             expires_at = datetime.fromisoformat(self.cache_data["cache_expires_at"])
-            return datetime.now() < expires_at
+            now_kst = datetime.now(kst)
+            return now_kst < expires_at
         except Exception as e:
             logger.error(f"Cache validation error: {e}")
             return False
@@ -138,7 +141,9 @@ class WorkloadCache:
             성공 여부
         """
         try:
-            now = datetime.now()
+            # 한국 시간 기준
+            kst = pytz.timezone('Asia/Seoul')
+            now = datetime.now(kst)
             
             # 다음날 11:30까지 유효
             tomorrow = now + timedelta(days=1)
