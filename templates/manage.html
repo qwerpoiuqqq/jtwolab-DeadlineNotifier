@@ -940,7 +940,11 @@
       // 텍스트 형식으로 변환 (같은 기간의 작업들을 함께)
       const lines = [];
       currentWorkloadData.weeks.forEach(week => {
-        lines.push(`${week.start_date} ~ ${week.end_date}`);
+        // 시작일이 없으면 "~ 마감일" 형식으로
+        const dateRange = week.start_date 
+          ? `${week.start_date} ~ ${week.end_date}`
+          : `~ ${week.end_date}`;
+        lines.push(dateRange);
         week.items.forEach(item => {
           lines.push(`${item.name} : ${item.workload}`);
         });
@@ -987,10 +991,15 @@
           `<div style="padding-left:0; color:var(--text); line-height:1.8;">${item.name} : ${item.workload}</div>`
         ).join('');
         
+        // 시작일이 없으면 "~ 마감일" 형식으로 표시
+        const dateRange = week.start_date 
+          ? `${week.start_date} ~ ${week.end_date}`
+          : `~ ${week.end_date}`;
+        
         return `
           <div style="margin-bottom:20px; font-size:14px;">
             <div style="font-weight:700; font-size:15px; color:var(--primary); margin-bottom:8px;">
-              ${week.start_date} ~ ${week.end_date}
+              ${dateRange}
             </div>
             ${itemsText}
           </div>
