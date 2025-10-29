@@ -126,11 +126,23 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 	logger.info(f"📊 {company} raw 데이터 조회 - 워크시트: {len(ws_list)}개")
 	logger.info(f"   탭 목록: {', '.join(tab_titles)}")
 	
-	for ws in ws_list:
+	# 워크시트별 처리 통계
+	tab_stats = {}
+	
+	for idx, ws in enumerate(ws_list, 1):
 		tab_title = (ws.title or "").strip()
-		header_row, headers = _find_header_row(ws, settings)
-		records = _build_records(ws, header_row, headers)
-		logger.debug(f"   [{tab_title}] {len(records)}개 행")
+		logger.info(f"   [{idx}/{len(ws_list)}] 처리 중: {tab_title}")
+		
+		try:
+			header_row, headers = _find_header_row(ws, settings)
+			records = _build_records(ws, header_row, headers)
+			logger.info(f"      ✓ {len(records)}개 행 읽음")
+			
+			tab_stats[tab_title] = {"total_rows": len(records), "internal_count": 0, "company_match": 0}
+		except Exception as e:
+			logger.error(f"      ❌ 탭 읽기 실패: {e}")
+			tab_stats[tab_title] = {"error": str(e)}
+			continue
 		
 		for row in records:
 			row_norm = { _normalize_key(k): v for k, v in row.items() }
@@ -139,6 +151,8 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
 			if not is_internal:
 				continue
+			
+			tab_stats[tab_title]["internal_count"] += 1
 			
 			# 기본 정보
 			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
@@ -155,6 +169,8 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 			if company_business_names is not None:
 				if bizname not in company_business_names:
 					continue
+			
+			tab_stats[tab_title]["company_match"] += 1
 			
 			# 마감일 계산: 오늘 + 남은일수(-O)
 			if remain is None:
@@ -210,6 +226,14 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 			})
 	
 	logger.info(f"✅ {company} raw 데이터: {len(all_items)}개")
+	
+	# 워크시트별 통계 출력
+	logger.info(f"📋 워크시트별 상세 통계:")
+	for tab_title, stats in tab_stats.items():
+		if "error" in stats:
+			logger.error(f"   ❌ {tab_title}: {stats['error']}")
+		else:
+			logger.info(f"   ✓ {tab_title}: 전체 {stats['total_rows']}행 → 내부진행 {stats['internal_count']}건 → {company} 매칭 {stats['company_match']}건")
 	
 	# 중복 제거 없음! 각 행을 그대로 유지
 	# 같은 작업이라도 시작일-마감일이 다르면 별도로 표시
