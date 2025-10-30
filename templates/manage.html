@@ -217,19 +217,18 @@
           </div>
           <div class="card stat-card" style="border-left:4px solid var(--warning); cursor:pointer;" onclick="toggleDeadlineDetails()">
             <div class="stat-icon">⏰</div>
-            <div class="stat-label">마감 임박</div>
-            <div style="display:flex; gap:16px; align-items:center; margin-top:12px;">
-              <div style="flex:1; text-align:center;">
-                <div style="font-size:11px; color:var(--muted); margin-bottom:4px;">5일전</div>
-                <div style="font-size:20px; font-weight:700; color:var(--primary);" id="stat-deadline-5d">0</div>
+            <div class="stat-label">마감 5일 이내</div>
+            <div class="stat-value" style="color:var(--warning);" id="stat-deadline-total">0</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5;">
+              <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                <span>오늘: <strong id="stat-deadline-0">0</strong></span>
+                <span>1일: <strong id="stat-deadline-1">0</strong></span>
+                <span>2일: <strong id="stat-deadline-2">0</strong></span>
               </div>
-              <div style="flex:1; text-align:center;">
-                <div style="font-size:11px; color:var(--muted); margin-bottom:4px;">3일전</div>
-                <div style="font-size:20px; font-weight:700; color:var(--warning);" id="stat-deadline-3d">0</div>
-              </div>
-              <div style="flex:1; text-align:center;">
-                <div style="font-size:11px; color:var(--muted); margin-bottom:4px;">오늘</div>
-                <div style="font-size:20px; font-weight:700; color:var(--danger);" id="stat-deadline-today">0</div>
+              <div style="display:flex; justify-content:space-between;">
+                <span>3일: <strong id="stat-deadline-3">0</strong></span>
+                <span>4일: <strong id="stat-deadline-4">0</strong></span>
+                <span>5일: <strong id="stat-deadline-5">0</strong></span>
               </div>
             </div>
           </div>
@@ -659,9 +658,16 @@
         const data = await res.json();
         
         // 통계 업데이트
-        document.getElementById('stat-deadline-today').textContent = data.expiring_today?.length || 0;
-        document.getElementById('stat-deadline-3d').textContent = data.expiring_in_3_days?.length || 0;
-        document.getElementById('stat-deadline-5d').textContent = data.expiring_in_5_days?.length || 0;
+        document.getElementById('stat-deadline-total').textContent = data.total || 0;
+        
+        // 일별 통계 업데이트
+        const byDays = data.items_by_days_remaining || {};
+        for (let i = 0; i <= 5; i++) {
+          const el = document.getElementById(`stat-deadline-${i}`);
+          if (el) {
+            el.textContent = (byDays[i] || []).length;
+          }
+        }
         
       } catch (e) {
         console.error('Deadline status error:', e);
@@ -761,38 +767,40 @@
             <div class="empty-state">
               <div class="empty-icon">✅</div>
               <div class="empty-title">마감 임박 건이 없습니다</div>
-              <div class="empty-desc">모든 업체가 안정적으로 진행중입니다</div>
+              <div class="empty-desc">5일 이내 마감되는 업체가 없습니다</div>
             </div>
           `;
           return;
         }
         
+        const byDays = data.items_by_days_remaining || {};
         let html = '';
         
-        if (data.expiring_today && data.expiring_today.length > 0) {
-          html += `<div style="margin-bottom:16px;">
-            <h4 style="color:var(--danger); font-size:15px; font-weight:600; margin-bottom:10px;">🔴 오늘 (${data.expiring_today.length}건)</h4>
-            <div style="display:grid; gap:6px;">`;
-          data.expiring_today.forEach(item => {
-            html += `
-              <div style="padding:10px; background:#fee2e2; border-radius:6px; border:1px solid var(--danger);">
-                <div style="font-weight:600; font-size:14px; margin-bottom:2px;">${item.business_name}</div>
-                <div style="font-size:12px; color:var(--muted);">
-                  ${item.main_keyword || '-'}
-                </div>
-              </div>
-            `;
-          });
-          html += '</div></div>';
-        }
+        // 남은 일수별 색상 및 아이콘 매핑
+        const dayConfig = {
+          0: { icon: '🔴', label: '오늘 만료', bg: '#fee2e2', border: 'var(--danger)', color: 'var(--danger)' },
+          1: { icon: '🟠', label: '1일 남음', bg: '#ffedd5', border: '#fb923c', color: '#ea580c' },
+          2: { icon: '🟡', label: '2일 남음', bg: '#fef3c7', border: 'var(--warning)', color: 'var(--warning)' },
+          3: { icon: '🟢', label: '3일 남음', bg: '#d1fae5', border: '#10b981', color: '#059669' },
+          4: { icon: '🔵', label: '4일 남음', bg: '#dbeafe', border: 'var(--primary)', color: 'var(--primary)' },
+          5: { icon: '⚪', label: '5일 남음', bg: '#e0e7ff', border: '#6366f1', color: '#4f46e5' }
+        };
         
-        if (data.expiring_in_3_days && data.expiring_in_3_days.length > 0) {
+        // 0일부터 5일까지 순서대로 표시
+        for (let i = 0; i <= 5; i++) {
+          const items = byDays[i] || [];
+          if (items.length === 0) continue;
+          
+          const config = dayConfig[i];
           html += `<div style="margin-bottom:16px;">
-            <h4 style="color:var(--warning); font-size:15px; font-weight:600; margin-bottom:10px;">🟡 3일 후 (${data.expiring_in_3_days.length}건)</h4>
+            <h4 style="color:${config.color}; font-size:15px; font-weight:600; margin-bottom:10px;">
+              ${config.icon} ${config.label} (${items.length}건)
+            </h4>
             <div style="display:grid; gap:6px;">`;
-          data.expiring_in_3_days.forEach(item => {
+          
+          items.forEach(item => {
             html += `
-              <div style="padding:10px; background:#fef3c7; border-radius:6px; border:1px solid var(--warning);">
+              <div style="padding:10px; background:${config.bg}; border-radius:6px; border:1px solid ${config.border};">
                 <div style="font-weight:600; font-size:14px; margin-bottom:2px;">${item.business_name}</div>
                 <div style="font-size:12px; color:var(--muted);">
                   ${item.main_keyword || '-'}
@@ -800,23 +808,7 @@
               </div>
             `;
           });
-          html += '</div></div>';
-        }
-        
-        if (data.expiring_in_5_days && data.expiring_in_5_days.length > 0) {
-          html += `<div>
-            <h4 style="color:var(--primary); font-size:15px; font-weight:600; margin-bottom:10px;">🔵 5일 후 (${data.expiring_in_5_days.length}건)</h4>
-            <div style="display:grid; gap:6px;">`;
-          data.expiring_in_5_days.forEach(item => {
-            html += `
-              <div style="padding:10px; background:#dbeafe; border-radius:6px; border:1px solid var(--primary);">
-                <div style="font-weight:600; font-size:14px; margin-bottom:2px;">${item.business_name}</div>
-                <div style="font-size:12px; color:var(--muted);">
-                  ${item.main_keyword || '-'}
-                </div>
-              </div>
-            `;
-          });
+          
           html += '</div></div>';
         }
         
