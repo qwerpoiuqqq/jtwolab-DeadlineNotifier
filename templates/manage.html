@@ -202,25 +202,36 @@
             <div class="stat-value" id="stat-working">0</div>
             <div class="stat-change muted" style="font-size:11px;">진행중 + 후불</div>
           </div>
-          <div class="card stat-card" style="border-left:4px solid var(--success);">
-            <div class="stat-icon">✅</div>
-            <div class="stat-label">실시간 노출</div>
-            <div class="stat-value" style="color:var(--success);" id="stat-exposed">0</div>
-            <div class="stat-change" id="stat-exposed-change"></div>
+          <div class="card stat-card" style="border-left:4px solid var(--success); cursor:pointer;" onclick="toggleExposureDetails()">
+            <div class="stat-icon">📊</div>
+            <div class="stat-label">실시간 노출 현황</div>
+            <div style="display:flex; gap:12px; align-items:baseline; margin-top:8px;">
+              <div style="flex:1;">
+                <div style="font-size:14px; color:var(--success); font-weight:600;">노출 <span id="stat-exposed">0</span></div>
               </div>
-          <div class="card stat-card" style="border-left:4px solid var(--danger);">
-            <div class="stat-icon">⚠️</div>
-            <div class="stat-label">실시간 미노출</div>
-            <div class="stat-value" style="color:var(--danger);" id="stat-not-exposed">0</div>
-            <div class="stat-change" id="stat-not-exposed-change"></div>
+              <div style="flex:1;">
+                <div style="font-size:14px; color:var(--danger); font-weight:600;">미노출 <span id="stat-not-exposed">0</span></div>
+              </div>
             </div>
+            <div class="stat-change muted" style="font-size:11px; margin-top:8px;">클릭하여 상세보기</div>
+          </div>
+          <div class="card stat-card" style="border-left:4px solid var(--warning); cursor:pointer;" onclick="toggleDeadlineDetails()">
+            <div class="stat-icon">⏰</div>
+            <div class="stat-label">마감 임박</div>
+            <div class="stat-value" style="color:var(--warning);" id="stat-deadline-total">0</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:4px;">
+              오늘: <span id="stat-deadline-today">0</span> | 
+              3일: <span id="stat-deadline-3d">0</span> | 
+              5일: <span id="stat-deadline-5d">0</span>
+            </div>
+          </div>
           <div class="card stat-card" style="border-left:4px solid #8b5cf6;">
             <div class="stat-icon">💳</div>
             <div class="stat-label">후불 진행건</div>
             <div class="stat-value" style="color:#8b5cf6;" id="stat-postpaid">0</div>
           </div>
-          </div>
         </div>
+      </div>
         
       <!-- 회사별 현황 -->
       <div class="section">
@@ -441,6 +452,48 @@
     </div>
   </div>
 
+  <!-- 노출 현황 상세 모달 -->
+  <div class="modal" id="exposure-modal">
+    <div class="modal-content" style="max-width:800px;">
+      <div class="modal-header">
+        <h3 class="modal-title">📊 실시간 노출 현황 상세</h3>
+        <button class="btn btn-sm btn-secondary" onclick="closeExposureModal()">✕</button>
+      </div>
+      <div class="modal-body" style="padding:32px; background:var(--bg);">
+        <div id="exposure-details-content">
+          <div style="text-align:center; padding:40px; color:var(--muted);">
+            <div class="loading" style="margin:0 auto 16px;"></div>
+            <div>데이터를 불러오는 중...</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeExposureModal()">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 마감 임박 상세 모달 -->
+  <div class="modal" id="deadline-modal">
+    <div class="modal-content" style="max-width:700px;">
+      <div class="modal-header">
+        <h3 class="modal-title">⏰ 마감 임박 현황 상세</h3>
+        <button class="btn btn-sm btn-secondary" onclick="closeDeadlineModal()">✕</button>
+      </div>
+      <div class="modal-body" style="padding:32px; background:var(--bg);">
+        <div id="deadline-details-content">
+          <div style="text-align:center; padding:40px; color:var(--muted);">
+            <div class="loading" style="margin:0 auto 16px;"></div>
+            <div>데이터를 불러오는 중...</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeDeadlineModal()">닫기</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
@@ -539,6 +592,7 @@
         // 데이터 재로드
         loadData();
         updateExposureStatus();
+        updateDeadlineStatus();
         loadBusinessWorkloads();  // 업체별 작업량도 재로드
       });
     });
@@ -588,6 +642,194 @@
       } catch (e) {
         console.error('Exposure status error:', e);
       }
+    }
+    
+    // 마감 임박 현황 로드
+    async function updateDeadlineStatus() {
+      try {
+        const res = await fetch(`/api/guarantee/deadline-status?company=${encodeURIComponent(currentCompany)}`);
+        const data = await res.json();
+        
+        // 통계 업데이트
+        document.getElementById('stat-deadline-total').textContent = data.total || 0;
+        document.getElementById('stat-deadline-today').textContent = data.expiring_today?.length || 0;
+        document.getElementById('stat-deadline-3d').textContent = data.expiring_in_3_days?.length || 0;
+        document.getElementById('stat-deadline-5d').textContent = data.expiring_in_5_days?.length || 0;
+        
+      } catch (e) {
+        console.error('Deadline status error:', e);
+      }
+    }
+    
+    // 노출 현황 상세 모달
+    async function toggleExposureDetails() {
+      const modal = document.getElementById('exposure-modal');
+      const content = document.getElementById('exposure-details-content');
+      modal.classList.add('show');
+      
+      try {
+        const res = await fetch(`/api/guarantee/exposure-status?company=${encodeURIComponent(currentCompany)}`);
+        const data = await res.json();
+        
+        if (!data.exposure_details || data.exposure_details.length === 0) {
+          content.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">📭</div>
+              <div class="empty-title">데이터가 없습니다</div>
+              <div class="empty-desc">진행중인 업체가 없습니다</div>
+            </div>
+          `;
+          return;
+        }
+        
+        // 노출/미노출 구분
+        const exposed = data.exposure_details.filter(d => d.is_exposed);
+        const notExposed = data.exposure_details.filter(d => !d.is_exposed);
+        
+        let html = '';
+        
+        if (exposed.length > 0) {
+          html += `<div style="margin-bottom:24px;">
+            <h4 style="color:var(--success); font-size:16px; font-weight:600; margin-bottom:12px;">✅ 노출 중 (${exposed.length}건)</h4>
+            <div style="display:grid; gap:8px;">`;
+          exposed.forEach(item => {
+            html += `
+              <div style="padding:12px; background:var(--card-bg); border-radius:8px; border:1px solid var(--line);">
+                <div style="font-weight:600; margin-bottom:4px;">${item.business_name}</div>
+                <div style="font-size:13px; color:var(--muted);">
+                  순위: <strong style="color:var(--success);">${item.current_rank || '-'}위</strong>
+                  ${item.latest_date ? ` | ${item.latest_date}` : ''}
+                </div>
+              </div>
+            `;
+          });
+          html += '</div></div>';
+        }
+        
+        if (notExposed.length > 0) {
+          html += `<div>
+            <h4 style="color:var(--danger); font-size:16px; font-weight:600; margin-bottom:12px;">⚠️ 미노출 (${notExposed.length}건)</h4>
+            <div style="display:grid; gap:8px;">`;
+          notExposed.forEach(item => {
+            html += `
+              <div style="padding:12px; background:var(--card-bg); border-radius:8px; border:1px solid var(--line);">
+                <div style="font-weight:600; margin-bottom:4px;">${item.business_name}</div>
+                <div style="font-size:13px; color:var(--muted);">
+                  순위: <strong>${item.current_rank || '-'}위</strong>
+                  ${item.latest_date ? ` | ${item.latest_date}` : ''}
+                </div>
+              </div>
+            `;
+          });
+          html += '</div></div>';
+        }
+        
+        content.innerHTML = html;
+      } catch (e) {
+        console.error('Error loading exposure details:', e);
+        content.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">⚠️</div>
+            <div class="empty-title">오류 발생</div>
+            <div class="empty-desc">${e.message}</div>
+          </div>
+        `;
+      }
+    }
+    
+    function closeExposureModal() {
+      document.getElementById('exposure-modal').classList.remove('show');
+    }
+    
+    // 마감 임박 상세 모달
+    async function toggleDeadlineDetails() {
+      const modal = document.getElementById('deadline-modal');
+      const content = document.getElementById('deadline-details-content');
+      modal.classList.add('show');
+      
+      try {
+        const res = await fetch(`/api/guarantee/deadline-status?company=${encodeURIComponent(currentCompany)}`);
+        const data = await res.json();
+        
+        if (data.total === 0) {
+          content.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">✅</div>
+              <div class="empty-title">마감 임박 건이 없습니다</div>
+              <div class="empty-desc">모든 업체가 안정적으로 진행중입니다</div>
+            </div>
+          `;
+          return;
+        }
+        
+        let html = '';
+        
+        if (data.expiring_today && data.expiring_today.length > 0) {
+          html += `<div style="margin-bottom:24px;">
+            <h4 style="color:var(--danger); font-size:16px; font-weight:600; margin-bottom:12px;">🔴 오늘 만료 (${data.expiring_today.length}건)</h4>
+            <div style="display:grid; gap:8px;">`;
+          data.expiring_today.forEach(item => {
+            html += `
+              <div style="padding:12px; background:#fee2e2; border-radius:8px; border:1px solid var(--danger);">
+                <div style="font-weight:600; margin-bottom:4px;">${item.business_name}</div>
+                <div style="font-size:13px; color:var(--muted);">
+                  ${item.main_keyword || '-'} | 마감일: ${item.deadline_date}
+                </div>
+              </div>
+            `;
+          });
+          html += '</div></div>';
+        }
+        
+        if (data.expiring_in_3_days && data.expiring_in_3_days.length > 0) {
+          html += `<div style="margin-bottom:24px;">
+            <h4 style="color:var(--warning); font-size:16px; font-weight:600; margin-bottom:12px;">🟡 3일 후 만료 (${data.expiring_in_3_days.length}건)</h4>
+            <div style="display:grid; gap:8px;">`;
+          data.expiring_in_3_days.forEach(item => {
+            html += `
+              <div style="padding:12px; background:#fef3c7; border-radius:8px; border:1px solid var(--warning);">
+                <div style="font-weight:600; margin-bottom:4px;">${item.business_name}</div>
+                <div style="font-size:13px; color:var(--muted);">
+                  ${item.main_keyword || '-'} | 마감일: ${item.deadline_date}
+                </div>
+              </div>
+            `;
+          });
+          html += '</div></div>';
+        }
+        
+        if (data.expiring_in_5_days && data.expiring_in_5_days.length > 0) {
+          html += `<div>
+            <h4 style="color:var(--primary); font-size:16px; font-weight:600; margin-bottom:12px;">🔵 5일 후 만료 (${data.expiring_in_5_days.length}건)</h4>
+            <div style="display:grid; gap:8px;">`;
+          data.expiring_in_5_days.forEach(item => {
+            html += `
+              <div style="padding:12px; background:#dbeafe; border-radius:8px; border:1px solid var(--primary);">
+                <div style="font-weight:600; margin-bottom:4px;">${item.business_name}</div>
+                <div style="font-size:13px; color:var(--muted);">
+                  ${item.main_keyword || '-'} | 마감일: ${item.deadline_date}
+                </div>
+              </div>
+            `;
+          });
+          html += '</div></div>';
+        }
+        
+        content.innerHTML = html;
+      } catch (e) {
+        console.error('Error loading deadline details:', e);
+        content.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">⚠️</div>
+            <div class="empty-title">오류 발생</div>
+            <div class="empty-desc">${e.message}</div>
+          </div>
+        `;
+      }
+    }
+    
+    function closeDeadlineModal() {
+      document.getElementById('deadline-modal').classList.remove('show');
     }
 
     // 데이터 로드
@@ -812,6 +1054,7 @@
           showToast(data.message || '동기화 완료');
           loadData();
           updateExposureStatus();
+          updateDeadlineStatus();
           updateSyncStatus();
           } else {
           showToast('동기화 실패: ' + (data.error || '알 수 없는 오류'));
@@ -924,6 +1167,7 @@
           closeModal();
           loadData();
           updateExposureStatus();
+          updateDeadlineStatus();
         }
       } catch (e) {
         showToast('저장 실패');
@@ -1133,6 +1377,7 @@
     // 초기 로드
     loadData();
     updateExposureStatus();
+    updateDeadlineStatus();
     updateSyncStatus();
     loadBusinessWorkloads();  // 업체별 작업량 미리 로드
     </script>
