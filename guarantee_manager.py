@@ -301,13 +301,11 @@ class GuaranteeManager:
             
         Returns:
             {
-                "expiring_today": [...],  # 오늘 만료
-                "expiring_in_3_days": [...],  # 3일 후 만료
-                "expiring_in_5_days": [...],  # 5일 후 만료
+                "expiring_today": [...],  # 오늘 만료 (25일 데이터 확인)
+                "expiring_in_3_days": [...],  # 3일 후 만료 (22일 데이터 확인)
+                "expiring_in_5_days": [...],  # 5일 후 만료 (20일 데이터 확인)
             }
         """
-        from datetime import date, timedelta
-        
         items = self.get_items()
         if company:
             items = [i for i in items if i.get("company") == company]
@@ -315,37 +313,42 @@ class GuaranteeManager:
         # 진행중 또는 후불만
         items = [i for i in items if i.get("status") in ["진행중", "후불"]]
         
-        today = date.today()
         expiring_today = []
         expiring_in_3_days = []
         expiring_in_5_days = []
         
         for item in items:
-            work_start_date = item.get("work_start_date")
-            if not work_start_date:
+            daily_ranks = item.get("daily_ranks", {})
+            if not daily_ranks:
                 continue
             
-            try:
-                start_date = date.fromisoformat(work_start_date)
-                # 25일차가 마감일 (시작일 포함하여 25일)
-                deadline_date = start_date + timedelta(days=24)
-                days_until_deadline = (deadline_date - today).days
-                
-                item_info = {
-                    "business_name": item.get("business_name"),
-                    "main_keyword": item.get("main_keyword"),
-                    "deadline_date": deadline_date.isoformat(),
-                    "days_remaining": days_until_deadline
-                }
-                
-                if days_until_deadline == 0:
-                    expiring_today.append(item_info)
-                elif days_until_deadline == 3:
-                    expiring_in_3_days.append(item_info)
-                elif days_until_deadline == 5:
-                    expiring_in_5_days.append(item_info)
-            except:
+            # 최대 일차 찾기
+            max_day = 0
+            for day_str in daily_ranks.keys():
+                try:
+                    day_num = int(day_str)
+                    if day_num > max_day:
+                        max_day = day_num
+                except:
+                    continue
+            
+            if max_day == 0:
                 continue
+            
+            item_info = {
+                "business_name": item.get("business_name"),
+                "main_keyword": item.get("main_keyword"),
+                "current_day": max_day,
+                "days_remaining": 25 - max_day
+            }
+            
+            # 20일차 = 5일 남음, 22일차 = 3일 남음, 25일차 = 0일 남음
+            if max_day == 25:
+                expiring_today.append(item_info)
+            elif max_day == 22:
+                expiring_in_3_days.append(item_info)
+            elif max_day == 20:
+                expiring_in_5_days.append(item_info)
         
         return {
             "expiring_today": expiring_today,
