@@ -737,6 +737,19 @@ def create_app() -> Flask:
 			logger.error(f"Exposure status error: {e}")
 			return jsonify({"error": str(e)}), 500
 	
+	@app.route("/api/guarantee/deadline-status", methods=["GET"])
+	def api_deadline_status():
+		"""마감 임박 현황 조회"""
+		company = request.args.get("company")  # 제이투랩, 일류기획
+		
+		try:
+			gm = GuaranteeManager()
+			status = gm.get_deadline_status(company)
+			return jsonify(status), 200
+		except Exception as e:
+			logger.error(f"Deadline status error: {e}")
+			return jsonify({"error": str(e)}), 500
+	
 	@app.route("/api/guarantee/security-status", methods=["GET"])
 	def api_security_status():
 		"""데이터 보안 상태 확인 (관리자용)"""
