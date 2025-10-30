@@ -294,16 +294,22 @@ class GuaranteeManager:
         return self.data.get("last_sync")
     
     def get_deadline_status(self, company: str = None) -> Dict:
-        """마감 임박 현황 조회
+        """마감 임박 현황 조회 (오늘부터 5일 이내)
         
         Args:
             company: 회사명 (제이투랩, 일류기획) - None이면 전체
             
         Returns:
             {
-                "expiring_today": [...],  # 오늘 만료 (25일 데이터 확인)
-                "expiring_in_3_days": [...],  # 3일 후 만료 (22일 데이터 확인)
-                "expiring_in_5_days": [...],  # 5일 후 만료 (20일 데이터 확인)
+                "items_by_days_remaining": {
+                    0: [...],  # 오늘 만료 (25일차)
+                    1: [...],  # 1일 남음 (24일차)
+                    2: [...],  # 2일 남음 (23일차)
+                    3: [...],  # 3일 남음 (22일차)
+                    4: [...],  # 4일 남음 (21일차)
+                    5: [...],  # 5일 남음 (20일차)
+                },
+                "total": 총 개수
             }
         """
         items = self.get_items()
@@ -313,9 +319,7 @@ class GuaranteeManager:
         # 진행중 또는 후불만
         items = [i for i in items if i.get("status") in ["진행중", "후불"]]
         
-        expiring_today = []
-        expiring_in_3_days = []
-        expiring_in_5_days = []
+        items_by_days_remaining = {0: [], 1: [], 2: [], 3: [], 4: [], 5: []}
         
         for item in items:
             daily_ranks = item.get("daily_ranks", {})
@@ -335,26 +339,25 @@ class GuaranteeManager:
             if max_day == 0:
                 continue
             
-            item_info = {
-                "business_name": item.get("business_name"),
-                "main_keyword": item.get("main_keyword"),
-                "current_day": max_day,
-                "days_remaining": 25 - max_day
-            }
-            
-            # 20일차 = 5일 남음, 22일차 = 3일 남음, 25일차 = 0일 남음
-            if max_day == 25:
-                expiring_today.append(item_info)
-            elif max_day == 22:
-                expiring_in_3_days.append(item_info)
-            elif max_day == 20:
-                expiring_in_5_days.append(item_info)
+            # 20일차 이상 (5일 이내 마감) 항목만 수집
+            if max_day >= 20 and max_day <= 25:
+                days_remaining = 25 - max_day
+                
+                item_info = {
+                    "business_name": item.get("business_name"),
+                    "main_keyword": item.get("main_keyword"),
+                    "current_day": max_day,
+                    "days_remaining": days_remaining
+                }
+                
+                items_by_days_remaining[days_remaining].append(item_info)
+        
+        # 총 개수 계산
+        total = sum(len(items) for items in items_by_days_remaining.values())
         
         return {
-            "expiring_today": expiring_today,
-            "expiring_in_3_days": expiring_in_3_days,
-            "expiring_in_5_days": expiring_in_5_days,
-            "total": len(expiring_today) + len(expiring_in_3_days) + len(expiring_in_5_days)
+            "items_by_days_remaining": items_by_days_remaining,
+            "total": total
         }
     
     def get_exposure_status(self, company: str = None) -> Dict:
