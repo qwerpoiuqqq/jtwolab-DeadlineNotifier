@@ -218,11 +218,19 @@
           <div class="card stat-card" style="border-left:4px solid var(--warning); cursor:pointer;" onclick="toggleDeadlineDetails()">
             <div class="stat-icon">⏰</div>
             <div class="stat-label">마감 임박</div>
-            <div class="stat-value" style="color:var(--warning);" id="stat-deadline-total">0</div>
-            <div style="font-size:12px; color:var(--muted); margin-top:4px;">
-              오늘: <span id="stat-deadline-today">0</span> | 
-              3일: <span id="stat-deadline-3d">0</span> | 
-              5일: <span id="stat-deadline-5d">0</span>
+            <div style="display:flex; gap:16px; align-items:center; margin-top:12px;">
+              <div style="flex:1; text-align:center;">
+                <div style="font-size:11px; color:var(--muted); margin-bottom:4px;">5일전</div>
+                <div style="font-size:20px; font-weight:700; color:var(--primary);" id="stat-deadline-5d">0</div>
+              </div>
+              <div style="flex:1; text-align:center;">
+                <div style="font-size:11px; color:var(--muted); margin-bottom:4px;">3일전</div>
+                <div style="font-size:20px; font-weight:700; color:var(--warning);" id="stat-deadline-3d">0</div>
+              </div>
+              <div style="flex:1; text-align:center;">
+                <div style="font-size:11px; color:var(--muted); margin-bottom:4px;">오늘</div>
+                <div style="font-size:20px; font-weight:700; color:var(--danger);" id="stat-deadline-today">0</div>
+              </div>
             </div>
           </div>
           <div class="card stat-card" style="border-left:4px solid #8b5cf6;">
@@ -454,12 +462,12 @@
 
   <!-- 노출 현황 상세 모달 -->
   <div class="modal" id="exposure-modal">
-    <div class="modal-content" style="max-width:800px;">
+    <div class="modal-content" style="max-width:600px;">
       <div class="modal-header">
-        <h3 class="modal-title">📊 실시간 노출 현황 상세</h3>
+        <h3 class="modal-title">📊 실시간 노출 현황</h3>
         <button class="btn btn-sm btn-secondary" onclick="closeExposureModal()">✕</button>
       </div>
-      <div class="modal-body" style="padding:32px; background:var(--bg);">
+      <div class="modal-body" style="padding:20px; background:var(--bg); max-height:70vh; overflow-y:auto;">
         <div id="exposure-details-content">
           <div style="text-align:center; padding:40px; color:var(--muted);">
             <div class="loading" style="margin:0 auto 16px;"></div>
@@ -475,12 +483,12 @@
 
   <!-- 마감 임박 상세 모달 -->
   <div class="modal" id="deadline-modal">
-    <div class="modal-content" style="max-width:700px;">
+    <div class="modal-content" style="max-width:500px;">
       <div class="modal-header">
-        <h3 class="modal-title">⏰ 마감 임박 현황 상세</h3>
+        <h3 class="modal-title">⏰ 마감 임박 현황</h3>
         <button class="btn btn-sm btn-secondary" onclick="closeDeadlineModal()">✕</button>
       </div>
-      <div class="modal-body" style="padding:32px; background:var(--bg);">
+      <div class="modal-body" style="padding:20px; background:var(--bg); max-height:70vh; overflow-y:auto;">
         <div id="deadline-details-content">
           <div style="text-align:center; padding:40px; color:var(--muted);">
             <div class="loading" style="margin:0 auto 16px;"></div>
@@ -651,7 +659,6 @@
         const data = await res.json();
         
         // 통계 업데이트
-        document.getElementById('stat-deadline-total').textContent = data.total || 0;
         document.getElementById('stat-deadline-today').textContent = data.expiring_today?.length || 0;
         document.getElementById('stat-deadline-3d').textContent = data.expiring_in_3_days?.length || 0;
         document.getElementById('stat-deadline-5d').textContent = data.expiring_in_5_days?.length || 0;
@@ -689,16 +696,15 @@
         let html = '';
         
         if (exposed.length > 0) {
-          html += `<div style="margin-bottom:24px;">
-            <h4 style="color:var(--success); font-size:16px; font-weight:600; margin-bottom:12px;">✅ 노출 중 (${exposed.length}건)</h4>
-            <div style="display:grid; gap:8px;">`;
+          html += `<div style="margin-bottom:20px;">
+            <h4 style="color:var(--success); font-size:15px; font-weight:600; margin-bottom:10px;">✅ 노출 중 (${exposed.length}건)</h4>
+            <div style="display:grid; gap:6px;">`;
           exposed.forEach(item => {
             html += `
-              <div style="padding:12px; background:var(--card-bg); border-radius:8px; border:1px solid var(--line);">
-                <div style="font-weight:600; margin-bottom:4px;">${item.business_name}</div>
-                <div style="font-size:13px; color:var(--muted);">
-                  순위: <strong style="color:var(--success);">${item.current_rank || '-'}위</strong>
-                  ${item.latest_date ? ` | ${item.latest_date}` : ''}
+              <div style="padding:10px; background:var(--card-bg); border-radius:6px; border:1px solid #d1fae5;">
+                <div style="font-weight:600; font-size:14px; margin-bottom:2px;">${item.business_name}</div>
+                <div style="font-size:12px; color:var(--muted);">
+                  ${item.main_keyword || '-'} | 순위: <strong style="color:var(--success);">${item.current_rank || '-'}위</strong>
                 </div>
               </div>
             `;
@@ -708,15 +714,14 @@
         
         if (notExposed.length > 0) {
           html += `<div>
-            <h4 style="color:var(--danger); font-size:16px; font-weight:600; margin-bottom:12px;">⚠️ 미노출 (${notExposed.length}건)</h4>
-            <div style="display:grid; gap:8px;">`;
+            <h4 style="color:var(--danger); font-size:15px; font-weight:600; margin-bottom:10px;">⚠️ 미노출 (${notExposed.length}건)</h4>
+            <div style="display:grid; gap:6px;">`;
           notExposed.forEach(item => {
             html += `
-              <div style="padding:12px; background:var(--card-bg); border-radius:8px; border:1px solid var(--line);">
-                <div style="font-weight:600; margin-bottom:4px;">${item.business_name}</div>
-                <div style="font-size:13px; color:var(--muted);">
-                  순위: <strong>${item.current_rank || '-'}위</strong>
-                  ${item.latest_date ? ` | ${item.latest_date}` : ''}
+              <div style="padding:10px; background:var(--card-bg); border-radius:6px; border:1px solid #fee2e2;">
+                <div style="font-weight:600; font-size:14px; margin-bottom:2px;">${item.business_name}</div>
+                <div style="font-size:12px; color:var(--muted);">
+                  ${item.main_keyword || '-'} | 순위: <strong>${item.current_rank || '-'}위</strong>
                 </div>
               </div>
             `;
@@ -765,15 +770,15 @@
         let html = '';
         
         if (data.expiring_today && data.expiring_today.length > 0) {
-          html += `<div style="margin-bottom:24px;">
-            <h4 style="color:var(--danger); font-size:16px; font-weight:600; margin-bottom:12px;">🔴 오늘 만료 (${data.expiring_today.length}건)</h4>
-            <div style="display:grid; gap:8px;">`;
+          html += `<div style="margin-bottom:16px;">
+            <h4 style="color:var(--danger); font-size:15px; font-weight:600; margin-bottom:10px;">🔴 오늘 (${data.expiring_today.length}건)</h4>
+            <div style="display:grid; gap:6px;">`;
           data.expiring_today.forEach(item => {
             html += `
-              <div style="padding:12px; background:#fee2e2; border-radius:8px; border:1px solid var(--danger);">
-                <div style="font-weight:600; margin-bottom:4px;">${item.business_name}</div>
-                <div style="font-size:13px; color:var(--muted);">
-                  ${item.main_keyword || '-'} | 마감일: ${item.deadline_date}
+              <div style="padding:10px; background:#fee2e2; border-radius:6px; border:1px solid var(--danger);">
+                <div style="font-weight:600; font-size:14px; margin-bottom:2px;">${item.business_name}</div>
+                <div style="font-size:12px; color:var(--muted);">
+                  ${item.main_keyword || '-'}
                 </div>
               </div>
             `;
@@ -782,15 +787,15 @@
         }
         
         if (data.expiring_in_3_days && data.expiring_in_3_days.length > 0) {
-          html += `<div style="margin-bottom:24px;">
-            <h4 style="color:var(--warning); font-size:16px; font-weight:600; margin-bottom:12px;">🟡 3일 후 만료 (${data.expiring_in_3_days.length}건)</h4>
-            <div style="display:grid; gap:8px;">`;
+          html += `<div style="margin-bottom:16px;">
+            <h4 style="color:var(--warning); font-size:15px; font-weight:600; margin-bottom:10px;">🟡 3일 후 (${data.expiring_in_3_days.length}건)</h4>
+            <div style="display:grid; gap:6px;">`;
           data.expiring_in_3_days.forEach(item => {
             html += `
-              <div style="padding:12px; background:#fef3c7; border-radius:8px; border:1px solid var(--warning);">
-                <div style="font-weight:600; margin-bottom:4px;">${item.business_name}</div>
-                <div style="font-size:13px; color:var(--muted);">
-                  ${item.main_keyword || '-'} | 마감일: ${item.deadline_date}
+              <div style="padding:10px; background:#fef3c7; border-radius:6px; border:1px solid var(--warning);">
+                <div style="font-weight:600; font-size:14px; margin-bottom:2px;">${item.business_name}</div>
+                <div style="font-size:12px; color:var(--muted);">
+                  ${item.main_keyword || '-'}
                 </div>
               </div>
             `;
@@ -800,14 +805,14 @@
         
         if (data.expiring_in_5_days && data.expiring_in_5_days.length > 0) {
           html += `<div>
-            <h4 style="color:var(--primary); font-size:16px; font-weight:600; margin-bottom:12px;">🔵 5일 후 만료 (${data.expiring_in_5_days.length}건)</h4>
-            <div style="display:grid; gap:8px;">`;
+            <h4 style="color:var(--primary); font-size:15px; font-weight:600; margin-bottom:10px;">🔵 5일 후 (${data.expiring_in_5_days.length}건)</h4>
+            <div style="display:grid; gap:6px;">`;
           data.expiring_in_5_days.forEach(item => {
             html += `
-              <div style="padding:12px; background:#dbeafe; border-radius:8px; border:1px solid var(--primary);">
-                <div style="font-weight:600; margin-bottom:4px;">${item.business_name}</div>
-                <div style="font-size:13px; color:var(--muted);">
-                  ${item.main_keyword || '-'} | 마감일: ${item.deadline_date}
+              <div style="padding:10px; background:#dbeafe; border-radius:6px; border:1px solid var(--primary);">
+                <div style="font-weight:600; font-size:14px; margin-bottom:2px;">${item.business_name}</div>
+                <div style="font-size:12px; color:var(--muted);">
+                  ${item.main_keyword || '-'}
                 </div>
               </div>
             `;
