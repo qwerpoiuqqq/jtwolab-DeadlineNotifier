@@ -293,6 +293,67 @@ class GuaranteeManager:
         """마지막 동기화 시간 조회"""
         return self.data.get("last_sync")
     
+    def get_deadline_status(self, company: str = None) -> Dict:
+        """마감 임박 현황 조회
+        
+        Args:
+            company: 회사명 (제이투랩, 일류기획) - None이면 전체
+            
+        Returns:
+            {
+                "expiring_today": [...],  # 오늘 만료
+                "expiring_in_3_days": [...],  # 3일 후 만료
+                "expiring_in_5_days": [...],  # 5일 후 만료
+            }
+        """
+        from datetime import date, timedelta
+        
+        items = self.get_items()
+        if company:
+            items = [i for i in items if i.get("company") == company]
+        
+        # 진행중 또는 후불만
+        items = [i for i in items if i.get("status") in ["진행중", "후불"]]
+        
+        today = date.today()
+        expiring_today = []
+        expiring_in_3_days = []
+        expiring_in_5_days = []
+        
+        for item in items:
+            work_start_date = item.get("work_start_date")
+            if not work_start_date:
+                continue
+            
+            try:
+                start_date = date.fromisoformat(work_start_date)
+                # 25일차가 마감일 (시작일 포함하여 25일)
+                deadline_date = start_date + timedelta(days=24)
+                days_until_deadline = (deadline_date - today).days
+                
+                item_info = {
+                    "business_name": item.get("business_name"),
+                    "main_keyword": item.get("main_keyword"),
+                    "deadline_date": deadline_date.isoformat(),
+                    "days_remaining": days_until_deadline
+                }
+                
+                if days_until_deadline == 0:
+                    expiring_today.append(item_info)
+                elif days_until_deadline == 3:
+                    expiring_in_3_days.append(item_info)
+                elif days_until_deadline == 5:
+                    expiring_in_5_days.append(item_info)
+            except:
+                continue
+        
+        return {
+            "expiring_today": expiring_today,
+            "expiring_in_3_days": expiring_in_3_days,
+            "expiring_in_5_days": expiring_in_5_days,
+            "total": len(expiring_today) + len(expiring_in_3_days) + len(expiring_in_5_days)
+        }
+    
     def get_exposure_status(self, company: str = None) -> Dict:
         """실시간 노출 현황 조회
         
@@ -317,11 +378,6 @@ class GuaranteeManager:
         """
         from datetime import date, timedelta
         
-        # 필터 조건
-        filters = {"status": ["진행중", "후불"]}
-        if company:
-            filters["company"] = company
-        
         items = self.get_items()
         if company:
             items = [i for i in items if i.get("company") == company]
@@ -340,65 +396,83 @@ class GuaranteeManager:
                 not_exposed_count += 1
                 continue
             
-            # 일차별 순위를 날짜 순으로 정렬
-            sorted_days = sorted([int(k) for k in daily_ranks.keys()])
+            # 일차별 순위를 날짜 순으로 정렬 (날짜가 있는 것 우선)
+            days_with_dates = []
+            days_without_dates = []
             
-            if not sorted_days:
-                not_exposed_count += 1
-                continue
+            for day_str, rank_data in daily_ranks.items():
+                if isinstance(rank_data, dict) and rank_data.get("date"):
+                    days_with_dates.append((day_str, rank_data))
+                else:
+                    days_without_dates.append((day_str, rank_data))
             
-            # 가장 최신 순위
-            latest_day = sorted_days[-1]
-            current_rank = daily_ranks.get(str(latest_day))
-            
-            # 작업 시작일 기준으로 실제 날짜 계산
-            work_start_date = item.get("work_start_date")
-            if work_start_date:
+            # 날짜가 있는 데이터를 날짜 순으로 정렬
+            if days_with_dates:
+                days_with_dates.sort(key=lambda x: x[1]["date"])
+                
+                # 가장 최신 데이터
+                latest_day_str, latest_rank_data = days_with_dates[-1]
+                latest_date_str = latest_rank_data.get("date")
+                current_rank = latest_rank_data.get("rank")
+                
+                # 날짜로 노출 여부 판단 (오늘 또는 어제까지는 노출로 간주)
                 try:
-                    start_date = date.fromisoformat(work_start_date)
-                    latest_date = start_date + timedelta(days=latest_day - 1)
-                    
-                    # 오늘이 아니면 미노출
-                    is_exposed = (latest_date == today)
+                    latest_date = date.fromisoformat(latest_date_str)
+                    days_ago = (today - latest_date).days
+                    is_exposed = (days_ago <= 1)  # 오늘 또는 어제면 노출
                 except:
                     is_exposed = False
+                
+                # 증감 계산
+                trend_1d = None
+                trend_2d = None
+                trend_3d = None
+                
+                if len(days_with_dates) >= 2:
+                    prev_rank_data = days_with_dates[-2][1]
+                    prev_rank = prev_rank_data.get("rank")
+                    if current_rank and prev_rank:
+                        trend_1d = prev_rank - current_rank  # 순위가 올랐으면 양수
+                
+                if len(days_with_dates) >= 3:
+                    prev_rank_data_2 = days_with_dates[-3][1]
+                    prev_rank_2 = prev_rank_data_2.get("rank")
+                    if current_rank and prev_rank_2:
+                        trend_2d = prev_rank_2 - current_rank
+                
+                if len(days_with_dates) >= 4:
+                    prev_rank_data_3 = days_with_dates[-4][1]
+                    prev_rank_3 = prev_rank_data_3.get("rank")
+                    if current_rank and prev_rank_3:
+                        trend_3d = prev_rank_3 - current_rank
+                
             else:
-                # 작업 시작일이 없으면 최신 데이터가 있으면 노출로 간주
-                is_exposed = True
+                # 날짜 정보가 없는 경우 (레거시 데이터)
+                # 일차별 데이터를 숫자 순으로 정렬
+                sorted_days = sorted([int(k) for k in daily_ranks.keys()])
+                if not sorted_days:
+                    not_exposed_count += 1
+                    continue
+                
+                latest_day = sorted_days[-1]
+                rank_data = daily_ranks.get(str(latest_day))
+                
+                # 레거시 형식: 정수 또는 딕셔너리
+                if isinstance(rank_data, dict):
+                    current_rank = rank_data.get("rank")
+                else:
+                    current_rank = rank_data
+                
+                latest_date_str = None
+                is_exposed = False  # 날짜 정보 없으면 미노출로 간주
+                trend_1d = None
+                trend_2d = None
+                trend_3d = None
             
             if is_exposed:
                 exposed_count += 1
             else:
                 not_exposed_count += 1
-            
-            # 증감 계산
-            trend_1d = None
-            trend_2d = None
-            trend_3d = None
-            
-            if len(sorted_days) >= 2:
-                prev_rank = daily_ranks.get(str(sorted_days[-2]))
-                if current_rank and prev_rank:
-                    try:
-                        trend_1d = int(prev_rank) - int(current_rank)  # 순위가 올랐으면 양수
-                    except:
-                        pass
-            
-            if len(sorted_days) >= 3:
-                prev_rank_2 = daily_ranks.get(str(sorted_days[-3]))
-                if current_rank and prev_rank_2:
-                    try:
-                        trend_2d = int(prev_rank_2) - int(current_rank)
-                    except:
-                        pass
-            
-            if len(sorted_days) >= 4:
-                prev_rank_3 = daily_ranks.get(str(sorted_days[-4]))
-                if current_rank and prev_rank_3:
-                    try:
-                        trend_3d = int(prev_rank_3) - int(current_rank)
-                    except:
-                        pass
             
             exposure_details.append({
                 "business_name": item.get("business_name"),
@@ -407,7 +481,7 @@ class GuaranteeManager:
                 "trend_1d": trend_1d,
                 "trend_2d": trend_2d,
                 "trend_3d": trend_3d,
-                "latest_day": latest_day
+                "latest_date": latest_date_str
             })
         
         return {
@@ -660,15 +734,19 @@ class GuaranteeManager:
                             item[field_name] = value
                 
                 # 일차별 순위 파싱 (1~25일차)
+                # 데이터 형식: "25. 07. 083등" (YY. MM. DD순위)
                 daily_ranks = {}
                 for i in range(1, 26):
                     for idx, header in enumerate(headers):
                         # 숫자만 있는 헤더 또는 "일" 포함 헤더 찾기
                         header_str = str(header).strip()
                         if (header_str == str(i) or f"{i}일" in header_str) and idx < len(row):
-                            rank = self._get_cell_value(row, idx)
-                            if rank and rank.isdigit():
-                                daily_ranks[str(i)] = int(rank)
+                            cell_value = self._get_cell_value(row, idx)
+                            if cell_value:
+                                # "25. 07. 083등" 형식 파싱
+                                parsed = self._parse_daily_rank_cell(cell_value)
+                                if parsed:
+                                    daily_ranks[str(i)] = parsed
                             break  # 하나 찾으면 종료
                 
                 if daily_ranks:
@@ -736,3 +814,71 @@ class GuaranteeManager:
             except:
                 pass
         return 0
+    
+    def _parse_daily_rank_cell(self, cell_value: str) -> Optional[Dict]:
+        """일차별 순위 셀 파싱
+        Args:
+            cell_value: 다양한 형식 지원:
+                - "25. 07. 08\n3등" (줄바꿈으로 날짜와 순위 분리)
+                - "25. 07. 083등" (날짜와 순위가 붙어있음)
+                - "3등" (순위만)
+                - "3" (숫자만)
+        Returns:
+            {"date": "2025-07-08", "rank": 3} 또는 None
+        """
+        if not cell_value:
+            return None
+        
+        import re
+        cell_str = str(cell_value).strip()
+        
+        # 패턴 1: 줄바꿈으로 날짜와 순위 분리 (예: "25. 07. 08\n3등")
+        match = re.match(r"(\d{2})\.\s*(\d{1,2})\.\s*(\d{1,2})\s*[\n\r]+\s*(\d+)등?", cell_str)
+        if match:
+            year, month, day, rank = match.groups()
+            full_year = f"20{year}"
+            date_str = f"{full_year}-{month.zfill(2)}-{day.zfill(2)}"
+            try:
+                rank_int = int(rank)
+                return {"date": date_str, "rank": rank_int}
+            except:
+                return None
+        
+        # 패턴 2: 날짜 뒤에 바로 순위 (예: "25. 07. 083등", "25. 09. 024등")
+        match = re.match(r"(\d{2})\.\s*(\d{1,2})\.\s*(\d{1,2})(\d+)등?", cell_str)
+        if match:
+            year, month, day, rank = match.groups()
+            full_year = f"20{year}"
+            date_str = f"{full_year}-{month.zfill(2)}-{day.zfill(2)}"
+            try:
+                rank_int = int(rank)
+                return {"date": date_str, "rank": rank_int}
+            except:
+                return None
+        
+        # 패턴 3: 날짜만 있는 경우 (예: "25. 07. 08")
+        match = re.match(r"(\d{2})\.\s*(\d{1,2})\.\s*(\d{1,2})\s*$", cell_str)
+        if match:
+            year, month, day = match.groups()
+            full_year = f"20{year}"
+            date_str = f"{full_year}-{month.zfill(2)}-{day.zfill(2)}"
+            return {"date": date_str, "rank": None}  # 순위 정보 없음
+        
+        # 패턴 4: "N등" 형식 (예: "3등", "5등")
+        match = re.match(r"(\d+)등", cell_str)
+        if match:
+            try:
+                rank_int = int(match.group(1))
+                return {"rank": rank_int}  # 날짜 정보 없음
+            except:
+                return None
+        
+        # 패턴 5: 숫자만 (예: "3", "5")
+        if cell_str.isdigit():
+            try:
+                rank_int = int(cell_str)
+                return {"rank": rank_int}  # 날짜 정보 없음
+            except:
+                return None
+        
+        return None
