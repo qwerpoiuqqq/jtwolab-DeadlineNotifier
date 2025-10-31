@@ -10,10 +10,14 @@ echo "========================================="
 # 데이터 디렉토리 확인
 mkdir -p data
 
+# Playwright 브라우저 경로 설정 (기본 위치 사용)
+export PLAYWRIGHT_BROWSERS_PATH=0
+
 echo "✅ Ready to start"
 echo "📍 Host: ${FLASK_HOST:-0.0.0.0}"
 echo "📍 Port: ${FLASK_PORT:-8080}"
 echo "🔄 Auto-sync: ${AUTO_SYNC_ON_START:-false}"
+echo "🎭 Playwright: ${PLAYWRIGHT_BROWSERS_PATH}"
 echo ""
 
 # 프로덕션 모드로 실행
