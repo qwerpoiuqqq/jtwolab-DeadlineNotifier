@@ -482,6 +482,7 @@ class GuaranteeManager:
             
             exposure_details.append({
                 "business_name": item.get("business_name"),
+                "main_keyword": item.get("main_keyword"),  # 메인 키워드 추가
                 "current_rank": current_rank,
                 "is_exposed": is_exposed,
                 "trend_1d": trend_1d,
