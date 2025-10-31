@@ -21,7 +21,7 @@ CACHE_FILE = os.getenv("INTERNAL_CACHE_FILE", "internal_cache.json")
 
 
 def parse_date_flexible(date_str: str):
-	"""다양한 날짜 형식을 파싱"""
+	"""다양한 날짜 형식을 파싱 (매우 관대하게)"""
 	from datetime import date
 	import re
 	
@@ -30,22 +30,26 @@ def parse_date_flexible(date_str: str):
 	
 	date_str = str(date_str).strip()
 	
+	# 빈 문자열 체크
+	if not date_str or date_str.lower() in ['none', 'null', 'n/a', '-']:
+		return None
+	
 	try:
-		# YYYY-MM-DD, YYYY.MM.DD 형식
-		match = re.match(r"^(\d{4})[.-](\d{1,2})[.-](\d{1,2})$", date_str)
+		# YYYY-MM-DD, YYYY.MM.DD, YYYY/MM/DD 형식
+		match = re.match(r"^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$", date_str)
 		if match:
 			year, month, day = match.groups()
 			return date(int(year), int(month), int(day))
 		
-		# YY. M. D 형식 (예: 25. 10. 27)
-		match = re.match(r"^(\d{2})\.\s*(\d{1,2})\.\s*(\d{1,2})$", date_str)
+		# YY. M. D 형식 (예: 25. 10. 27, 25.10.27)
+		match = re.match(r"^(\d{2})[./-]?\s*(\d{1,2})[./-]?\s*(\d{1,2})$", date_str)
 		if match:
 			year_short, month, day = match.groups()
 			year = 2000 + int(year_short)
 			return date(year, int(month), int(day))
 		
-		# YYYY. M. D 형식 (예: 2025. 10. 27)
-		match = re.match(r"^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})$", date_str)
+		# YYYY. M. D 형식 (예: 2025. 10. 27, 2025.10.27)
+		match = re.match(r"^(\d{4})[./-]?\s*(\d{1,2})[./-]?\s*(\d{1,2})$", date_str)
 		if match:
 			year, month, day = match.groups()
 			return date(int(year), int(month), int(day))
@@ -64,11 +68,27 @@ def parse_date_flexible(date_str: str):
 			year = date.today().year
 			return date(year, int(month), int(day))
 		
-		# YYYY/MM/DD 형식
-		match = re.match(r"^(\d{4})/(\d{1,2})/(\d{1,2})$", date_str)
+		# M.D 또는 MM.DD 형식 (예: 8.1, 10.27) - 현재 연도 기준
+		match = re.match(r"^(\d{1,2})\.(\d{1,2})$", date_str)
+		if match:
+			month, day = match.groups()
+			year = date.today().year
+			return date(year, int(month), int(day))
+		
+		# YYYYMMDD 형식 (예: 20251027)
+		match = re.match(r"^(\d{4})(\d{2})(\d{2})$", date_str)
 		if match:
 			year, month, day = match.groups()
 			return date(int(year), int(month), int(day))
+		
+		# 기타 일반적인 형식 시도
+		from dateutil import parser
+		try:
+			parsed = parser.parse(date_str, dayfirst=False)
+			return parsed.date()
+		except:
+			pass
+			
 	except Exception as e:
 		import logging
 		logging.getLogger(__name__).warning(f"날짜 파싱 실패: '{date_str}' - {e}")
@@ -184,28 +204,49 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 				continue
 			end_date = today + timedelta(days=remain)
 			
-			# 작업 시작일: 각 행의 '작업 시작일' 컬럼 읽기
+			# 작업 시작일: 각 행의 '작업 시작일' 컬럼 읽기 (다양한 컬럼명 시도)
 			start_date_str = None
-			for possible_col in ["작업 시작일", "작업시작일", "시작일", "세팅일"]:
+			start_col_found = None
+			for possible_col in ["작업 시작일", "작업시작일", "시작일", "세팅일", "작업시작", "시작"]:
 				start_val = _get_value_flexible(row_norm, possible_col, "")
 				if start_val:
 					start_date_str = str(start_val).strip()
+					start_col_found = possible_col
 					# 디버깅: 원본 값 확인
-					if len(all_items) < 5:
+					if len(all_items) < 10:
 						logger.info(f"  🔍 {bizname}/{product}: '{possible_col}' 컬럼 원본값 = '{start_val}' (타입: {type(start_val).__name__})")
 					break
 			
 			start_date = None
+			parse_success = False
 			if start_date_str:
 				start_date = parse_date_flexible(start_date_str)
-				# 디버깅: 처음 5개만 상세 로그
-				if len(all_items) < 5:
-					logger.info(f"  ✓ 파싱: '{start_date_str}' → {start_date}")
-					logger.info(f"     마감일: {end_date.strftime('%Y-%m-%d')} (오늘={today}, remain={remain}일)")
-			else:
-				# 작업 시작일이 없으면 None으로 유지 (추정하지 않음)
-				if len(all_items) < 5:
-					logger.info(f"  ○ {bizname}/{product}: 시작일(없음), 마감일={end_date.strftime('%Y-%m-%d')} (remain={remain}일)")
+				if start_date:
+					parse_success = True
+					# 디버깅: 처음 10개만 상세 로그
+					if len(all_items) < 10:
+						logger.info(f"  ✓ 파싱 성공: '{start_date_str}' → {start_date}")
+						logger.info(f"     마감일: {end_date.strftime('%Y-%m-%d')} (오늘={today}, remain={remain}일)")
+				else:
+					# 파싱 실패 - 경고 로그
+					logger.warning(f"  ⚠️ 날짜 파싱 실패: {bizname}/{product} - '{start_date_str}' (컬럼: {start_col_found})")
+			
+			# 시작일이 없거나 파싱 실패한 경우 보장건 데이터에서 가져오기 시도
+			if not start_date and bizname in guarantee_data_map:
+				guarantee_item = guarantee_data_map[bizname]
+				work_start = guarantee_item.get("work_start_date")
+				if work_start:
+					fallback_date = parse_date_flexible(work_start)
+					if fallback_date:
+						start_date = fallback_date
+						parse_success = True
+						if len(all_items) < 10:
+							logger.info(f"  ✓ 보장건 데이터에서 시작일 가져옴: {bizname} → {work_start} → {start_date}")
+			
+			# 그래도 시작일이 없으면 None으로 유지 (필터링하지 않고 포함)
+			if not start_date:
+				if len(all_items) < 10:
+					logger.info(f"  ○ {bizname}/{product}: 시작일(없음), 마감일={end_date.strftime('%Y-%m-%d')} (remain={remain}일) - 그대로 포함")
 			
 			# 작업명 생성
 			is_review_tab = _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰")
@@ -267,19 +308,18 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 		logger.debug(f"⊘ {business_name or company}: raw_items 없음")
 		return {"weeks": []}
 	
-	# 오늘 기준 4주 전까지의 작업만 표시
+	# 모든 데이터를 읽어온 후 4주 기준으로 필터링
 	four_weeks_ago = today - timedelta(days=28)
-	
 	logger.info(f"  📅 오늘: {today}, 4주 전: {four_weeks_ago}")
 	
-	# 시작일이 4주 이내인 작업만 포함 (시작일이 없으면 마감일로 판단)
+	# 시작일이 4주 이내이거나, 시작일이 없으면 마감일이 오늘 이후인 작업만 표시
 	filtered_items = [
 		item for item in raw_items 
 		if (item["start_date"] is not None and item["start_date"] >= four_weeks_ago) or
 		   (item["start_date"] is None and item["end_date"] >= today)
 	]
 	
-	logger.info(f"  📊 필터 결과: {len(raw_items)}개 → {len(filtered_items)}개 (시작일 {four_weeks_ago.strftime('%m/%d')} 이후 또는 시작일 미정)")
+	logger.info(f"  📊 필터 결과: {len(raw_items)}개 → {len(filtered_items)}개 (4주 필터 적용, 시작일 {four_weeks_ago.strftime('%m/%d')} 이후)")
 	
 	# 기간별 그룹핑 (같은 시작일-마감일을 가진 작업들을 묶음)
 	period_groups = {}
@@ -333,7 +373,8 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 	
 	for (start_dt, end_dt), tasks in sorted_groups:
 		items = []
-		for task_name, total_workload in sorted(tasks.items()):
+		# 시트 순서 유지를 위해 정렬하지 않고 원래 순서대로 (삽입 순서 유지)
+		for task_name, total_workload in tasks.items():
 			items.append({
 				"name": task_name,
 				"workload": str(total_workload) if total_workload > 0 else "0"
@@ -790,7 +831,8 @@ def fetch_workload_schedule_direct(company: str = None, business_name: str = Non
 	weeks = []
 	for (start_dt, end_dt), tasks in sorted(period_groups.items(), key=lambda x: x[0][0]):  # 시작일 기준 정렬
 		items = []
-		for task_name, total_workload in sorted(tasks.items()):
+		# 시트 순서 유지를 위해 정렬하지 않고 원래 순서대로 (삽입 순서 유지)
+		for task_name, total_workload in tasks.items():
 			items.append({
 				"name": task_name,
 				"workload": str(total_workload) if total_workload > 0 else "0"
