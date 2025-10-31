@@ -42,6 +42,37 @@ def create_app() -> Flask:
 	scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Seoul'))
 	scheduler.start()
 	
+	# Render 배포: 앱 시작 시 자동 초기화
+	if os.getenv("AUTO_SYNC_ON_START", "false").lower() == "true":
+		logger.info("🚀 Auto-sync on startup enabled (Render mode)")
+		
+		def init_on_startup():
+			"""앱 시작 시 데이터 초기화"""
+			import time
+			time.sleep(5)  # 앱 완전 시작 대기
+			
+			try:
+				logger.info("📡 Starting auto-sync from Google Sheets...")
+				gm = GuaranteeManager()
+				result = gm.sync_from_google_sheets()
+				logger.info(f"✅ Auto-sync completed: {result}")
+			except Exception as e:
+				logger.error(f"❌ Auto-sync failed: {e}")
+			
+			try:
+				logger.info("⚡ Starting workload cache refresh...")
+				from workload_cache import refresh_all_workload_cache
+				result = refresh_all_workload_cache()
+				logger.info(f"✅ Workload cache refreshed: {result['message']}")
+			except Exception as e:
+				logger.error(f"❌ Workload cache refresh failed: {e}")
+		
+		# 백그라운드 스레드로 실행
+		import threading
+		init_thread = threading.Thread(target=init_on_startup)
+		init_thread.daemon = True
+		init_thread.start()
+	
 	# 자동 동기화 태스크
 	def sync_guarantee_data():
 		"""보장건 데이터 자동 동기화"""
@@ -64,12 +95,29 @@ def create_app() -> Flask:
 		except Exception as e:
 			logger.error(f"Workload cache refresh failed: {e}")
 	
+	# 순위 크롤링 자동 실행 태스크
+	def crawl_ranks_auto():
+		"""순위 자동 크롤링"""
+		try:
+			logger.info(f"Starting automatic rank crawling at {datetime.now(pytz.timezone('Asia/Seoul'))}")
+			from rank_crawler import crawl_ranks_for_company
+			
+			# 양쪽 회사 모두 크롤링
+			for company in ["제이투랩", "일류기획"]:
+				result = crawl_ranks_for_company(company)
+				logger.info(f"{company} rank crawling completed: {result['message']}")
+		except Exception as e:
+			logger.error(f"Automatic rank crawling failed: {e}")
+	
 	# 매일 9시, 16시 스케줄 등록 (보장건 동기화)
 	scheduler.add_job(func=sync_guarantee_data, trigger="cron", hour=9, minute=0, id="morning_sync")
 	scheduler.add_job(func=sync_guarantee_data, trigger="cron", hour=16, minute=0, id="afternoon_sync")
 	
 	# 매일 11시 30분 스케줄 등록 (작업량 캐시 갱신)
 	scheduler.add_job(func=refresh_workload_cache, trigger="cron", hour=11, minute=30, id="workload_cache_refresh")
+	
+	# 매일 14시 30분 스케줄 등록 (순위 크롤링)
+	scheduler.add_job(func=crawl_ranks_auto, trigger="cron", hour=14, minute=30, id="rank_crawling")
 
 	@app.route("/", methods=["GET"])  # 메인 페이지: 폼 + 결과
 	def index():
@@ -732,6 +780,30 @@ def create_app() -> Flask:
 		try:
 			gm = GuaranteeManager()
 			status = gm.get_exposure_status(company)
+			
+			# 크롤링 순위 데이터 병합
+			try:
+				from rank_crawler import get_latest_ranks
+				latest_ranks = get_latest_ranks(company)
+				
+				# 상호명 -> 순위 매핑
+				rank_map = {}
+				for rank_data in latest_ranks:
+					rank_map[rank_data["business_name"]] = {
+						"rank": rank_data["rank"],
+						"keyword": rank_data["keyword"],
+						"checked_at": rank_data["checked_at"]
+					}
+				
+				# exposure_details에 크롤링 순위 추가
+				for detail in status.get("exposure_details", []):
+					biz_name = detail.get("business_name")
+					if biz_name in rank_map:
+						detail["crawled_rank"] = rank_map[biz_name]["rank"]
+						detail["crawled_at"] = rank_map[biz_name]["checked_at"]
+			except Exception as e:
+				logger.warning(f"Failed to merge crawled ranks: {e}")
+			
 			return jsonify(status), 200
 		except Exception as e:
 			logger.error(f"Exposure status error: {e}")
@@ -797,6 +869,78 @@ def create_app() -> Flask:
 				"items": items
 			}), 200
 		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+	
+	@app.route("/api/guarantee/crawl-ranks", methods=["POST"])
+	def api_crawl_ranks():
+		"""애드로그에서 순위 크롤링 실행"""
+		company = request.args.get("company")  # 제이투랩, 일류기획
+		
+		try:
+			from rank_crawler import crawl_ranks_for_company
+			result = crawl_ranks_for_company(company)
+			
+			if result["success"]:
+				return jsonify(result), 200
+			else:
+				return jsonify(result), 500
+		except Exception as e:
+			logger.error(f"Rank crawling error: {e}")
+			import traceback
+			logger.error(traceback.format_exc())
+			return jsonify({"error": str(e), "message": "크롤링 실패"}), 500
+	
+	@app.route("/api/guarantee/latest-ranks", methods=["GET"])
+	def api_latest_ranks():
+		"""최신 순위 데이터 조회"""
+		company = request.args.get("company")
+		
+		try:
+			from rank_crawler import get_latest_ranks
+			ranks = get_latest_ranks(company)
+			return jsonify({"ranks": ranks, "count": len(ranks)}), 200
+		except Exception as e:
+			logger.error(f"Latest ranks error: {e}")
+			return jsonify({"error": str(e)}), 500
+	
+	@app.route("/api/guarantee/rank-history/<business_name>", methods=["GET"])
+	def api_rank_history(business_name):
+		"""업체별 순위 히스토리 조회"""
+		limit = int(request.args.get("limit", 30))
+		
+		try:
+			from rank_crawler import get_rank_history
+			history = get_rank_history(business_name, limit)
+			return jsonify({"history": history, "count": len(history)}), 200
+		except Exception as e:
+			logger.error(f"Rank history error: {e}")
+			return jsonify({"error": str(e)}), 500
+	
+	@app.route("/api/guarantee/ranks/export", methods=["GET"])
+	def api_ranks_export():
+		"""순위 데이터 JSON으로 내보내기 (백업용)"""
+		try:
+			from db_backup import export_rank_history_to_json
+			data = export_rank_history_to_json()
+			return jsonify(data), 200
+		except Exception as e:
+			logger.error(f"Rank export error: {e}")
+			return jsonify({"error": str(e)}), 500
+	
+	@app.route("/api/guarantee/ranks/import", methods=["POST"])
+	def api_ranks_import():
+		"""순위 데이터 JSON에서 가져오기 (복원용)"""
+		try:
+			data = request.get_json(force=True)
+			from db_backup import import_rank_history_from_json
+			success = import_rank_history_from_json(data)
+			
+			if success:
+				return jsonify({"ok": True, "message": "순위 데이터 복원 완료"}), 200
+			else:
+				return jsonify({"error": "복원 실패"}), 500
+		except Exception as e:
+			logger.error(f"Rank import error: {e}")
 			return jsonify({"error": str(e)}), 500
 
 	# Shutdown scheduler when app closes
