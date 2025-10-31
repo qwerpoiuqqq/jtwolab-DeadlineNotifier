@@ -13,6 +13,8 @@ pip install -r requirements.txt
 
 echo ""
 echo "🎭 Installing Playwright Chromium..."
+# PLAYWRIGHT_BROWSERS_PATH=0을 설정하여 기본 위치 사용
+export PLAYWRIGHT_BROWSERS_PATH=0
 playwright install chromium
 
 echo ""
@@ -22,6 +24,10 @@ playwright install-deps chromium || {
     echo "⚠️  Warning: Some system dependencies might not be installed"
     echo "    This is normal on Render. Playwright should still work."
 }
+
+echo ""
+echo "📍 Playwright installation verification..."
+echo "   PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH}"
 
 echo ""
 echo "✅ Build completed successfully!"
