@@ -1,30 +1,53 @@
-# Docker ignore (Render도 참고)
-__pycache__/
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
 *.pyc
 *.pyo
 *.pyd
 .Python
-.venv/
-venv/
-.env
-*.db
-*.log
-*.key
-.encryption_key
-service_account.json
-guarantee_data.json
-guarantee_data.enc
-pricebook.json
-internal_cache.json
-workload_cache.json
-extra_expenses.json
-.git/
-.gitignore
-.vscode/
-.idea/
+*.so
+*.egg
+*.egg-info
+dist
+build
+.venv
+venv
+env
+
+# IDE
+.vscode
+.idea
 *.swp
+*.swo
+*~
+
+# 로컬 환경 파일
+.env
+.env.local
+service_account.json
+
+# 데이터베이스 (배포 시 새로 생성)
+*.db
+*.sqlite
+*.sqlite3
+
+# 캐시
+*.cache
+.cache
+
+# 로그
+*.log
+
+# OS
 .DS_Store
 Thumbs.db
-ms-playwright/
-.cache/
 
+# 문서
+*.md
+!README.md
+
+# 테스트
+test_*.py
