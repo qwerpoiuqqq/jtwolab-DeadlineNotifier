@@ -56,3 +56,10 @@ internal_cache.json
 # 암호화 키 (절대 커밋 금지)
 .encryption_key
 *.key
+
+# Playwright
+.cache/
+ms-playwright/
+
+# Render
+.render/
