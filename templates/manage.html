@@ -190,6 +190,9 @@
           <button class="btn" id="btn-refresh-workload" style="background:#10b981; color:#fff; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,.15);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,.2)'; this.style.background='#059669'" onmouseout="this.style.transform=''; this.style.boxShadow='0 2px 8px rgba(0,0,0,.15)'; this.style.background='#10b981'">
             <span id="workload-btn-text">⚡ 작업량 갱신</span>
           </button>
+          <button class="btn" id="btn-crawl-ranks" style="background:#8b5cf6; color:#fff; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,.15);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,.2)'; this.style.background='#7c3aed'" onmouseout="this.style.transform=''; this.style.boxShadow='0 2px 8px rgba(0,0,0,.15)'; this.style.background='#8b5cf6'">
+            <span id="rank-btn-text">🏆 순위 갱신</span>
+          </button>
       </div>
       </div>
 
@@ -320,7 +323,6 @@
                 <th>상품</th>
                 <th>상태</th>
                 <th>현재순위</th>
-                <th>증감</th>
                 <th>계약일</th>
                   <th>작업시작</th>
                   <th>액션</th>
@@ -328,7 +330,7 @@
               </thead>
             <tbody id="table-body">
               <tr>
-                <td colspan="11" style="text-align:center; padding:40px; color:var(--muted);">데이터를 불러오는 중...</td>
+                <td colspan="10" style="text-align:center; padding:40px; color:var(--muted);">데이터를 불러오는 중...</td>
               </tr>
             </tbody>
             </table>
@@ -510,6 +512,7 @@
     let currentCompany = '제이투랩';  // 기본값
     let businessWorkloadCache = {};  // 업체별 작업량 캐시
     let currentWorkloadData = null;  // 현재 표시중인 작업량 데이터
+    let latestRanks = {};  // 크롤링된 최신 순위 데이터 (상호명 -> 순위)
 
     // Toast
     function showToast(msg) {
@@ -597,6 +600,7 @@
         btn.style.color = '#fff';
         
         // 데이터 재로드
+        loadLatestRanks();  // 순위 데이터 먼저 로드
         loadData();
         updateExposureStatus();
         updateDeadlineStatus();
@@ -706,11 +710,15 @@
             <h4 style="color:var(--success); font-size:15px; font-weight:600; margin-bottom:10px;">✅ 노출 중 (${exposed.length}건)</h4>
             <div style="display:grid; gap:6px;">`;
           exposed.forEach(item => {
+            // 크롤링된 순위가 있으면 우선 사용
+            const displayRank = item.crawled_rank || item.current_rank || '-';
+            const rankSource = item.crawled_rank ? '(실시간)' : '(시트)';
+            
             html += `
               <div style="padding:10px; background:var(--card-bg); border-radius:6px; border:1px solid #d1fae5;">
                 <div style="font-weight:600; font-size:14px; margin-bottom:2px;">${item.business_name}</div>
                 <div style="font-size:12px; color:var(--muted);">
-                  ${item.main_keyword || '-'} | 순위: <strong style="color:var(--success);">${item.current_rank || '-'}위</strong>
+                  ${item.main_keyword || '-'} | 순위: <strong style="color:var(--success);">${displayRank}${displayRank !== '-' ? '위' : ''}</strong> <span style="font-size:11px;">${displayRank !== '-' ? rankSource : ''}</span>
                 </div>
               </div>
             `;
@@ -723,11 +731,15 @@
             <h4 style="color:var(--danger); font-size:15px; font-weight:600; margin-bottom:10px;">⚠️ 미노출 (${notExposed.length}건)</h4>
             <div style="display:grid; gap:6px;">`;
           notExposed.forEach(item => {
+            // 크롤링된 순위가 있으면 우선 사용
+            const displayRank = item.crawled_rank || item.current_rank || '-';
+            const rankSource = item.crawled_rank ? '(실시간)' : '(시트)';
+            
             html += `
               <div style="padding:10px; background:var(--card-bg); border-radius:6px; border:1px solid #fee2e2;">
                 <div style="font-weight:600; font-size:14px; margin-bottom:2px;">${item.business_name}</div>
                 <div style="font-size:12px; color:var(--muted);">
-                  ${item.main_keyword || '-'} | 순위: <strong>${item.current_rank || '-'}위</strong>
+                  ${item.main_keyword || '-'} | 순위: <strong>${displayRank}${displayRank !== '-' ? '위' : ''}</strong> <span style="font-size:11px;">${displayRank !== '-' ? rankSource : ''}</span>
                 </div>
               </div>
             `;
@@ -829,6 +841,29 @@
       document.getElementById('deadline-modal').classList.remove('show');
     }
 
+    // 최신 순위 데이터 로드
+    async function loadLatestRanks() {
+      try {
+        const res = await fetch(`/api/guarantee/latest-ranks?company=${encodeURIComponent(currentCompany)}`);
+        const data = await res.json();
+        
+        // 상호명 -> 순위 매핑
+        latestRanks = {};
+        (data.ranks || []).forEach(r => {
+          latestRanks[r.business_name] = {
+            rank: r.rank,
+            keyword: r.keyword,
+            checked_at: r.checked_at
+          };
+        });
+        
+        console.log(`✅ Loaded ${Object.keys(latestRanks).length} latest ranks`);
+      } catch (e) {
+        console.error('Failed to load latest ranks:', e);
+        latestRanks = {};
+      }
+    }
+    
     // 데이터 로드
     async function loadData() {
       try {
@@ -844,6 +879,10 @@
           const data = await res.json();
           
         allData = data.items || [];
+        
+        // 최신 순위 데이터도 로드
+        await loadLatestRanks();
+        
         renderTable(allData);
         updateStatistics();
         updateCharts();
@@ -860,7 +899,7 @@
       if (!items || items.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="11">
+            <td colspan="10">
               <div class="empty-state">
                 <div class="empty-icon">📭</div>
                 <div class="empty-title">데이터가 없습니다</div>
@@ -873,59 +912,30 @@
       }
       
       tbody.innerHTML = items.map(item => {
-        const dailyRanks = item.daily_ranks || {};
-        const sortedDays = Object.keys(dailyRanks).map(d => parseInt(d)).sort((a,b) => a-b);
-        
+        // 크롤링된 실시간 순위 사용 (없으면 시트 데이터 사용)
+        const businessName = item.business_name || '';
         let currentRank = '-';
-        let trendHtml = '';
         
-        if (sortedDays.length > 0) {
-          const latestDay = sortedDays[sortedDays.length - 1];
-          const latestRankData = dailyRanks[latestDay];
+        // 1순위: 크롤링된 순위
+        if (latestRanks[businessName]) {
+          currentRank = latestRanks[businessName].rank || '-';
+        } else {
+          // 2순위: 시트의 daily_ranks
+          const dailyRanks = item.daily_ranks || {};
+          const sortedDays = Object.keys(dailyRanks).map(d => parseInt(d)).sort((a,b) => a-b);
           
-          // daily_ranks가 객체 형태인 경우 처리 (새 형식: {date: "...", rank: 3})
-          if (typeof latestRankData === 'object' && latestRankData !== null) {
-            currentRank = latestRankData.rank || '-';
-          } else {
-            // 레거시 형식 (숫자만)
-            currentRank = latestRankData || '-';
-          }
-          
-          // 증감 계산
-          const trends = [];
-          if (sortedDays.length >= 2) {
-            const prevRankData = dailyRanks[sortedDays[sortedDays.length - 2]];
-            const prevRank = (typeof prevRankData === 'object' && prevRankData !== null) ? prevRankData.rank : prevRankData;
+          if (sortedDays.length > 0) {
+            const latestDay = sortedDays[sortedDays.length - 1];
+            const latestRankData = dailyRanks[latestDay];
             
-            if (prevRank && currentRank !== '-') {
-              const diff = parseInt(prevRank) - parseInt(currentRank);
-              if (diff > 0) trends.push(`<span class="trend trend-up">▲${diff}</span>`);
-              else if (diff < 0) trends.push(`<span class="trend trend-down">▼${Math.abs(diff)}</span>`);
-              else trends.push('<span class="trend">-</span>');
+            // daily_ranks가 객체 형태인 경우 처리 (새 형식: {date: "...", rank: 3})
+            if (typeof latestRankData === 'object' && latestRankData !== null) {
+              currentRank = latestRankData.rank || '-';
+            } else {
+              // 레거시 형식 (숫자만)
+              currentRank = latestRankData || '-';
             }
           }
-          if (sortedDays.length >= 3) {
-            const prevRankData2 = dailyRanks[sortedDays[sortedDays.length - 3]];
-            const prevRank2 = (typeof prevRankData2 === 'object' && prevRankData2 !== null) ? prevRankData2.rank : prevRankData2;
-            
-            if (prevRank2 && currentRank !== '-') {
-              const diff = parseInt(prevRank2) - parseInt(currentRank);
-              if (diff > 0) trends.push(`<span class="trend trend-up">▲${diff}</span>`);
-              else if (diff < 0) trends.push(`<span class="trend trend-down">▼${Math.abs(diff)}</span>`);
-            }
-          }
-          if (sortedDays.length >= 4) {
-            const prevRankData3 = dailyRanks[sortedDays[sortedDays.length - 4]];
-            const prevRank3 = (typeof prevRankData3 === 'object' && prevRankData3 !== null) ? prevRankData3.rank : prevRankData3;
-            
-            if (prevRank3 && currentRank !== '-') {
-              const diff = parseInt(prevRank3) - parseInt(currentRank);
-              if (diff > 0) trends.push(`<span class="trend trend-up">▲${diff}</span>`);
-              else if (diff < 0) trends.push(`<span class="trend trend-down">▼${Math.abs(diff)}</span>`);
-            }
-          }
-          
-          trendHtml = trends.slice(0, 3).join(' ');
         }
         
         return `
@@ -936,8 +946,7 @@
             <td>${item.main_keyword || '-'}</td>
             <td>${item.product || '플레이스'}</td>
             <td><span class="badge badge-${item.status || '세팅대기'}">${item.status || '세팅대기'}</span></td>
-            <td><strong>${currentRank}</strong></td>
-            <td style="min-width:120px;">${trendHtml}</td>
+            <td><strong style="color:${currentRank !== '-' && currentRank <= 5 ? 'var(--success)' : 'var(--text)'};">${currentRank}${currentRank !== '-' ? '위' : ''}</strong></td>
             <td>${item.contract_date || '-'}</td>
             <td>${item.work_start_date || '-'}</td>
             <td>
@@ -1185,6 +1194,37 @@
       }
     });
 
+    // 순위 크롤링
+    async function crawlRanks() {
+      const btn = document.getElementById('btn-crawl-ranks');
+      const btnText = document.getElementById('rank-btn-text');
+      btn.disabled = true;
+      btnText.innerHTML = '<span class="loading"></span> 크롤링 중...';
+      
+      try {
+        const res = await fetch(`/api/guarantee/crawl-ranks?company=${encodeURIComponent(currentCompany)}`, { 
+          method: 'POST' 
+        });
+        const data = await res.json();
+        
+        if (res.ok) {
+          showToast(data.message || '순위 크롤링 완료');
+          // 순위 데이터 재로드
+          await loadLatestRanks();
+          renderTable(allData);  // 테이블 다시 렌더링
+          updateExposureStatus();  // 노출 현황도 업데이트
+        } else {
+          showToast('크롤링 실패: ' + (data.error || data.message || '알 수 없는 오류'));
+        }
+      } catch (e) {
+        console.error('Crawling error:', e);
+        showToast('크롤링 실패');
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = '🏆 순위 갱신';
+      }
+    }
+    
     // 복사 버튼 함수
     function copyWorkloadToClipboard() {
       if (!currentWorkloadData || !currentWorkloadData.weeks || currentWorkloadData.weeks.length === 0) {
@@ -1378,6 +1418,7 @@
     // 이벤트
     document.getElementById('btn-sync').addEventListener('click', syncData);
     document.getElementById('btn-refresh-workload').addEventListener('click', refreshWorkloadCache);
+    document.getElementById('btn-crawl-ranks').addEventListener('click', crawlRanks);
     document.getElementById('btn-add').addEventListener('click', () => openModal());
     document.getElementById('filter-status').addEventListener('change', loadData);
     document.getElementById('filter-product').addEventListener('change', loadData);
