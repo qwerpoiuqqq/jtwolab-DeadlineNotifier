@@ -18,10 +18,10 @@
 
 **Basic Settings:**
 - **Name**: `jtwolab-deadline-notifier` (원하는 이름)
-- **Runtime**: `Python 3`
-- **Build Command**: `bash build.sh`
-- **Start Command**: `bash start.sh`
+- **Runtime**: `Docker` (✨ Playwright 지원을 위해 Docker 사용)
 - **Instance Type**: `Free` (또는 원하는 플랜)
+
+> **Note**: Dockerfile을 사용하므로 Build Command와 Start Command는 자동으로 설정됩니다.
 
 ### 2. 환경변수 설정
 
@@ -105,10 +105,12 @@ BIZNAME_COLUMN=상호명
 
 ### 🔧 Playwright 설정
 
-Render에서 Playwright를 사용하려면:
-1. `build.sh`에서 자동으로 Chromium 설치
-2. 메모리 제한 주의 (Free tier: 512MB)
-3. 크롤링 시 headless 모드 필수
+Docker 이미지를 사용하여 Playwright를 실행합니다:
+1. ✅ Playwright 공식 Docker 이미지 사용 (mcr.microsoft.com/playwright/python)
+2. ✅ 모든 브라우저 의존성이 미리 설치되어 있음
+3. ✅ Chromium 자동 설치
+4. ⚠️ 메모리 제한 주의 (Free tier: 512MB)
+5. ✅ headless 모드로 실행 (rank_crawler.py에 설정됨)
 
 ### 📦 환경변수 보안
 
@@ -131,15 +133,37 @@ Render에서 Playwright를 사용하려면:
 ## 문제 해결
 
 ### 빌드 실패 시
-- 로그에서 `playwright install` 단계 확인
+- Docker 이미지 빌드 로그 확인
+- `Dockerfile`의 베이스 이미지가 올바른지 확인
 - 메모리 부족이면 유료 플랜 고려
 
+### Playwright 브라우저 오류 시
+- ✅ Docker를 사용하면 해결됨 (모든 의존성 포함)
+- 이전 방식(Python runtime)에서는 시스템 의존성 설치 실패 가능
+- "Executable doesn't exist" 오류 → Docker 런타임으로 전환
+
 ### 크롤링 실패 시
-- headless 브라우저 설정 확인
-- 메모리 제한 확인
+- headless 브라우저 설정 확인 (rank_crawler.py)
+- 메모리 제한 확인 (Free tier: 512MB)
 - 로그인 셀렉터가 변경되었는지 확인
+- 애드로그 사이트 접근 가능 여부 확인
 
 ### DB 데이터 손실 시
 - PostgreSQL 마이그레이션 고려
 - 또는 주기적으로 구글 시트에 백업
+
+## 로컬 테스트
+
+Docker를 사용하여 로컬에서 테스트하려면:
+
+```bash
+# Docker 이미지 빌드
+docker build -t deadline-notifier .
+
+# 컨테이너 실행 (.env 파일 사용)
+docker run --rm -p 8080:8080 --env-file .env deadline-notifier
+
+# 브라우저에서 접속
+# http://localhost:8080
+```
 
