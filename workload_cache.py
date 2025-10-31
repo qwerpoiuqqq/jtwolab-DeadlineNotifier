@@ -283,7 +283,7 @@ def refresh_all_workload_cache() -> Dict[str, Any]:
             
             business_names = [item.get("business_name") for item in filtered_guarantee_items]
             
-            logger.info(f"  📋 Processing {len(business_names)} active businesses (메모리 필터링)...")
+            logger.info(f"  📋 Processing {len(business_names)} active businesses (메모리 필터링, 모든 행 포함)...")
             
             # 메모리에서 업체별로 분할 (초고속, API 호출 없음!)
             cached_count = 0
@@ -303,27 +303,32 @@ def refresh_all_workload_cache() -> Dict[str, Any]:
                         skipped_count += 1
                         continue
                     
-                    # 디버깅: 처음 몇 개 작업의 날짜 확인
-                    if idx <= 3 or business_name == "청류 은평한옥마을본점":
-                        logger.info(f"  [{idx}] {business_name} raw 데이터 샘플 (최대 10개):")
-                        for sample_idx, sample_item in enumerate(business_raw_items[:10]):
-                            start_str = sample_item['start_date'].strftime('%m/%d') if sample_item['start_date'] else "미정"
-                            logger.info(f"      {sample_idx+1}. {sample_item['task_display']}: 시작={start_str}, 마감={sample_item['end_date'].strftime('%m/%d')}, 작업량={sample_item['workload']}")
+                    # 디버깅: 모든 업체의 작업 수 로그
+                    logger.info(f"  [{idx}/{len(business_names)}] {business_name}: {len(business_raw_items)}개 작업 발견")
                     
-                    # 업체별 스케줄 계산
+                    # 상세 디버깅: 처음 몇 개 업체만
+                    if idx <= 5:
+                        logger.info(f"     ↳ raw 데이터 샘플 (최대 15개):")
+                        for sample_idx, sample_item in enumerate(business_raw_items[:15]):
+                            start_str = sample_item['start_date'].strftime('%Y-%m-%d') if sample_item['start_date'] else "시작일 없음"
+                            logger.info(f"        {sample_idx+1}. {sample_item['task_display']}: 시작={start_str}, 마감={sample_item['end_date'].strftime('%Y-%m-%d')}, 작업량={sample_item['workload']}")
+                    
+                    # 업체별 스케줄 계산 (모든 작업 포함)
                     business_schedule = process_raw_items_to_schedule(business_raw_items, company, business_name)
                     
                     # 작업이 있는 업체만 캐싱
                     if business_schedule.get("weeks"):
                         business_key = f"{company}:{business_name}"
                         business_workloads[business_key] = business_schedule
-                        logger.info(f"  [{idx}/{len(business_names)}] ✅ {business_name}: {len(business_schedule.get('weeks', []))} weeks")
+                        logger.info(f"  [{idx}/{len(business_names)}] ✅ {business_name}: {len(business_schedule.get('weeks', []))} weeks (총 {len(business_raw_items)}개 작업)")
                         cached_count += 1
                     else:
-                        logger.info(f"  [{idx}/{len(business_names)}] ⊘ {business_name}: no weeks data")
+                        logger.warning(f"  [{idx}/{len(business_names)}] ⚠️ {business_name}: {len(business_raw_items)}개 작업이 있지만 weeks 데이터 없음")
                         skipped_count += 1
                 except Exception as e:
-                    logger.warning(f"  [{idx}/{len(business_names)}] ❌ {business_name}: {e}")
+                    logger.error(f"  [{idx}/{len(business_names)}] ❌ {business_name}: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
                     failed_count += 1
             
             updated_companies.append(company)
