@@ -881,12 +881,22 @@
         
         if (sortedDays.length > 0) {
           const latestDay = sortedDays[sortedDays.length - 1];
-          currentRank = dailyRanks[latestDay] || '-';
+          const latestRankData = dailyRanks[latestDay];
+          
+          // daily_ranks가 객체 형태인 경우 처리 (새 형식: {date: "...", rank: 3})
+          if (typeof latestRankData === 'object' && latestRankData !== null) {
+            currentRank = latestRankData.rank || '-';
+          } else {
+            // 레거시 형식 (숫자만)
+            currentRank = latestRankData || '-';
+          }
           
           // 증감 계산
           const trends = [];
           if (sortedDays.length >= 2) {
-            const prevRank = dailyRanks[sortedDays[sortedDays.length - 2]];
+            const prevRankData = dailyRanks[sortedDays[sortedDays.length - 2]];
+            const prevRank = (typeof prevRankData === 'object' && prevRankData !== null) ? prevRankData.rank : prevRankData;
+            
             if (prevRank && currentRank !== '-') {
               const diff = parseInt(prevRank) - parseInt(currentRank);
               if (diff > 0) trends.push(`<span class="trend trend-up">▲${diff}</span>`);
@@ -895,7 +905,9 @@
             }
           }
           if (sortedDays.length >= 3) {
-            const prevRank2 = dailyRanks[sortedDays[sortedDays.length - 3]];
+            const prevRankData2 = dailyRanks[sortedDays[sortedDays.length - 3]];
+            const prevRank2 = (typeof prevRankData2 === 'object' && prevRankData2 !== null) ? prevRankData2.rank : prevRankData2;
+            
             if (prevRank2 && currentRank !== '-') {
               const diff = parseInt(prevRank2) - parseInt(currentRank);
               if (diff > 0) trends.push(`<span class="trend trend-up">▲${diff}</span>`);
@@ -903,7 +915,9 @@
             }
           }
           if (sortedDays.length >= 4) {
-            const prevRank3 = dailyRanks[sortedDays[sortedDays.length - 4]];
+            const prevRankData3 = dailyRanks[sortedDays[sortedDays.length - 4]];
+            const prevRank3 = (typeof prevRankData3 === 'object' && prevRankData3 !== null) ? prevRankData3.rank : prevRankData3;
+            
             if (prevRank3 && currentRank !== '-') {
               const diff = parseInt(prevRank3) - parseInt(currentRank);
               if (diff > 0) trends.push(`<span class="trend trend-up">▲${diff}</span>`);
