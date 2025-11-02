@@ -118,13 +118,13 @@
       .progress-bar{ height:100%; width:0%; background:var(--primary); transition:width .2s ease; }
       @keyframes spin{ to{ transform:rotate(360deg); } }
       /* 페이지 2열 레이아웃 */
-      .page{ display:flex; gap:16px; align-items:flex-start; }
-      .subnav{ width:220px; border:1px solid var(--line); background:var(--card-bg); border-radius:12px; padding:16px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+      .page{ display:flex; gap:20px; align-items:flex-start; }
+      .subnav{ width:200px; flex-shrink:0; border:1px solid var(--line); background:var(--card-bg); border-radius:12px; padding:16px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
       .subnav .title-sm{ font-weight:700; font-size:14px; margin-bottom:12px; color:var(--text); }
       .subnav .vtab{ display:block; width:100%; text-align:left; padding:10px 16px; border:1px solid var(--line); background:#f6f8fa; border-radius:10px; margin-bottom:8px; cursor:pointer; font-weight:500; font-size:14px; color:var(--text); transition:all .2s; }
       .subnav .vtab:hover{ background:var(--hover); }
       .subnav .vtab.active{ background:var(--primary); color:#fff; border-color:var(--primary); }
-      .maincol{ flex:1; min-width:0; }
+      .maincol{ flex:1; min-width:0; overflow:hidden; }
       
       /* 모바일: 좌측 탭 숨기고 상단 탭 표시 */
       .tabbar{ display:none; }
@@ -184,7 +184,7 @@
           
           <!-- 통계 카드 -->
           <div class="section" id="settle-stats-section" style="display:none;">
-            <div class="grid grid-4">
+            <div class="grid grid-2">
               <div class="card stat-card" style="border-left:4px solid var(--primary);">
                 <div class="stat-icon">📑</div>
                 <div class="stat-label">선택된 탭</div>
@@ -284,12 +284,12 @@
               <div class="muted" style="margin-bottom:6px; font-size:12px">대량등록 엑셀을 업로드하세요. 헤더: 거래처, 상품명, 유형(공란/저장/트래픽), 단가, 계좌, 은행, 예금주</div>
               <div class="stack" style="gap:10px; align-items:center; flex-wrap:wrap">
                 <input id="bulk-file" type="file" accept=".xlsx" />
-                <button id="bulk-upload" class="btn btn-primary">업로드 미리보기</button>
-                <button id="bulk-apply-xlsx" class="btn">일괄 추가/병합</button>
+                <button id="bulk-upload" class="btn btn-primary btn-sm">업로드 미리보기</button>
+                <button id="bulk-apply-xlsx" class="btn btn-sm btn-secondary">일괄 추가/병합</button>
                 <span id="bulk-status" class="muted" style="font-size:12px"></span>
               </div>
-              <div style="overflow:auto; margin-top:8px; max-height:320px">
-                <table id="tbl-bulk" class="dense sticky" style="width:100%">
+              <div style="overflow-x:auto; margin-top:8px; max-height:320px; border:1px solid var(--line); border-radius:8px;">
+                <table id="tbl-bulk" class="dense sticky" style="width:100%; min-width:900px;">
                   <thead>
                     <tr>
                       <th>#</th><th>거래처</th><th>상품명</th><th>유형</th><th>단가</th><th>계좌</th><th>은행</th><th>예금주</th><th>상태</th>
@@ -300,8 +300,8 @@
               </div>
             </div>
 
-            <div style="overflow:auto; margin-top:8px; max-height:420px">
-              <table id="tbl-price" class="dense sticky" style="width:100%">
+            <div style="overflow-x:auto; margin-top:8px; max-height:420px; border:1px solid var(--line); border-radius:8px;">
+              <table id="tbl-price" class="dense sticky" style="width:100%; min-width:900px;">
                 <thead>
                   <tr>
                     <th>거래처</th><th>상품명</th><th>유형</th><th>단가</th><th>계좌</th><th>은행</th><th>예금주</th><th></th>
@@ -325,11 +325,11 @@
             <div class="grid">
               <div class="panel">
                 <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px">
-                  <div class="muted">신규 상품</div>
-                  <button id="btn-apply-missing" class="btn btn-primary">추가</button>
+                  <div class="muted" style="font-weight:600;">신규 상품</div>
+                  <button id="btn-apply-missing" class="btn btn-primary btn-sm">추가</button>
                 </div>
-                <div style="overflow:auto">
-                  <table class="mini" style="width:100%">
+                <div style="overflow-x:auto; max-height:300px;">
+                  <table class="mini" style="width:100%; min-width:600px;">
                     <thead><tr><th>반영</th><th>대행사</th><th>상품명</th><th>유형</th><th>수량 합계</th><th>단가(입력)</th></tr></thead>
                     <tbody id="tbl-missing-body"></tbody>
                   </table>
@@ -337,14 +337,14 @@
               </div>
               <div class="panel">
                 <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px">
-                  <div class="muted">추가 지출</div>
+                  <div class="muted" style="font-weight:600;">추가 지출</div>
                   <div class="stack" style="gap:6px">
-                    <button id="btn-add-extra" class="btn">행 추가</button>
-                    <button id="btn-save-extra" class="btn btn-primary">추가 지출 저장</button>
+                    <button id="btn-add-extra" class="btn btn-sm btn-secondary">행 추가</button>
+                    <button id="btn-save-extra" class="btn btn-primary btn-sm">추가 지출 저장</button>
                   </div>
                 </div>
-                <div style="overflow:auto">
-                  <table class="mini" style="width:100%">
+                <div style="overflow-x:auto; max-height:300px;">
+                  <table class="mini" style="width:100%; min-width:600px;">
                     <thead><tr><th>반영</th><th>날짜</th><th>대행사</th><th>상품</th><th>금액</th><th></th></tr></thead>
                     <tbody id="tbl-extra-body"></tbody>
                   </table>
@@ -363,24 +363,24 @@
               <h2 class="section-title">📊 정산 결과</h2>
             </div>
             <div id="results-panel" class="card">
-            <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
-              <div class="stack" style="gap:10px; align-items:center">
-                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-guarantee"> 보장형</label>
-                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-manage"> 관리형</label>
-                <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-mincom"> 민컴&궁서</label>
-                <span id="agg-total-badge" class="pill"></span>
+            <div style="margin-bottom:16px;">
+              <div class="stack" style="gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap;">
+                <label class="muted" style="display:flex; align-items:center; gap:6px; font-weight:500;"><input type="checkbox" id="cb-guarantee" style="width:16px; height:16px;"> 보장형</label>
+                <label class="muted" style="display:flex; align-items:center; gap:6px; font-weight:500;"><input type="checkbox" id="cb-manage" style="width:16px; height:16px;"> 관리형</label>
+                <label class="muted" style="display:flex; align-items:center; gap:6px; font-weight:500;"><input type="checkbox" id="cb-mincom" style="width:16px; height:16px;"> 민컴&궁서</label>
+                <span id="agg-total-badge" class="pill" style="font-weight:600;"></span>
               </div>
-              <div class="stack" style="gap:8px">
-                <button id="btn-toggle-collapse" class="btn">전체 접기</button>
-                <button id="btn-delete-toggle" class="btn" title="결재선 반영에서 특정 건 제외">삭제</button>
-                <button id="btn-finalize-wizard" class="btn-accent" title="최종 보고 생성">최종 정산</button>
+              <div class="stack" style="gap:8px; flex-wrap:wrap;">
+                <button id="btn-toggle-collapse" class="btn btn-sm btn-secondary">전체 접기</button>
+                <button id="btn-delete-toggle" class="btn btn-sm btn-secondary" title="결재선 반영에서 특정 건 제외">삭제</button>
+                <button id="btn-finalize-wizard" class="btn btn-accent" title="최종 보고 생성">🎯 최종 정산</button>
               </div>
             </div>
             <!-- 상품별 카드 그리드 -->
             <div id="cards-container" class="cards"></div>
             <!-- 상품별 보기 -->
-            <div style="overflow:auto">
-              <table id="tbl-product" style="width:100%; display:none">
+            <div style="overflow-x:auto; margin-top:16px;">
+              <table id="tbl-product" style="width:100%; display:none; min-width:800px;">
                 <thead>
                   <tr>
                     <th>날짜</th>
@@ -394,8 +394,8 @@
               </table>
             </div>
             <!-- 대행사별 보기 -->
-            <div style="overflow:auto">
-              <table id="tbl-agency" style="width:100%; display:none">
+            <div style="overflow-x:auto; margin-top:16px;">
+              <table id="tbl-agency" style="width:100%; display:none; min-width:1000px;">
                 <thead>
                   <tr>
                     <th>날짜</th>
