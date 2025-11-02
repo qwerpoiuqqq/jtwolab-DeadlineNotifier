@@ -8,137 +8,258 @@
     <title>마감 안내 생성기</title>
     <style>
       :root{
-        --bg:#ffffff;
-        --text:#1f2328;
-        --muted:#6b778c;
-        --line:#e5e7eb;
-        --panel:#ffffff;
-        --pill:#f6f8fa;
-        --btn:#111827;
+        --bg:#f8fafc;
+        --text:#0f172a;
+        --muted:#64748b;
+        --line:#e2e8f0;
+        --primary:#3b82f6;
+        --primary-dark:#2563eb;
+        --success:#10b981;
+        --warning:#f59e0b;
+        --danger:#ef4444;
+        --card-bg:#ffffff;
+        --hover:#f1f5f9;
       }
+      * { box-sizing:border-box; margin:0; padding:0; }
       html,body{height:100%}
       body{
         margin:0; background:var(--bg); color:var(--text);
-        font-family: ui-sans-serif, system-ui, "Noto Sans KR", Arial;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
         -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
       }
-      .container{ max-width:980px; margin:0 auto; padding:24px; }
-      .title{ font-weight:800; letter-spacing:.2px; font-size:18px; margin-bottom:16px; }
-      .home-link{ color:inherit; text-decoration:none; }
-      .home-link:hover{ text-decoration:underline; }
+      
+      /* 헤더 */
+      .header{ background:var(--card-bg); border-bottom:1px solid var(--line); padding:20px 0; position:sticky; top:0; z-index:50; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+      .container{ max-width:1400px; margin:0 auto; padding:0 24px; }
+      .header-content{ display:flex; justify-content:space-between; align-items:center; gap:20px; flex-wrap:wrap; }
+      .logo{ font-size:24px; font-weight:800; color:var(--text); text-decoration:none; }
+      .logo:hover{ color:var(--primary); }
+      .nav-links{ display:flex; gap:8px; }
+      .nav-link{ padding:8px 16px; border-radius:8px; color:var(--muted); text-decoration:none; font-size:14px; font-weight:500; transition:all .2s; }
+      .nav-link:hover{ background:var(--hover); color:var(--text); }
+      .nav-link.active{ background:var(--primary); color:#fff; }
+      
+      .main{ padding:32px 0; }
+      .section{ margin-bottom:32px; }
+      .section-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+      .section-title{ font-size:20px; font-weight:700; color:var(--text); }
 
-      .panel{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+      /* 카드 */
+      .card{ background:var(--card-bg); border:1px solid var(--line); border-radius:12px; padding:20px; transition:all .2s; }
+      .card:hover{ box-shadow:0 4px 12px rgba(0,0,0,.08); }
+      
+      /* 통계 카드 */
+      .stat-card{ position:relative; overflow:hidden; }
+      .stat-icon{ position:absolute; top:16px; right:16px; font-size:32px; opacity:0.2; }
+      .stat-label{ font-size:13px; color:var(--muted); font-weight:500; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px; }
+      .stat-value{ font-size:36px; font-weight:800; line-height:1; margin-bottom:8px; }
+      
+      /* 버튼 */
+      .btn{ display:inline-flex; align-items:center; gap:6px; padding:10px 16px; border-radius:8px; font-size:14px; font-weight:500; cursor:pointer; border:none; transition:all .2s; white-space:nowrap; }
+      .btn-primary{ background:var(--primary); color:#fff; }
+      .btn-primary:hover{ background:var(--primary-dark); }
+      .btn-secondary{ background:#fff; color:var(--text); border:1px solid var(--line); }
+      .btn-secondary:hover{ background:var(--hover); }
+      .btn-success{ background:var(--success); color:#fff; }
+      .btn-sm{ padding:6px 12px; font-size:13px; }
+      .btn:disabled{ opacity:0.6; cursor:not-allowed; }
+      
+      /* 그리드 */
+      .grid{ display:grid; gap:20px; }
+      .grid-2{ grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); }
+      .grid-3{ grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); }
+      .grid-4{ grid-template-columns:repeat(4, 1fr); }
+      
+      /* 필터 바 */
+      .filter-bar{ background:var(--card-bg); border:1px solid var(--line); border-radius:10px; padding:16px; display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
+      .filter-group{ flex:1; min-width:150px; }
+      .filter-label{ font-size:12px; color:var(--muted); font-weight:500; margin-bottom:6px; display:block; }
+      .filter-input, .filter-select{ width:100%; padding:8px 12px; border:1px solid var(--line); border-radius:8px; font-size:14px; outline:none; transition:all .2s; }
+      .filter-input:focus, .filter-select:focus{ border-color:var(--primary); box-shadow:0 0 0 3px rgba(59,130,246,.1); }
+      
+      label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:500; }
+      input[type="text"],input[type="date"],select{
+        background:#fff; color:var(--text); border:1px solid var(--line); border-radius:8px;
+        padding:10px 12px; min-width:220px; outline:none; transition:all .2s;
+      }
+      input[type="text"]:focus,input[type="date"]:focus,select:focus{ border-color:var(--primary); box-shadow:0 0 0 3px rgba(59,130,246,.1); }
+      input::placeholder{ color:#9da7b1; }
+      
       .stack{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
       .stack-right{ margin-left:auto; display:flex; gap:8px; }
 
-      label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
-      input[type="text"],input[type="date"],select{
-        background:#fff; color:var(--text); border:1px solid var(--line); border-radius:10px;
-        padding:10px 12px; min-width:220px; outline:none;
-      }
-      input::placeholder{ color:#9da7b1; }
-
-      .btn{ border:1px solid var(--line); background:#fff; color:var(--text); padding:10px 14px; border-radius:10px; cursor:pointer; }
-      .btn-primary{ background:#111827; color:#fff; border-color:#111827; }
-
       .chips{ display:flex; gap:8px; flex-wrap:wrap; }
-      .chip{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; cursor:pointer; font-size:12px; }
+      .chip{ border:1px solid var(--line); background:#f6f8fa; color:var(--text); padding:6px 10px; border-radius:999px; cursor:pointer; font-size:12px; transition:all .2s; }
+      .chip:hover{ background:var(--hover); }
 
       .muted{ color:var(--muted); }
-      .pill{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
+      .pill{ border:1px solid var(--line); background:#f6f8fa; color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
 
-      .grid{ display:grid; gap:12px; }
-      textarea{ background:#fff; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:12px 14px; outline:none; width:100%; min-height:110px; resize:vertical; }
+      textarea{ background:#fff; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:12px 14px; outline:none; width:100%; min-height:110px; resize:vertical; transition:all .2s; }
+      textarea:focus{ border-color:var(--primary); box-shadow:0 0 0 3px rgba(59,130,246,.1); }
       .controls{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-      .switch{ display:flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--line); background:var(--pill); border-radius:999px; font-size:12px; }
-      @media(min-width:900px){ .grid{ grid-template-columns:1fr 1fr; } }
-      .card{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px; }
+      .switch{ display:flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--line); background:#f6f8fa; border-radius:999px; font-size:12px; }
+      
       .card-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
       .name{ font-weight:700; }
       .copy{ white-space:pre-wrap; background:#fff; border:1px dashed var(--line); border-radius:10px; padding:10px; font-family: ui-monospace, Menlo, Consolas, "Courier New"; color:#0b0f14; text-align:left; }
 
-      .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.08); backdrop-filter: blur(2px); z-index:50; }
-      .spinner{ width:34px; height:34px; border:3px solid rgba(17,24,39,.18); border-top-color:#111827; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 10px; }
+      .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.5); z-index:50; }
+      .spinner{ width:34px; height:34px; border:3px solid rgba(59,130,246,.3); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 10px; }
       .progress{ width:260px; height:8px; background:#e5e7eb; border-radius:999px; overflow:hidden; margin:8px auto 0; }
-      .progress-bar{ height:100%; width:0%; background:#111827; transition:width .2s ease; }
+      .progress-bar{ height:100%; width:0%; background:var(--primary); transition:width .2s ease; }
       @keyframes spin{ to{ transform:rotate(360deg); } }
       .center{ text-align:center; }
 
-      .toast{ position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; border:1px solid #111827; padding:10px 12px; border-radius:10px; display:none; z-index:60; }
+      .toast{ position:fixed; bottom:24px; right:24px; background:var(--text); color:#fff; padding:14px 20px; border-radius:10px; font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,.15); z-index:200; opacity:0; transform:translateY(20px); transition:all .3s; display:none; }
+      .toast.show{ opacity:1; transform:translateY(0); display:block; }
+      
+      /* 빈 상태 */
+      .empty-state{ text-align:center; padding:60px 20px; color:var(--muted); }
+      .empty-icon{ font-size:48px; margin-bottom:16px; }
+      .empty-title{ font-size:18px; font-weight:600; margin-bottom:8px; color:var(--text); }
+      .empty-desc{ font-size:14px; }
+      
+      /* 반응형 */
+      @media(max-width:768px){
+        .header-content{ flex-direction:column; align-items:stretch; }
+        .grid-2, .grid-3, .grid-4{ grid-template-columns:1fr; }
+        .filter-bar{ flex-direction:column; align-items:stretch; }
+      }
     </style>
   </head>
   <body>
-    <div class="container">
-      <div class="title"><a class="home-link" href="/">마감 안내 생성기</a> · <a class="home-link" href="/manage" style="font-weight:600">보장 관리</a> · <a class="home-link" href="/settlement">결재선 · 정산</a></div>
-
-      <div class="panel" style="margin-bottom:12px">
-        <form id="q" method="get" action="/">
-          <input type="hidden" name="submit" value="1" />
-          <div class="stack">
-            <div>
-              <label>기준일</label>
-              <input type="date" name="base_date" value="{{ base_date_str }}" />
-            </div>
-            <div>
-              <label>만료일(쉼표)</label>
-              <input type="text" name="days" value="{{ days_param }}" placeholder="예: 0,1,2" />
-            </div>
-            <div>
-              <label>보기</label>
-              <select name="filter_mode">
-                <option value="agency" {% if filter_mode!='internal' %}selected{% endif %}>대행사 발주건</option>
-                <option value="internal" {% if filter_mode=='internal' %}selected{% endif %}>내부 진행건</option>
-              </select>
-            </div>
-            <div class="stack-right">
-              <button class="btn btn-primary" type="submit">조회</button>
-              <button class="btn" type="button" id="expand">전체 펼치기</button>
-              <button class="btn" type="button" id="collapse">전체 접기</button>
-            </div>
-          </div>
-          <div class="chips" style="margin-top:8px">
-            <span class="chip" data-days="0">오늘</span>
-            <span class="chip" data-days="1">1일뒤</span>
-            <span class="chip" data-days="2">2일뒤</span>
-            <span class="chip" data-days="0,1,2">0~2일</span>
-          </div>
-        </form>
-      </div>
-
-      {% if did_fetch and ordered_days %}
-      <div class="panel" style="margin-bottom:12px">
-        <div class="stack" style="flex-wrap:wrap; justify-content:flex-start">
-          <span class="muted">기준일</span><span class="pill">{{ base_date_str }}</span>
-          <span class="muted" style="margin-left:10px">날짜 매핑</span>
-          {% for d in ordered_days %}
-            <span class="pill">{{ d }}일 → {{ day_to_date_label[d] }}</span>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %}
-
-      <!-- 자동 멘트 설정 -->
-      <div class="panel" style="margin-bottom:12px">
-        <div class="stack" style="align-items:flex-start; gap:16px">
-          <div style="display:flex; align-items:center; gap:8px; min-width:160px">
-            <input id="autoMsgEnabled" type="checkbox" style="width:18px; height:18px" />
-            <label for="autoMsgEnabled" style="margin:0">자동 멘트 사용</label>
-          </div>
-          <div style="flex:1; min-width:240px">
-            <label>첫 멘트</label>
-            <textarea id="autoMsgPrefix" placeholder="대표님 안녕하세요~"></textarea>
-          </div>
-          <div style="flex:1; min-width:240px">
-            <label>끝 멘트</label>
-            <textarea id="autoMsgSuffix" placeholder="예: 연장 여부 확인 후 금일 마감시간전까지 접수 요청 부탁드립니다! 감사합니다~"></textarea>
+    <!-- 헤더 -->
+    <header class="header">
+      <div class="container">
+        <div class="header-content">
+          <a href="/" class="logo">🏢 제이투랩 관리시스템</a>
+          <div class="nav-links">
+            <a href="/" class="nav-link active">마감 안내</a>
+            <a href="/manage" class="nav-link">월보장 관리</a>
+            <a href="/settlement" class="nav-link">결재선 · 정산</a>
           </div>
         </div>
-        <div class="muted" style="margin-top:8px; font-size:12px">'대행사 발주건' 보기에서만 자동 멘트가 포함됩니다.</div>
       </div>
+    </header>
 
-      {% if did_fetch %}
+    <!-- 메인 -->
+    <main class="main">
+      <div class="container">
+        
+        {% if did_fetch %}
+        <!-- 주요 통계 -->
+        <div class="section">
+          <div class="grid grid-4">
+            <div class="card stat-card" style="border-left:4px solid var(--danger);">
+              <div class="stat-icon">🔴</div>
+              <div class="stat-label">오늘 마감</div>
+              <div class="stat-value" style="color:var(--danger);" id="stat-deadline-0">{{ deadline_stats.get(0, [])|length }}</div>
+            </div>
+            <div class="card stat-card" style="border-left:4px solid var(--warning);">
+              <div class="stat-icon">🟡</div>
+              <div class="stat-label">1일 후 마감</div>
+              <div class="stat-value" style="color:var(--warning);" id="stat-deadline-1">{{ deadline_stats.get(1, [])|length }}</div>
+            </div>
+            <div class="card stat-card" style="border-left:4px solid var(--success);">
+              <div class="stat-icon">🟢</div>
+              <div class="stat-label">2일 후 마감</div>
+              <div class="stat-value" style="color:var(--success);" id="stat-deadline-2">{{ deadline_stats.get(2, [])|length }}</div>
+            </div>
+            <div class="card stat-card" style="border-left:4px solid var(--primary);">
+              <div class="stat-icon">📊</div>
+              <div class="stat-label">총 건수</div>
+              <div class="stat-value" id="stat-total">{{ grouped|length if grouped else 0 }}</div>
+              <div class="muted" style="font-size:11px;">{{ '대행사 발주건' if filter_mode != 'internal' else '내부 진행건' }}</div>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- 필터 및 검색 -->
+        <div class="section">
+          <div class="section-header">
+            <h2 class="section-title">📅 마감 안내 조회</h2>
+          </div>
+          <div class="filter-bar">
+            <form id="q" method="get" action="/" style="width:100%;">
+              <input type="hidden" name="submit" value="1" />
+              <div class="stack">
+                <div class="filter-group" style="flex:0 0 auto;">
+                  <label class="filter-label">기준일</label>
+                  <input type="date" class="filter-input" name="base_date" value="{{ base_date_str }}" style="min-width:150px;" />
+                </div>
+                <div class="filter-group" style="flex:0 0 auto;">
+                  <label class="filter-label">만료일(쉼표)</label>
+                  <input type="text" class="filter-input" name="days" value="{{ days_param }}" placeholder="예: 0,1,2" style="min-width:150px;" />
+                </div>
+                <div class="filter-group" style="flex:0 0 auto;">
+                  <label class="filter-label">보기</label>
+                  <select class="filter-select" name="filter_mode" style="min-width:150px;">
+                    <option value="agency" {% if filter_mode!='internal' %}selected{% endif %}>대행사 발주건</option>
+                    <option value="internal" {% if filter_mode=='internal' %}selected{% endif %}>내부 진행건</option>
+                  </select>
+                </div>
+                <div style="display:flex; gap:8px; align-items:flex-end;">
+                  <button class="btn btn-primary" type="submit">🔍 조회</button>
+                  <button class="btn btn-secondary" type="button" id="expand">📂 전체 펼치기</button>
+                  <button class="btn btn-secondary" type="button" id="collapse">📁 전체 접기</button>
+                </div>
+              </div>
+              <div class="chips" style="margin-top:12px">
+                <span class="chip" data-days="0">오늘</span>
+                <span class="chip" data-days="1">1일뒤</span>
+                <span class="chip" data-days="2">2일뒤</span>
+                <span class="chip" data-days="0,1,2">0~2일</span>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        {% if did_fetch and ordered_days %}
+        <!-- 날짜 매핑 정보 -->
+        <div class="section">
+          <div class="card">
+            <div class="stack" style="flex-wrap:wrap; justify-content:flex-start">
+              <span class="muted">기준일</span><span class="pill">{{ base_date_str }}</span>
+              <span class="muted" style="margin-left:10px">날짜 매핑</span>
+              {% for d in ordered_days %}
+                <span class="pill">{{ d }}일 → {{ day_to_date_label[d] }}</span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- 자동 멘트 설정 -->
+        <div class="section">
+          <div class="section-header">
+            <h2 class="section-title">💬 자동 멘트 설정</h2>
+          </div>
+          <div class="card">
+            <div class="stack" style="align-items:flex-start; gap:16px">
+              <div style="display:flex; align-items:center; gap:8px; min-width:160px">
+                <input id="autoMsgEnabled" type="checkbox" style="width:18px; height:18px" />
+                <label for="autoMsgEnabled" style="margin:0; font-weight:500;">자동 멘트 사용</label>
+              </div>
+              <div style="flex:1; min-width:240px">
+                <label>첫 멘트</label>
+                <textarea id="autoMsgPrefix" placeholder="대표님 안녕하세요~"></textarea>
+              </div>
+              <div style="flex:1; min-width:240px">
+                <label>끝 멘트</label>
+                <textarea id="autoMsgSuffix" placeholder="예: 연장 여부 확인 후 금일 마감시간전까지 접수 요청 부탁드립니다! 감사합니다~"></textarea>
+              </div>
+            </div>
+            <div class="muted" style="margin-top:8px; font-size:12px">'대행사 발주건' 보기에서만 자동 멘트가 포함됩니다.</div>
+          </div>
+        </div>
+
+        {% if did_fetch %}
         {% if grouped %}
-          <div class="panel" style="margin-bottom:12px">
+        <!-- 토글 옵션 -->
+        <div class="section">
+          <div class="card">
             <div class="controls">
               <div class="switch"><input id="toggleDateLine" type="checkbox" style="width:18px; height:18px" /><span>날짜 문구 포함</span></div>
               <div class="switch"><input id="toggleWorkload" type="checkbox" style="width:18px; height:18px" /><span>일작업량 표시</span></div>
@@ -147,17 +268,18 @@
               <span class="muted">체크 상태가 본문에 즉시 반영됩니다.</span>
             </div>
           </div>
-          <div class="panel" style="margin-bottom:12px">
-            <div class="controls" style="justify-content:space-between; gap:8px; flex-wrap:wrap">
-              <div class="stack" style="gap:8px">
-                <button class="btn" type="button" id="select-all">전체 선택</button>
-              </div>
-              <div class="stack" style="gap:8px">
-                <button class="btn btn-primary" type="button" id="bulk-done">마감 완료</button>
-              </div>
+        </div>
+        
+        <!-- 대행사 목록 -->
+        <div class="section">
+          <div class="section-header">
+            <h2 class="section-title">📋 대행사별 마감 안내</h2>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-secondary btn-sm" type="button" id="select-all">✅ 전체 선택</button>
+              <button class="btn btn-success" type="button" id="bulk-done">✔️ 마감 완료</button>
             </div>
           </div>
-          <div class="grid" id="results">
+          <div class="grid grid-2" id="results">
             {% for agency, tasks in grouped.items() %}
               <div class="card" data-card data-agency="{{ agency }}">
                 <div class="card-head">
@@ -166,8 +288,8 @@
                     <div class="name">[{{ agency }}]</div>
                   </div>
                   <div class="stack">
-                    <button class="btn" type="button" data-toggle>접기</button>
-                    <button class="btn btn-primary" type="button" onclick="copyText('c{{ loop.index }}')">복사</button>
+                    <button class="btn btn-sm btn-secondary" type="button" data-toggle>접기</button>
+                    <button class="btn btn-sm btn-primary" type="button" onclick="copyText('c{{ loop.index }}')">📋 복사</button>
                   </div>
                 </div>
                 <div class="copy" id="c{{ loop.index }}" data-body data-agency-index="{{ loop.index }}">
@@ -176,29 +298,39 @@
               </div>
             {% endfor %}
           </div>
+        </div>
         {% else %}
-          <div class="panel muted">조건에 해당하는 항목이 없습니다.</div>
+          <div class="section">
+            <div class="empty-state">
+              <div class="empty-icon">📭</div>
+              <div class="empty-title">조건에 해당하는 항목이 없습니다</div>
+              <div class="empty-desc">필터를 변경하거나 다른 조건으로 검색해보세요</div>
+            </div>
+          </div>
         {% endif %}
-      {% endif %}
-    </div>
+        {% endif %}
+      </div>
+    </main>
 
+    <!-- 로딩 오버레이 -->
     <div class="overlay" id="overlay">
-      <div class="center">
+      <div class="center" style="background:#fff; border-radius:16px; padding:32px; box-shadow:0 8px 24px rgba(0,0,0,.15);">
         <div class="spinner"></div>
-        <div class="muted" id="progress-text">정보를 찾는 중입니다...</div>
+        <div style="color:var(--text); font-weight:500; margin-bottom:8px;" id="progress-text">정보를 찾는 중입니다...</div>
         <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
       </div>
     </div>
 
+    <!-- Toast -->
     <div class="toast" id="toast">복사되었습니다.</div>
     
     <!-- 진행/완료 모달 -->
-    <div class="overlay" id="modal" style="display:none; background:rgba(0,0,0,.18)">
-      <div class="center" style="background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; min-width:280px">
-        <div id="modal-title" style="font-weight:700; margin-bottom:8px">처리 중</div>
-        <div id="modal-body" class="muted">잠시만 기다려주세요...</div>
-        <div style="margin-top:12px; display:flex; gap:8px; justify-content:flex-end">
-          <button class="btn" type="button" id="modal-cancel" style="display:none">취소</button>
+    <div class="overlay" id="modal" style="display:none;">
+      <div class="center" style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:24px; min-width:320px; box-shadow:0 8px 24px rgba(0,0,0,.15);">
+        <div id="modal-title" style="font-weight:700; font-size:18px; margin-bottom:12px; color:var(--text);">처리 중</div>
+        <div id="modal-body" class="muted" style="margin-bottom:16px;">잠시만 기다려주세요...</div>
+        <div style="display:flex; gap:8px; justify-content:flex-end">
+          <button class="btn btn-secondary" type="button" id="modal-cancel" style="display:none">취소</button>
           <button class="btn btn-primary" type="button" id="modal-ok" style="display:none">확인</button>
         </div>
       </div>
@@ -320,8 +452,8 @@
         if(!t) return;
         const prev=t.textContent;
         if(typeof msg==='string' && msg.length>0){ t.textContent = msg; }
-        t.style.display='block';
-        setTimeout(()=>{ t.style.display='none'; t.textContent = prev; },1200);
+        t.classList.add('show');
+        setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>{ t.textContent = prev; }, 300); },2000);
       }
       window.copyText = function(id){
         const el = document.getElementById(id); if(!el) return; const tx = el.innerText;
