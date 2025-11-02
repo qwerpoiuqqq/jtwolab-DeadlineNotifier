@@ -20,6 +20,29 @@ from sheet_client import (
 CACHE_FILE = os.getenv("INTERNAL_CACHE_FILE", "internal_cache.json")
 
 
+def _is_internal_or_postpaid(value: Any) -> bool:
+	"""내부 진행건 또는 후불 건인지 확인
+	
+	Args:
+		value: '작업 여부' 컬럼 값
+		
+	Returns:
+		True if 값이 '진행중', '후불' 또는 truthy 값
+	"""
+	if value is None:
+		return False
+	
+	s = str(value).strip().lower()
+	
+	# 명시적 상태값 체크
+	if s in ["진행중", "후불", "진행 중", "후불건"]:
+		return True
+	
+	# 기존 truthy 값도 허용 (하위 호환성)
+	from sheet_client import _is_truthy
+	return _is_truthy(value)
+
+
 def parse_date_flexible(date_str: str):
 	"""다양한 날짜 형식을 파싱 (매우 관대하게)"""
 	from datetime import date, datetime, timedelta
@@ -234,8 +257,8 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 		for row in records:
 			row_norm = { _normalize_key(k): v for k, v in row.items() }
 			
-			# 내부 진행건만 필터
-			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			# 내부 진행건 또는 후불 건 필터
+			is_internal = _is_internal_or_postpaid(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
 			if not is_internal:
 				continue
 			
@@ -484,7 +507,7 @@ def fetch_internal_items() -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
 			row_norm = { _normalize_key(k): v for k, v in row.items() }
 			agency_raw = str(_get_value_flexible(row_norm, settings.agency_col, "AGENCY_COLUMN") or "").strip()
 			is_checked = _is_truthy(_get_value_flexible(row_norm, settings.checked_col, "CHECKED_COLUMN"))
-			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			is_internal = _is_internal_or_postpaid(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
 			remain = _parse_int_maybe(_get_value_flexible(row_norm, settings.remaining_days_col, "REMAINING_DAYS_COLUMN"))
 			bizname = str(_get_value_flexible(row_norm, settings.bizname_col, "BIZNAME_COLUMN") or "").strip()
 			product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
@@ -708,8 +731,8 @@ def fetch_workload_schedule_direct(company: str = None, business_name: str = Non
 			row_norm = { _normalize_key(k): v for k, v in row.items() }
 			total_rows += 1
 			
-			# 내부 진행건만 필터
-			is_internal = _is_truthy(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
+			# 내부 진행건 또는 후불 건 필터
+			is_internal = _is_internal_or_postpaid(_get_value_flexible(row_norm, settings.internal_col, "INTERNAL_COLUMN"))
 			if not is_internal:
 				continue
 			
