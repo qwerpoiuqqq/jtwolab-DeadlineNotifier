@@ -88,3 +88,46 @@ Render 대시보드의 **Logs** 탭에서:
 - UptimeRobot (무료)
 - Cronitor 등
 
+## 🔧 문제 해결 (Troubleshooting)
+
+### Playwright 브라우저 설치 오류
+
+**증상:**
+```
+ERROR: BrowserType.launch: Executable doesn't exist at /opt/render/.cache/ms-playwright/chromium-1140/chrome-linux/chrome
+```
+
+**해결 방법:**
+
+#### 1. Docker 런타임 사용 (권장)
+Render 대시보드에서:
+- Settings → Runtime을 **Docker**로 변경
+- `render.yaml`에 `runtime: docker` 설정 확인
+- Docker 이미지에 Playwright 브라우저가 포함됨
+
+#### 2. Python 런타임 사용 시
+`build.sh`에 이미 Playwright 설치 명령이 포함되어 있습니다:
+```bash
+playwright install chromium
+playwright install-deps chromium
+```
+
+빌드 로그에서 위 명령이 성공했는지 확인하세요.
+
+#### 3. 메모리 부족 문제
+Free Tier (512MB)에서 Playwright 실행 시 메모리 부족 발생 가능:
+- **Starter 플랜** ($7/month, 2GB)으로 업그레이드 권장
+- 또는 순위 갱신 빈도 줄이기
+
+#### 4. 자동 복구 로직
+`rank_crawler.py`에 자동 설치 로직이 추가되어 있어, 브라우저가 없으면 자동으로 설치 시도합니다.
+
+### 데이터베이스 초기화 문제
+
+**증상:** 재배포 시 데이터가 사라짐
+
+**해결 방법:**
+- 방안 1: Render PostgreSQL 사용 (무료)
+- 방안 2: `AUTO_SYNC_ON_START=true` 설정 (자동 동기화)
+- 방안 3: Google Cloud Storage 백업 사용
+
