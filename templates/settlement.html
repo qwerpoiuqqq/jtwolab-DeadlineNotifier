@@ -6,86 +6,165 @@
     <link rel="icon" type="image/png" href="/static/favicon.png">
     <title>결재선 · 정산</title>
     <style>
-      :root{ --bg:#ffffff; --text:#1f2328; --muted:#6b778c; --line:#e5e7eb; --panel:#ffffff; --pill:#f6f8fa; --btn:#111827; }
-      *,*::before,*::after{ box-sizing:border-box; }
+      :root{
+        --bg:#f8fafc;
+        --text:#0f172a;
+        --muted:#64748b;
+        --line:#e2e8f0;
+        --primary:#3b82f6;
+        --primary-dark:#2563eb;
+        --success:#10b981;
+        --warning:#f59e0b;
+        --danger:#ef4444;
+        --card-bg:#ffffff;
+        --hover:#f1f5f9;
+      }
+      * { box-sizing:border-box; margin:0; padding:0; }
       html,body{ height:100% }
-      body{ margin:0; background:var(--bg); color:var(--text); font-family: ui-sans-serif, system-ui, "Noto Sans KR", Arial; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-      .content{ flex:1; padding:24px; }
-      .title{ font-weight:800; letter-spacing:.2px; font-size:18px; margin-bottom:16px; }
-      .home-link{ color:inherit; text-decoration:none; }
-      .home-link:hover{ text-decoration:underline; }
-      .nav a{ display:block; padding:10px 12px; border-radius:10px; color:inherit; text-decoration:none; margin-bottom:6px; border:1px solid var(--line); background:var(--pill); }
-      .nav a.active{ background:#111827; color:#fff; border-color:#111827; }
-      .panel{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+      body{ margin:0; background:var(--bg); color:var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+      
+      /* 헤더 */
+      .header{ background:var(--card-bg); border-bottom:1px solid var(--line); padding:20px 0; position:sticky; top:0; z-index:50; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+      .container{ max-width:1400px; margin:0 auto; padding:0 24px; }
+      .header-content{ display:flex; justify-content:space-between; align-items:center; gap:20px; flex-wrap:wrap; }
+      .logo{ font-size:24px; font-weight:800; color:var(--text); text-decoration:none; }
+      .logo:hover{ color:var(--primary); }
+      .nav-links{ display:flex; gap:8px; }
+      .nav-link{ padding:8px 16px; border-radius:8px; color:var(--muted); text-decoration:none; font-size:14px; font-weight:500; transition:all .2s; }
+      .nav-link:hover{ background:var(--hover); color:var(--text); }
+      .nav-link.active{ background:var(--primary); color:#fff; }
+      
+      .main{ padding:32px 0; }
+      .section{ margin-bottom:32px; }
+      .section-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+      .section-title{ font-size:20px; font-weight:700; color:var(--text); }
+      
+      /* 카드 */
+      .card{ background:var(--card-bg); border:1px solid var(--line); border-radius:12px; padding:20px; transition:all .2s; }
+      .card:hover{ box-shadow:0 4px 12px rgba(0,0,0,.08); }
+      
+      /* 통계 카드 */
+      .stat-card{ position:relative; overflow:hidden; }
+      .stat-icon{ position:absolute; top:16px; right:16px; font-size:32px; opacity:0.2; }
+      .stat-label{ font-size:13px; color:var(--muted); font-weight:500; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px; }
+      .stat-value{ font-size:36px; font-weight:800; line-height:1; margin-bottom:8px; }
+      
+      .panel{ background:var(--card-bg); border:1px solid var(--line); border-radius:12px; padding:16px; }
       .stack{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-      label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
-      input[type="text"], input[type="date"], select{ background:#fff; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px 12px; min-width:200px; outline:none; }
-      .btn{ border:1px solid var(--line); background:#fff; color:#111827; padding:10px 14px; border-radius:10px; cursor:pointer; }
-      .btn-primary{ background:#111827; color:#fff; border-color:#111827; }
-      .btn-danger{ background:#b91c1c; color:#fff; border-color:#b91c1c; }
-      .btn-accent{ background:#2563eb; color:#fff; border-color:#2563eb; border-radius:12px; }
-      .btn-ghost{ background:#fff; color:#2563eb; border-color:#2563eb; }
-      .btn-outline{ background:#fff; color:#111827; border-color:#d1d5db; }
-      .btn-sm{ padding:6px 10px; border-radius:8px; font-size:12px; }
+      /* 버튼 */
+      .btn{ display:inline-flex; align-items:center; gap:6px; padding:10px 16px; border-radius:8px; font-size:14px; font-weight:500; cursor:pointer; border:none; transition:all .2s; white-space:nowrap; }
+      .btn-primary{ background:var(--primary); color:#fff; }
+      .btn-primary:hover{ background:var(--primary-dark); }
+      .btn-secondary{ background:#fff; color:var(--text); border:1px solid var(--line); }
+      .btn-secondary:hover{ background:var(--hover); }
+      .btn-success{ background:var(--success); color:#fff; }
+      .btn-danger{ background:var(--danger); color:#fff; }
+      .btn-accent{ background:var(--primary); color:#fff; border-radius:12px; }
+      .btn-ghost{ background:#fff; color:var(--primary); border:1px solid var(--primary); }
+      .btn-outline{ background:#fff; color:var(--text); border:1px solid var(--line); }
+      .btn-sm{ padding:6px 12px; font-size:13px; }
+      .btn:disabled{ opacity:0.6; cursor:not-allowed; }
       .btn-group{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-      .tag{ display:inline-block; padding:4px 8px; border:1px solid var(--line); border-radius:999px; background:var(--pill); font-size:12px; cursor:pointer; margin-right:6px; }
-      .tag.active{ background:#111827; color:#fff; border-color:#111827; }
+      
+      /* 그리드 */
+      .grid{ display:grid; gap:20px; }
+      .grid-2{ grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); }
+      .grid-3{ grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); }
+      .grid-4{ grid-template-columns:repeat(4, 1fr); }
+      
+      label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:500; }
+      input[type="text"], input[type="date"], input[type="number"], select{ background:#fff; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:10px 12px; min-width:200px; outline:none; transition:all .2s; }
+      input[type="text"]:focus, input[type="date"]:focus, input[type="number"]:focus, select:focus{ border-color:var(--primary); box-shadow:0 0 0 3px rgba(59,130,246,.1); }
+      .tag{ display:inline-block; padding:4px 8px; border:1px solid var(--line); border-radius:999px; background:#f6f8fa; font-size:12px; cursor:pointer; margin-right:6px; transition:all .2s; }
+      .tag.active{ background:var(--primary); color:#fff; border-color:var(--primary); }
+      .tag:hover{ background:var(--hover); }
       .muted-sm{ font-size:12px; color:var(--muted); }
-      .wizard{ border:1px solid var(--line); background:#fff; border-radius:12px; padding:16px; }
+      .wizard{ border:1px solid var(--line); background:var(--card-bg); border-radius:16px; padding:24px; box-shadow:0 4px 12px rgba(0,0,0,.08); }
       .slide{ display:none; }
       .slide.active{ display:block; }
       .two-col{ display:grid; gap:12px; }
       @media(min-width:1100px){ .two-col{ grid-template-columns: 1fr 1fr; } }
       .muted{ color:var(--muted); }
-      .pill{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
-      .grid{ display:grid; gap:12px; }
-      @media(min-width:1100px){ .grid{ grid-template-columns: 1fr 1fr; } }
+      .pill{ border:1px solid var(--line); background:#f6f8fa; color:var(--text); padding:6px 10px; border-radius:999px; font-size:12px; }
       .cards{ display:grid; gap:12px; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
-      .card{ border:1px solid var(--line); border-radius:10px; background:#fff; }
       .card .card-hd{ display:flex; justify-content:space-between; align-items:center; padding:10px 12px; cursor:pointer; }
       .card .card-bd{ padding:0 12px 12px 12px; }
       .card.collapsed .card-bd{ display:none; }
       .mini{ font-size:12px; }
       .mini th, .mini td{ padding:4px 6px; }
       .dense th, .dense td{ padding:6px 8px; font-size:12px; }
-      .sticky thead th{ position:sticky; top:0; background:#fff; z-index:1; }
+      .sticky thead th{ position:sticky; top:0; background:var(--card-bg); z-index:1; }
       .two-grid{ display:grid; gap:10px; grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
       .fill{ width:100%; }
       .acc-grid{ display:grid; gap:10px; grid-template-columns: minmax(0,1fr) 140px 160px; align-items:end; }
       .col-left{ grid-column: 1 / 2; }
-      table{ width:100%; border-collapse: collapse; }
-      th, td{ border-bottom:1px solid var(--line); padding:8px 6px; text-align:left; }
-      th{ font-size:12px; color:var(--muted); font-weight:600; }
+      
+      /* 테이블 */
+      table{ width:100%; border-collapse: collapse; background:var(--card-bg); }
+      th{ background:var(--hover); padding:12px 16px; text-align:left; font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; border-bottom:1px solid var(--line); }
+      td{ padding:14px 16px; border-bottom:1px solid var(--line); font-size:14px; }
+      tbody tr{ transition:background .2s; }
+      tbody tr:hover{ background:var(--hover); }
+      
       .chips{ display:flex; gap:8px; flex-wrap:wrap; }
-      .chip{ border:1px solid var(--line); background:var(--pill); color:var(--text); padding:8px 12px; border-radius:999px; cursor:pointer; font-size:12px; }
-      .chip.active{ background:#111827; color:#fff; border-color:#111827; }
-      .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.08); backdrop-filter: blur(2px); z-index:50; }
-      .spinner{ width:34px; height:34px; border:3px solid rgba(17,24,39,.18); border-top-color:#111827; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 10px; }
+      .chip{ border:1px solid var(--line); background:#f6f8fa; color:var(--text); padding:8px 12px; border-radius:999px; cursor:pointer; font-size:12px; transition:all .2s; }
+      .chip.active{ background:var(--primary); color:#fff; border-color:var(--primary); }
+      .chip:hover{ background:var(--hover); }
+      
+      /* 로딩 */
+      .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.5); z-index:50; }
+      .spinner{ width:34px; height:34px; border:3px solid rgba(59,130,246,.3); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 10px; }
       .progress{ width:260px; height:8px; background:#e5e7eb; border-radius:999px; overflow:hidden; margin:8px auto 0; }
-      .progress-bar{ height:100%; width:0%; background:#111827; transition:width .2s ease; }
+      .progress-bar{ height:100%; width:0%; background:var(--primary); transition:width .2s ease; }
       @keyframes spin{ to{ transform:rotate(360deg); } }
       /* 페이지 2열 레이아웃 */
       .page{ display:flex; gap:16px; align-items:flex-start; }
-      .subnav{ width:220px; border:1px solid var(--line); background:#fff; border-radius:12px; padding:12px; }
-      .subnav .title-sm{ font-weight:700; margin-bottom:10px; }
-      .subnav .vtab{ display:block; width:100%; text-align:left; padding:10px 12px; border:1px solid var(--line); background:var(--pill); border-radius:10px; margin-bottom:8px; cursor:pointer; }
-      .subnav .vtab.active{ background:#111827; color:#fff; border-color:#111827; }
+      .subnav{ width:220px; border:1px solid var(--line); background:var(--card-bg); border-radius:12px; padding:16px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+      .subnav .title-sm{ font-weight:700; font-size:14px; margin-bottom:12px; color:var(--text); }
+      .subnav .vtab{ display:block; width:100%; text-align:left; padding:10px 16px; border:1px solid var(--line); background:#f6f8fa; border-radius:10px; margin-bottom:8px; cursor:pointer; font-weight:500; font-size:14px; color:var(--text); transition:all .2s; }
+      .subnav .vtab:hover{ background:var(--hover); }
+      .subnav .vtab.active{ background:var(--primary); color:#fff; border-color:var(--primary); }
       .maincol{ flex:1; min-width:0; }
+      
       /* 모바일: 좌측 탭 숨기고 상단 탭 표시 */
       .tabbar{ display:none; }
       @media(max-width:900px){
         .page{ display:block; }
         .subnav{ display:none; }
         .tabbar{ display:block; }
+        .grid-2, .grid-3, .grid-4{ grid-template-columns:1fr; }
       }
-      /* 탭 전환은 JS에서만 제어 */
+      
+      /* Toast */
+      .toast{ position:fixed; bottom:24px; right:24px; background:var(--text); color:#fff; padding:14px 20px; border-radius:10px; font-size:14px; font-weight:500; box-shadow:0 8px 24px rgba(0,0,0,.15); z-index:200; opacity:0; transform:translateY(20px); transition:all .3s; display:none; }
+      .toast.show{ opacity:1; transform:translateY(0); display:block; }
+      
+      /* 빈 상태 */
+      .empty-state{ text-align:center; padding:60px 20px; color:var(--muted); }
+      .empty-icon{ font-size:48px; margin-bottom:16px; }
+      .empty-title{ font-size:18px; font-weight:600; margin-bottom:8px; color:var(--text); }
+      .empty-desc{ font-size:14px; }
     </style>
   </head>
   <body>
-    <div class="content" style="max-width:1100px; margin:0 auto; padding:24px">
-      <div class="title"><a class="home-link" href="/">마감 안내 생성기</a> · <a class="home-link" href="/manage">보장 관리</a> · <a class="home-link" href="/settlement" style="font-weight:600">결재선 · 정산</a></div>
+    <!-- 헤더 -->
+    <header class="header">
+      <div class="container">
+        <div class="header-content">
+          <a href="/" class="logo">🏢 제이투랩 관리시스템</a>
+          <div class="nav-links">
+            <a href="/" class="nav-link">마감 안내</a>
+            <a href="/manage" class="nav-link">월보장 관리</a>
+            <a href="/settlement" class="nav-link active">결재선 · 정산</a>
+          </div>
+        </div>
+      </div>
+    </header>
 
-      <div class="page">
+    <!-- 메인 -->
+    <main class="main">
+      <div class="container">
+        <div class="page">
         <aside class="subnav">
           <div class="title-sm">결재선</div>
           <button id="side-tab-settle" class="vtab active" type="button">정산</button>
@@ -93,22 +172,53 @@
         </aside>
         <div class="maincol">
           <!-- 모바일 상단 탭: 데스크톱에서는 숨김 -->
-          <div id="tabbar" class="panel tabbar" style="margin-bottom:12px">
+          <div id="tabbar" class="card tabbar" style="margin-bottom:16px">
             <div class="stack" style="justify-content:flex-start">
               <button id="tab-settle" class="btn btn-primary" type="button">정산</button>
-              <button id="tab-price" class="btn" type="button">단가 관리</button>
+              <button id="tab-price" class="btn btn-secondary" type="button">단가 관리</button>
             </div>
           </div>
 
           <!-- 정산 탭 콘텐츠 -->
           <div id="settle-content">
+          
+          <!-- 통계 카드 -->
+          <div class="section" id="settle-stats-section" style="display:none;">
+            <div class="grid grid-4">
+              <div class="card stat-card" style="border-left:4px solid var(--primary);">
+                <div class="stat-icon">📑</div>
+                <div class="stat-label">선택된 탭</div>
+                <div class="stat-value" id="stat-selected-tabs">0</div>
+              </div>
+              <div class="card stat-card" style="border-left:4px solid var(--success);">
+                <div class="stat-icon">🏢</div>
+                <div class="stat-label">총 거래처</div>
+                <div class="stat-value" id="stat-total-clients">0</div>
+              </div>
+              <div class="card stat-card" style="border-left:4px solid var(--warning);">
+                <div class="stat-icon">💰</div>
+                <div class="stat-label">총 지출 (VAT 포함)</div>
+                <div class="stat-value" id="stat-total-expense">0</div>
+              </div>
+              <div class="card stat-card" style="border-left:4px solid var(--danger);">
+                <div class="stat-icon">⚠️</div>
+                <div class="stat-label">미정 단가</div>
+                <div class="stat-value" id="stat-missing-prices">0</div>
+              </div>
+            </div>
+          </div>
+          
           <!-- 1) 중앙 히어로: 탭 불러오기/기간/가져오기만 표시 (정산 탭에서만 보임) -->
-          <div id="hero" class="panel" style="margin-bottom:12px; display:block">
+          <div class="section">
+            <div class="section-header">
+              <h2 class="section-title">📊 정산 데이터 조회</h2>
+            </div>
+            <div id="hero" class="card" style="display:block">
             <div class="stack" style="align-items:flex-end">
               <div>
                 <label>구글 시트 하단 탭</label>
                 <div class="stack">
-                  <button id="load-tabs" class="btn">탭 불러오기</button>
+                  <button id="load-tabs" class="btn btn-secondary">📑 탭 불러오기</button>
                   <span id="tab-count" class="pill">0개</span>
                 </div>
               </div>
@@ -117,9 +227,10 @@
                 <div id="tab-chips" class="chips"></div>
               </div>
               <!-- 기간 선택 제거 -->
-              <button id="fetch-data" class="btn btn-primary">데이터 가져오기</button>
+              <button id="fetch-data" class="btn btn-primary">📥 데이터 가져오기</button>
             </div>
             <div class="muted" style="margin-top:8px; font-size:12px">탭명은 날짜(예: 2025-10-06) 형식을 권장합니다.</div>
+            </div>
           </div>
 
           </div>
@@ -127,7 +238,11 @@
 
           <!-- 단가 관리 탭 콘텐츠 -->
           <div id="price-content" style="display:none;">
-          <div id="price-panel" class="panel" style="margin-bottom:12px">
+          <div class="section">
+            <div class="section-header">
+              <h2 class="section-title">💰 단가 관리</h2>
+            </div>
+            <div id="price-panel" class="card">
             <div class="stack" style="justify-content:space-between">
               <div class="muted">거래처별 계좌 · 상품별 단가</div>
               <div class="btn-group">
@@ -195,13 +310,18 @@
                 <tbody></tbody>
               </table>
             </div>
+            </div>
           </div>
           </div>
           <!-- 단가 관리 탭 콘텐츠 끝 -->
           
           <!-- 3) 정산 미리보기(페이지 하단 표시) -->
           <!-- 사전 점검 패널: 미정 단가 / 추가 지출 -->
-          <div id="precheck-panel" class="panel" style="display:none; margin-bottom:12px">
+          <div class="section" id="precheck-section" style="display:none;">
+            <div class="section-header">
+              <h2 class="section-title">🔍 사전 점검</h2>
+            </div>
+            <div id="precheck-panel" class="card">
             <div class="grid">
               <div class="panel">
                 <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:6px">
@@ -232,11 +352,17 @@
               </div>
             </div>
             <div class="stack" style="justify-content:flex-end; margin-top:8px">
-              <button id="btn-finalize" class="btn btn-primary">최종 반영</button>
+              <button id="btn-finalize" class="btn btn-primary">✅ 최종 반영</button>
+            </div>
             </div>
           </div>
 
-          <div id="results-panel" class="panel" style="display:none; margin-bottom:12px">
+          <!-- 결과 패널 -->
+          <div class="section" id="results-section" style="display:none;">
+            <div class="section-header">
+              <h2 class="section-title">📊 정산 결과</h2>
+            </div>
+            <div id="results-panel" class="card">
             <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:8px">
               <div class="stack" style="gap:10px; align-items:center">
                 <label class="muted" style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="cb-guarantee"> 보장형</label>
@@ -285,18 +411,24 @@
                 <tbody></tbody>
               </table>
             </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </main>
 
+    <!-- 로딩 오버레이 -->
     <div class="overlay" id="overlay">
-      <div class="center">
+      <div class="center" style="background:#fff; border-radius:16px; padding:32px; box-shadow:0 8px 24px rgba(0,0,0,.15);">
         <div class="spinner"></div>
-        <div class="muted" id="progress-text">불러오는 중...</div>
+        <div style="color:var(--text); font-weight:500; margin-bottom:8px;" id="progress-text">불러오는 중...</div>
         <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
       </div>
     </div>
+    
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
 
     <script>
       // 상태 저장소 (임시: 클라이언트 메모리)
@@ -327,15 +459,11 @@
 
       // 간단 토스트
       function toast(msg){
-        try{
-          const d=document.createElement('div');
-          d.textContent = msg||'저장됨';
-          d.style.position='fixed'; d.style.right='16px'; d.style.bottom='16px';
-          d.style.background='#111827'; d.style.color='#fff'; d.style.border='1px solid #111827';
-          d.style.padding='10px 12px'; d.style.borderRadius='10px'; d.style.zIndex='60';
-          document.body.appendChild(d);
-          setTimeout(()=>{ try{ document.body.removeChild(d);}catch(e){} }, 1200);
-        }catch(e){}
+        const t=document.getElementById('toast');
+        if(!t) return;
+        t.textContent = msg || '저장됨';
+        t.classList.add('show');
+        setTimeout(()=>{ t.classList.remove('show'); },2000);
       }
 
       async function savePriceBook(){
@@ -386,6 +514,32 @@
 
       // 기간 선택 제거됨
 
+      // 통계 업데이트 함수
+      function updateSettleStats(){
+        try{
+          // 선택된 탭 수
+          document.getElementById('stat-selected-tabs').textContent = state.selectedTabs.length;
+          
+          // 총 거래처 수 (중복 제거)
+          const clientSet = new Set();
+          state.previewRows.forEach(r => { if(r.client) clientSet.add(r.client); });
+          document.getElementById('stat-total-clients').textContent = clientSet.size;
+          
+          // 총 지출 (VAT 포함: x1.1)
+          const totalExpense = state.previewRows.reduce((sum, r) => sum + (r.expense||0), 0);
+          const totalExpenseVAT = Math.round(totalExpense * 1.1);
+          document.getElementById('stat-total-expense').textContent = totalExpenseVAT.toLocaleString();
+          
+          // 미정 단가 건수
+          document.getElementById('stat-missing-prices').textContent = (state.missingPrices||[]).length;
+          
+          // 통계 섹션 표시
+          document.getElementById('settle-stats-section').style.display = 'block';
+        }catch(e){
+          console.error('Stats update error:', e);
+        }
+      }
+      
       // 2) 데이터 가져오기
       const fetchBtn = document.getElementById('fetch-data'); if(fetchBtn) fetchBtn.addEventListener('click', async()=>{
         showLoading('정산 데이터를 준비 중...'); setProgress(25);
@@ -399,14 +553,15 @@
           state.lastAggregates = data?.aggregates||{};
           state.missingPrices = Array.isArray(data?.missing_prices) ? data.missing_prices : [];
           await loadExtras();
+          updateSettleStats(); // 통계 업데이트
           renderPrecheck();
           renderPreview();
           renderAggregates(augmentAggregatesWithExtras(state.lastAggregates, state.extraExpenses));
           // 최종 반영 전에는 결과 패널 숨김, 사전 점검만 노출
-          const pre = document.getElementById('precheck-panel');
-          const rp = document.getElementById('results-panel');
-          if(window.__finalizing===true){ pre.style.display='none'; rp.style.display = 'block'; window.__finalizing=false; }
-          else{ pre.style.display='block'; rp.style.display = 'none'; }
+          const preSection = document.getElementById('precheck-section');
+          const resSection = document.getElementById('results-section');
+          if(window.__finalizing===true){ if(preSection) preSection.style.display='none'; if(resSection) resSection.style.display = 'block'; window.__finalizing=false; }
+          else{ if(preSection) preSection.style.display='block'; if(resSection) resSection.style.display = 'none'; }
           // 정산 탭 상태 강제 유지
           try{ setTab('settle'); }catch(e){}
           setPvTab();
