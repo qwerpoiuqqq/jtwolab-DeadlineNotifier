@@ -26,9 +26,9 @@
 
 ### 2. 기본 설정
 - **Name**: `jtwolab-deadline-notifier`
-- **Runtime**: `Python 3`
-- **Build Command**: `bash build.sh`
-- **Start Command**: `bash start.sh`
+- **Runtime**: `Docker` (권장) 또는 `Python 3`
+- **Build Command**: `bash build.sh` (Python 3인 경우) / Docker는 자동
+- **Start Command**: `bash start.sh` (Python 3인 경우) / Docker는 자동
 - **Instance Type**: `Free` (또는 `Starter - $7/month` 권장)
 
 ⚠️ **Free Tier 제한사항**:
@@ -40,6 +40,12 @@
 - 메모리: 2GB (Playwright 안정적 실행)
 - Sleep 없음
 - 더 빠른 응답
+
+🎭 **Playwright 브라우저 설치**:
+- Docker 런타임 사용 시: Dockerfile에서 자동 설치
+- Python 런타임 사용 시: build.sh에서 자동 설치
+- 런타임에도 자동 설치 로직 포함 (rank_crawler.py)
+- 순위 갱신 기능은 브라우저가 정상 설치되어야 작동
 
 ### 3. 환경변수 설정
 
