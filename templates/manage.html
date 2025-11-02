@@ -441,13 +441,13 @@
 
   <!-- 작업량 스케줄 모달 -->
   <div class="modal" id="workload-modal">
-    <div class="modal-content" style="max-width:700px;">
+    <div class="modal-content" style="max-width:500px;">
       <div class="modal-header">
-        <h3 class="modal-title">📊 작업량 스케줄 (최근 4주)</h3>
+        <h3 class="modal-title" style="font-size:16px;">📊 작업량 스케줄 (최근 4주)</h3>
         <button class="btn btn-sm btn-secondary" onclick="closeWorkloadModal()">✕</button>
       </div>
-      <div class="modal-body" style="padding:32px; background:var(--bg);">
-        <div id="workload-content" style="font-family:monospace;">
+      <div class="modal-body" style="padding:20px; background:var(--bg);">
+        <div id="workload-content" style="font-family:'Malgun Gothic', sans-serif; font-size:13px; line-height:1.6;">
           <div style="text-align:center; padding:40px; color:var(--muted);">
             <div class="loading" style="margin:0 auto 16px;"></div>
             <div>데이터를 불러오는 중...</div>
@@ -1232,18 +1232,37 @@
         return;
       }
       
-      // 텍스트 형식으로 변환 (같은 기간의 작업들을 함께)
+      // 텍스트 형식으로 변환
       const lines = [];
-      currentWorkloadData.weeks.forEach(week => {
+      
+      // 헤더 (월보장, 보장 순위, 대행사)
+      if (currentWorkloadData.business_name) {
+        const rank = currentWorkloadData.guarantee_rank ? `(${currentWorkloadData.guarantee_rank}위)` : '';
+        lines.push(`월보장 ${rank}`);
+        lines.push('');  // 빈 줄
+        
+        const agency = currentWorkloadData.agency || '흐름';
+        lines.push(agency);
+        lines.push('');  // 빈 줄
+        lines.push('');  // 빈 줄 추가
+      }
+      
+      // 기간별 작업량
+      currentWorkloadData.weeks.forEach((week, idx) => {
         // 시작일이 없으면 "~ 마감일" 형식으로
         const dateRange = week.start_date 
           ? `${week.start_date} ~ ${week.end_date}`
           : `~ ${week.end_date}`;
         lines.push(dateRange);
+        
         week.items.forEach(item => {
           lines.push(`${item.name} : ${item.workload}`);
         });
-        lines.push(''); // 빈 줄
+        
+        // 마지막 기간이 아니면 빈 줄 추가
+        if (idx < currentWorkloadData.weeks.length - 1) {
+          lines.push('');
+        }
       });
       
       const text = lines.join('\n').trim();
@@ -1280,10 +1299,28 @@
         return;
       }
       
+      // 헤더 생성 (월보장, 보장 순위, 대행사)
+      let headerHtml = '';
+      if (data.business_name) {
+        const rank = data.guarantee_rank ? `(${data.guarantee_rank}위)` : '';
+        const agency = data.agency || '흐름';
+        
+        headerHtml = `
+          <div style="margin-bottom:20px; padding-bottom:15px; border-bottom:1px solid var(--border);">
+            <div style="font-weight:700; font-size:15px; color:var(--primary); margin-bottom:6px;">
+              월보장 ${rank}
+            </div>
+            <div style="color:var(--muted); font-size:13px;">
+              ${agency}
+            </div>
+          </div>
+        `;
+      }
+      
       // 스케줄 렌더링 (같은 기간의 작업들을 함께 표시)
-      const html = data.weeks.map(week => {
+      const weeksHtml = data.weeks.map(week => {
         const itemsText = week.items.map(item => 
-          `<div style="padding-left:0; color:var(--text); line-height:1.8;">${item.name} : ${item.workload}</div>`
+          `<div style="padding-left:0; color:var(--text);">${item.name} : ${item.workload}</div>`
         ).join('');
         
         // 시작일이 없으면 "~ 마감일" 형식으로 표시
@@ -1292,8 +1329,8 @@
           : `~ ${week.end_date}`;
         
         return `
-          <div style="margin-bottom:20px; font-size:14px;">
-            <div style="font-weight:700; font-size:15px; color:var(--primary); margin-bottom:8px;">
+          <div style="margin-bottom:16px;">
+            <div style="font-weight:700; font-size:14px; color:var(--text); margin-bottom:6px;">
               ${dateRange}
             </div>
             ${itemsText}
@@ -1301,7 +1338,10 @@
         `;
       }).join('');
       
-      content.innerHTML = html;
+      content.innerHTML = headerHtml + weeksHtml;
+      
+      // 복사 버튼 표시
+      if (copyBtn) copyBtn.style.display = 'inline-flex';
       
       console.log(`📊 렌더링: ${data.weeks.length}개 기간, 총 ${data.weeks.reduce((sum, w) => sum + w.items.length, 0)}개 작업`);
       
@@ -1322,9 +1362,9 @@
       // 모달 제목 업데이트
       const modalTitle = modal.querySelector('.modal-title');
       if (businessName) {
-        modalTitle.textContent = `📊 ${businessName} - 작업량 스케줄 (최근 4주)`;
+        modalTitle.textContent = `📊 ${businessName}`;
       } else {
-        modalTitle.textContent = `📊 작업량 스케줄 (최근 4주)`;
+        modalTitle.textContent = `📊 작업량 스케줄`;
       }
       
       // 업체별 조회: 캐시만 사용
