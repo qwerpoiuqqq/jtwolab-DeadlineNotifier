@@ -198,6 +198,26 @@ class AdlogCrawler:
         failed_count = 0
         
         try:
+            # Playwright 브라우저 자동 설치 (없을 경우)
+            try:
+                import subprocess
+                import os
+                
+                # 브라우저 설치 확인 및 자동 설치
+                logger.info("Checking Playwright browser installation...")
+                result = subprocess.run(
+                    ['playwright', 'install', 'chromium'],
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
+                if result.returncode == 0:
+                    logger.info("Chromium browser ready")
+                else:
+                    logger.warning(f"Browser install warning: {result.stderr}")
+            except Exception as install_error:
+                logger.warning(f"Browser install check failed: {install_error}")
+            
             with sync_playwright() as p:
                 # 브라우저 실행 (headless mode, 메모리 최적화)
                 browser = p.chromium.launch(
@@ -208,7 +228,9 @@ class AdlogCrawler:
                         '--disable-dev-shm-usage',  # Render 메모리 제한 대응
                         '--disable-gpu',
                         '--disable-software-rasterizer',
-                        '--disable-extensions'
+                        '--disable-extensions',
+                        '--single-process',  # 단일 프로세스 모드 (메모리 절약)
+                        '--no-zygote'  # Zygote 프로세스 비활성화
                     ]
                 )
                 context = browser.new_context(
