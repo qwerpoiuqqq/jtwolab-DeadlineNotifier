@@ -139,9 +139,16 @@ class GuaranteeManager:
         if "company" in filters:
             filtered = [i for i in filtered if i.get("company") == filters["company"]]
         
-        # 상태별 필터
+        # 상태별 필터 (콤마로 구분된 여러 상태 지원)
         if "status" in filters:
-            filtered = [i for i in filtered if i.get("status") == filters["status"]]
+            status_filter = filters["status"]
+            if "," in status_filter:
+                # 여러 상태 (예: "진행중,후불")
+                status_list = [s.strip() for s in status_filter.split(",")]
+                filtered = [i for i in filtered if i.get("status") in status_list]
+            else:
+                # 단일 상태
+                filtered = [i for i in filtered if i.get("status") == status_filter]
         
         # 상품별 필터
         if "product" in filters:
@@ -226,7 +233,7 @@ class GuaranteeManager:
             by_company[company]["total"] += 1
             
             status = item.get("status", "")
-            if status in ["진행중", "세팅대기"]:
+            if status in ["진행중", "세팅대기", "후불"]:
                 by_company[company]["active"] += 1
             elif status == "완료":
                 by_company[company]["completed"] += 1
