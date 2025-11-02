@@ -139,12 +139,21 @@
     .loading{ display:inline-block; width:16px; height:16px; border:2px solid rgba(255,255,255,.3); border-top-color:#fff; border-radius:50%; animation:spin .6s linear infinite; }
     @keyframes spin{ to{ transform:rotate(360deg); } }
     
+    /* 스크롤 버튼 */
+    .scroll-buttons{ position:fixed; bottom:24px; right:24px; display:flex; flex-direction:column; gap:8px; z-index:90; }
+    .scroll-btn{ width:48px; height:48px; border-radius:50%; background:var(--primary); color:#fff; border:none; font-size:20px; cursor:pointer; box-shadow:0 4px 12px rgba(59,130,246,.3); transition:all .2s; display:flex; align-items:center; justify-content:center; opacity:0; transform:scale(0.8); }
+    .scroll-btn.show{ opacity:1; transform:scale(1); }
+    .scroll-btn:hover{ background:var(--primary-dark); box-shadow:0 6px 16px rgba(59,130,246,.4); }
+    .scroll-btn:active{ transform:scale(0.95); }
+    
     /* 반응형 */
     @media(max-width:768px){
       .header-content{ flex-direction:column; align-items:stretch; }
       .grid-2, .grid-3, .grid-4{ grid-template-columns:1fr; }
       .filter-bar{ flex-direction:column; align-items:stretch; }
       .modal-content{ width:95%; }
+      .scroll-buttons{ bottom:16px; right:16px; }
+      .scroll-btn{ width:44px; height:44px; font-size:18px; }
     }
     </style>
   </head>
@@ -283,12 +292,11 @@
             <label class="filter-label">상태</label>
             <select class="filter-select" id="filter-status">
                 <option value="">전체</option>
-                <option value="진행중">진행중</option>
+                <option value="진행중,후불">진행중(후불건 포함)</option>
                 <option value="세팅대기">세팅대기</option>
                 <option value="완료">완료</option>
                 <option value="중단">중단</option>
                 <option value="환불">환불</option>
-              <option value="후불">후불</option>
               </select>
             </div>
           <div class="filter-group">
@@ -506,7 +514,13 @@
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
-    <script>
+  <!-- 스크롤 버튼 -->
+  <div class="scroll-buttons">
+    <button class="scroll-btn" id="scroll-top" onclick="scrollToTop()" title="맨 위로">↑</button>
+    <button class="scroll-btn" id="scroll-bottom" onclick="scrollToBottom()" title="맨 아래로">↓</button>
+  </div>
+
+  <script>
     let allData = [];
     let currentEditId = null;
     let currentCompany = '제이투랩';  // 기본값
@@ -1022,7 +1036,7 @@
           </div>
         </div>
         <div class="chart-bar-group">
-          <div class="chart-label"><span>진행중</span><span>${active}건</span></div>
+          <div class="chart-label"><span>진행중(후불 포함)</span><span>${active}건</span></div>
           <div class="chart-bar-bg">
             <div class="chart-bar" style="width:${total > 0 ? (active/total*100) : 0}%; background:linear-gradient(90deg, #3b82f6, #2563eb);">${active}</div>
           </div>
@@ -1237,7 +1251,12 @@
       
       // 헤더 (월보장, 보장 순위, 대행사)
       if (currentWorkloadData.business_name) {
-        const rank = currentWorkloadData.guarantee_rank ? `(${currentWorkloadData.guarantee_rank}위)` : '';
+        let rank = '';
+        if (currentWorkloadData.guarantee_rank) {
+          const rankStr = String(currentWorkloadData.guarantee_rank);
+          // "위"가 이미 포함되어 있으면 그대로, 없으면 추가
+          rank = rankStr.includes('위') ? `(${rankStr})` : `(${rankStr}위)`;
+        }
         lines.push(`월보장 ${rank}`);
         lines.push('');  // 빈 줄
         
@@ -1302,7 +1321,12 @@
       // 헤더 생성 (월보장, 보장 순위, 대행사)
       let headerHtml = '';
       if (data.business_name) {
-        const rank = data.guarantee_rank ? `(${data.guarantee_rank}위)` : '';
+        let rank = '';
+        if (data.guarantee_rank) {
+          const rankStr = String(data.guarantee_rank);
+          // "위"가 이미 포함되어 있으면 그대로, 없으면 추가
+          rank = rankStr.includes('위') ? `(${rankStr})` : `(${rankStr}위)`;
+        }
         const agency = data.agency || '흐름';
         
         headerHtml = `
@@ -1466,12 +1490,57 @@
       if (e.key === 'Enter') document.getElementById('btn-search').click();
     });
 
+    // 스크롤 버튼 함수
+    function scrollToTop() {
+      window.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+    }
+    
+    function scrollToBottom() {
+      window.scrollTo({
+        top: document.documentElement.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+    
+    // 스크롤 이벤트 (버튼 표시/숨김)
+    function updateScrollButtons() {
+      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+      const scrollHeight = document.documentElement.scrollHeight;
+      const clientHeight = document.documentElement.clientHeight;
+      const scrollBottom = scrollHeight - scrollTop - clientHeight;
+      
+      const btnTop = document.getElementById('scroll-top');
+      const btnBottom = document.getElementById('scroll-bottom');
+      
+      // 위로 버튼: 100px 이상 스크롤 시 표시
+      if (scrollTop > 100) {
+        btnTop.classList.add('show');
+      } else {
+        btnTop.classList.remove('show');
+      }
+      
+      // 아래로 버튼: 하단에서 100px 이상 떨어져 있을 때 표시
+      if (scrollBottom > 100) {
+        btnBottom.classList.add('show');
+      } else {
+        btnBottom.classList.remove('show');
+      }
+    }
+    
+    // 스크롤 이벤트 리스너
+    window.addEventListener('scroll', updateScrollButtons);
+    window.addEventListener('resize', updateScrollButtons);
+    
     // 초기 로드
     loadData();
     updateExposureStatus();
     updateDeadlineStatus();
     updateSyncStatus();
     loadBusinessWorkloads();  // 업체별 작업량 미리 로드
+    updateScrollButtons();  // 스크롤 버튼 상태 초기화
     </script>
   </body>
   </html>
