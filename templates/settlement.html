@@ -184,32 +184,32 @@
           
           <!-- 통계 카드 -->
           <div class="section" id="settle-stats-section" style="display:none;">
-            <div class="grid grid-2">
-              <div class="card stat-card" style="border-left:4px solid var(--primary);">
-                <div class="stat-icon">📑</div>
+            <div style="display:flex; gap:12px; overflow-x:auto;">
+              <div class="card stat-card" style="border-left:4px solid var(--primary); min-width:200px; flex:1; padding:16px;">
+                <div class="stat-icon" style="font-size:24px;">📑</div>
                 <div class="stat-label">선택된 탭</div>
-                <div class="stat-value" id="stat-selected-tabs">0</div>
+                <div class="stat-value" style="font-size:28px;" id="stat-selected-tabs">0</div>
               </div>
-              <div class="card stat-card" style="border-left:4px solid var(--success);">
-                <div class="stat-icon">🏢</div>
+              <div class="card stat-card" style="border-left:4px solid var(--success); min-width:200px; flex:1; padding:16px;">
+                <div class="stat-icon" style="font-size:24px;">🏢</div>
                 <div class="stat-label">총 거래처</div>
-                <div class="stat-value" id="stat-total-clients">0</div>
+                <div class="stat-value" style="font-size:28px;" id="stat-total-clients">0</div>
               </div>
-              <div class="card stat-card" style="border-left:4px solid var(--warning);">
-                <div class="stat-icon">💰</div>
-                <div class="stat-label">총 지출 (VAT 포함)</div>
-                <div class="stat-value" id="stat-total-expense">0</div>
+              <div class="card stat-card" style="border-left:4px solid var(--warning); min-width:200px; flex:1; padding:16px;">
+                <div class="stat-icon" style="font-size:24px;">💰</div>
+                <div class="stat-label" style="font-size:11px;">총 지출 (VAT 포함)</div>
+                <div class="stat-value" style="font-size:28px;" id="stat-total-expense">0</div>
               </div>
-              <div class="card stat-card" style="border-left:4px solid var(--danger);">
-                <div class="stat-icon">⚠️</div>
+              <div class="card stat-card" style="border-left:4px solid var(--danger); min-width:200px; flex:1; padding:16px;">
+                <div class="stat-icon" style="font-size:24px;">⚠️</div>
                 <div class="stat-label">미정 단가</div>
-                <div class="stat-value" id="stat-missing-prices">0</div>
+                <div class="stat-value" style="font-size:28px;" id="stat-missing-prices">0</div>
               </div>
             </div>
           </div>
           
           <!-- 1) 중앙 히어로: 탭 불러오기/기간/가져오기만 표시 (정산 탭에서만 보임) -->
-          <div class="section">
+          <div class="section" id="settle-query-section">
             <div class="section-header">
               <h2 class="section-title">📊 정산 데이터 조회</h2>
             </div>
@@ -241,54 +241,71 @@
           <div class="section">
             <div class="section-header">
               <h2 class="section-title">💰 단가 관리</h2>
-            </div>
-            <div id="price-panel" class="card">
-            <div class="stack" style="justify-content:space-between">
-              <div class="muted">거래처별 계좌 · 상품별 단가</div>
               <div class="btn-group">
-                <button id="btn-add-price" class="btn btn-primary btn-sm">상품 추가</button>
-                <button id="btn-save-price" class="btn btn-outline btn-sm">저장</button>
-                <button id="btn-bulk-toggle" class="btn btn-outline btn-sm">엑셀 대량등록</button>
-                <a id="bulk-download" class="btn btn-outline btn-sm" href="/api/settlement/pricebook/template">대량등록 양식</a>
+                <button id="btn-save-price" class="btn btn-success btn-sm">💾 저장</button>
+                <button id="btn-bulk-toggle" class="btn btn-secondary btn-sm">📤 엑셀 대량등록</button>
+                <a id="bulk-download" class="btn btn-secondary btn-sm" href="/api/settlement/pricebook/template">📥 양식 다운로드</a>
               </div>
             </div>
-            <!-- 인라인 에디터: 2열 압축 배치 -->
-            <div class="panel" style="margin-top:10px">
-                <div class="two-grid">
-                <div class="stack fill col-left" style="align-items:flex-end; min-width:0">
-                  <div style="flex:1"><label>거래처</label><input id="pb-client" class="fill" type="text" placeholder="예: 일류기획" /></div>
-                  <div style="flex:1"><label>상품명</label><input id="pb-product" class="fill" type="text" placeholder="예: 일류1" /></div>
-                  <div style="width:160px"><label>단가</label><input id="pb-price" class="fill" type="text" placeholder="예: 1750" /></div>
+            
+            <!-- 신규 상품 등록 -->
+            <div class="card" style="margin-bottom:20px;">
+              <h3 style="font-size:16px; font-weight:600; margin-bottom:16px; color:var(--text);">➕ 신규 상품 등록</h3>
+              <div class="panel" style="background:var(--bg);">
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-bottom:12px;">
+                  <div>
+                    <label>거래처 *</label>
+                    <input id="pb-client" type="text" placeholder="예: 일류기획" style="width:100%;" />
+                  </div>
+                  <div>
+                    <label>상품명 *</label>
+                    <input id="pb-product" type="text" placeholder="예: 일류1" style="width:100%;" />
+                  </div>
+                  <div>
+                    <label>단가 *</label>
+                    <input id="pb-price" type="text" placeholder="예: 1750" style="width:100%;" />
+                  </div>
                 </div>
-                <div class="stack fill col-left" style="flex-direction:column; min-width:0">
-                  <div><label>계좌</label><input id="pb-account" class="fill" type="text" placeholder="계좌" /></div>
-                  <div><label>은행</label><input id="pb-bank" class="fill" type="text" placeholder="은행" /></div>
-                  <div><label>예금주</label><input id="pb-holder" class="fill" type="text" placeholder="예: ㈜제이티더블유랩" /></div>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-bottom:12px;">
+                  <div>
+                    <label>계좌</label>
+                    <input id="pb-account" type="text" placeholder="계좌번호" style="width:100%;" />
+                  </div>
+                  <div>
+                    <label>은행</label>
+                    <input id="pb-bank" type="text" placeholder="은행명" style="width:100%;" />
+                  </div>
+                  <div>
+                    <label>예금주</label>
+                    <input id="pb-holder" type="text" placeholder="예: ㈜제이티더블유랩" style="width:100%;" />
+                  </div>
                 </div>
-                <div class="stack" style="gap:8px; white-space:nowrap">
-                    <label style="margin:0; color:var(--muted); font-size:12px">유형</label>
-                    <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="공통" checked />공통</label>
-                    <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="저장" />저장</label>
-                    <label class="muted" style="display:flex; align-items:center; gap:4px"><input type="radio" name="pb-type" value="트래픽" />트래픽</label>
+                <div class="stack" style="justify-content:space-between; align-items:center; flex-wrap:wrap;">
+                  <div class="stack" style="gap:12px; align-items:center;">
+                    <label style="margin:0; color:var(--muted); font-size:13px; font-weight:600;">유형</label>
+                    <label class="muted" style="display:flex; align-items:center; gap:6px; font-weight:500;"><input type="radio" name="pb-type" value="공통" checked />공통</label>
+                    <label class="muted" style="display:flex; align-items:center; gap:6px; font-weight:500;"><input type="radio" name="pb-type" value="저장" />저장</label>
+                    <label class="muted" style="display:flex; align-items:center; gap:6px; font-weight:500;"><input type="radio" name="pb-type" value="트래픽" />트래픽</label>
+                  </div>
+                  <div class="btn-group">
+                    <button id="pb-add-one" class="btn btn-primary" type="button">➕ 추가</button>
+                    <button id="pb-add-both" class="btn btn-secondary" type="button">➕ 저장·트래픽 동시 추가</button>
                   </div>
                 </div>
               </div>
-            <div class="stack" style="justify-content:space-between; margin-top:8px; align-items:center">
-                <div class="btn-group"><button id="pb-add-one" class="btn btn-primary btn-sm" type="button">추가</button><button id="pb-add-both" class="btn btn-outline btn-sm" type="button">저장·트래픽 동시 추가</button></div>
-                <div class="stack fill" style="align-items:center"><label style="margin:0">검색</label><input id="pb-search" type="text" placeholder="거래처/상품 검색" class="fill" /></div>
-              </div>
             </div>
-
+            
             <!-- 대량 등록 패널 -->
-            <div id="bulk-panel" class="panel" style="margin-top:10px; display:none">
-              <div class="muted" style="margin-bottom:6px; font-size:12px">대량등록 엑셀을 업로드하세요. 헤더: 거래처, 상품명, 유형(공란/저장/트래픽), 단가, 계좌, 은행, 예금주</div>
-              <div class="stack" style="gap:10px; align-items:center; flex-wrap:wrap">
-                <input id="bulk-file" type="file" accept=".xlsx" />
-                <button id="bulk-upload" class="btn btn-primary btn-sm">업로드 미리보기</button>
-                <button id="bulk-apply-xlsx" class="btn btn-sm btn-secondary">일괄 추가/병합</button>
-                <span id="bulk-status" class="muted" style="font-size:12px"></span>
+            <div id="bulk-panel" class="card" style="display:none; margin-bottom:20px;">
+              <h3 style="font-size:16px; font-weight:600; margin-bottom:12px; color:var(--text);">📤 엑셀 대량등록</h3>
+              <div class="muted" style="margin-bottom:12px; font-size:13px;">엑셀 파일을 업로드하세요. 헤더: 거래처, 상품명, 유형(공란/저장/트래픽), 단가, 계좌, 은행, 예금주</div>
+              <div class="stack" style="gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">
+                <input id="bulk-file" type="file" accept=".xlsx" style="padding:8px;" />
+                <button id="bulk-upload" class="btn btn-primary btn-sm">📤 업로드 미리보기</button>
+                <button id="bulk-apply-xlsx" class="btn btn-success btn-sm">✅ 일괄 추가/병합</button>
+                <span id="bulk-status" class="muted" style="font-size:12px; font-weight:500;"></span>
               </div>
-              <div style="overflow-x:auto; margin-top:8px; max-height:320px; border:1px solid var(--line); border-radius:8px;">
+              <div style="overflow-x:auto; border:1px solid var(--line); border-radius:8px; max-height:320px;">
                 <table id="tbl-bulk" class="dense sticky" style="width:100%; min-width:900px;">
                   <thead>
                     <tr>
@@ -299,17 +316,25 @@
                 </table>
               </div>
             </div>
-
-            <div style="overflow-x:auto; margin-top:8px; max-height:420px; border:1px solid var(--line); border-radius:8px;">
-              <table id="tbl-price" class="dense sticky" style="width:100%; min-width:900px;">
-                <thead>
-                  <tr>
-                    <th>거래처</th><th>상품명</th><th>유형</th><th>단가</th><th>계좌</th><th>은행</th><th>예금주</th><th></th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
+            
+            <!-- 단가 목록 -->
+            <div class="card">
+              <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <h3 style="font-size:16px; font-weight:600; color:var(--text); margin:0;">📋 등록된 단가 목록</h3>
+                <div style="flex:1; max-width:300px;">
+                  <input id="pb-search" type="text" placeholder="🔍 거래처/상품 검색..." style="width:100%;" />
+                </div>
+              </div>
+              <div style="overflow-x:auto; border:1px solid var(--line); border-radius:8px; max-height:500px;">
+                <table id="tbl-price" class="dense sticky" style="width:100%; min-width:900px;">
+                  <thead>
+                    <tr>
+                      <th>거래처</th><th>상품명</th><th>유형</th><th>단가</th><th>계좌</th><th>은행</th><th>예금주</th><th>관리</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
             </div>
           </div>
           </div>
@@ -533,8 +558,12 @@
           // 미정 단가 건수
           document.getElementById('stat-missing-prices').textContent = (state.missingPrices||[]).length;
           
-          // 통계 섹션 표시
-          document.getElementById('settle-stats-section').style.display = 'block';
+          // 통계 섹션 표시 (데이터 있음 표시)
+          const statsSection = document.getElementById('settle-stats-section');
+          if(statsSection){
+            statsSection.dataset.hasData = 'true';
+            statsSection.style.display = 'block';
+          }
         }catch(e){
           console.error('Stats update error:', e);
         }
@@ -866,7 +895,6 @@
         renderPriceBook();
         await savePriceBook();
       }
-      $('#btn-add-price').addEventListener('click', addOnePrice);
       document.getElementById('pb-add-one').addEventListener('click', addOnePrice);
       document.getElementById('pb-add-both').addEventListener('click', async()=>{
         const client = (document.getElementById('pb-client')?.value||'').trim(); if(!client) return alert('거래처를 입력하세요');
@@ -1522,23 +1550,48 @@
       // 상단 탭 전환: 정산 / 단가 관리
       function setTab(mode){
         const isSettle = mode==='settle';
-        try{ document.getElementById('tab-settle')?.classList.toggle('btn-primary', isSettle); }catch(e){}
-        try{ document.getElementById('tab-price')?.classList.toggle('btn-primary', !isSettle); }catch(e){}
+        
+        // 탭 버튼 상태 업데이트
+        try{ 
+          const tabSettle = document.getElementById('tab-settle');
+          const tabPrice = document.getElementById('tab-price');
+          if(tabSettle){ 
+            tabSettle.classList.toggle('btn-primary', isSettle);
+            tabSettle.classList.toggle('btn-secondary', !isSettle);
+          }
+          if(tabPrice){ 
+            tabPrice.classList.toggle('btn-primary', !isSettle);
+            tabPrice.classList.toggle('btn-secondary', isSettle);
+          }
+        }catch(e){}
         try{ document.getElementById('side-tab-settle')?.classList.toggle('active', isSettle); }catch(e){}
         try{ document.getElementById('side-tab-price')?.classList.toggle('active', !isSettle); }catch(e){}
         
-        // 컨테이너 단위 표시 제어
-        const settleContent = document.getElementById('settle-content');
-        const priceContent = document.getElementById('price-content');
-        
         if(isSettle){
-          // 정산 탭: settle-content 표시, price-content 숨김
-          if(settleContent){ settleContent.style.display = 'block'; }
-          if(priceContent){ priceContent.style.display = 'none'; }
+          // 정산 탭: 정산 관련 섹션만 표시
+          const statsSection = document.getElementById('settle-stats-section');
+          const querySection = document.getElementById('settle-query-section');
+          const precheckSection = document.getElementById('precheck-section');
+          const resultsSection = document.getElementById('results-section');
+          const priceContent = document.getElementById('price-content');
+          
+          if(statsSection) statsSection.style.display = statsSection.dataset.hasData === 'true' ? 'block' : 'none';
+          if(querySection) querySection.style.display = 'block';
+          // precheck와 results는 데이터 가져오기 후 제어되므로 현재 상태 유지
+          if(priceContent) priceContent.style.display = 'none';
         } else {
-          // 단가 관리 탭: price-content 표시, settle-content 숨김
-          if(settleContent){ settleContent.style.display = 'none'; }
-          if(priceContent){ priceContent.style.display = 'block'; }
+          // 단가 관리 탭: 단가 관리만 표시, 정산 섹션 모두 숨김
+          const statsSection = document.getElementById('settle-stats-section');
+          const querySection = document.getElementById('settle-query-section');
+          const precheckSection = document.getElementById('precheck-section');
+          const resultsSection = document.getElementById('results-section');
+          const priceContent = document.getElementById('price-content');
+          
+          if(statsSection) statsSection.style.display = 'none';
+          if(querySection) querySection.style.display = 'none';
+          if(precheckSection) precheckSection.style.display = 'none';
+          if(resultsSection) resultsSection.style.display = 'none';
+          if(priceContent) priceContent.style.display = 'block';
         }
       }
       const tSettle = document.getElementById('tab-settle'); if(tSettle){ tSettle.addEventListener('click', ()=> setTab('settle')); }
