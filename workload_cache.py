@@ -316,6 +316,13 @@ def refresh_all_workload_cache() -> Dict[str, Any]:
                     # 업체별 스케줄 계산 (모든 작업 포함)
                     business_schedule = process_raw_items_to_schedule(business_raw_items, company, business_name)
                     
+                    # 보장건 정보 추가 (순위, 대행사명)
+                    guarantee_info = next((item for item in filtered_guarantee_items if item.get("business_name") == business_name), None)
+                    if guarantee_info:
+                        business_schedule["guarantee_rank"] = guarantee_info.get("guarantee_rank")
+                        business_schedule["agency"] = guarantee_info.get("agency")
+                        business_schedule["business_name"] = business_name
+                    
                     # 작업이 있는 업체만 캐싱
                     if business_schedule.get("weeks"):
                         business_key = f"{company}:{business_name}"
