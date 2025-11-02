@@ -236,6 +236,14 @@ def create_app() -> Flask:
 					line = f"{mmdd(start_dt)} ~ {mmdd(end_dt)} 마감건 안내드립니다."
 				suggested_prefix = greeting + "\n" + line
 
+		# 마감일별 통계 계산 (0~5일)
+		deadline_stats: Dict[int, List[str]] = {i: [] for i in range(6)}
+		if did_fetch and grouped_by_date:
+			for agency, by_day in grouped_by_date.items():
+				for day in by_day.keys():
+					if 0 <= day <= 5 and agency not in deadline_stats[day]:
+						deadline_stats[day].append(agency)
+
 		return render_template(
 			"index.html",
 			error=error,
@@ -249,6 +257,7 @@ def create_app() -> Flask:
 			agency_to_message=agency_to_message,
 			agency_to_message_workload=agency_to_message_workload,
 			agency_to_date_line=agency_to_date_line,
+			deadline_stats=deadline_stats,
 			settings=settings,
 			filter_mode=filter_mode,
 			suggested_prefix=suggested_prefix,
