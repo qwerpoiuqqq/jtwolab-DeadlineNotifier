@@ -253,7 +253,7 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 			
 			tab_stats[tab_title]["company_match"] += 1
 			
-			# 마감일 계산: 오늘 + 남은일수(-O)
+			# 마감일 계산: 오늘 + 남은일수 (remain이 None이어도 일단 수집)
 			end_date = today + timedelta(days=remain) if remain is not None else None
 			
 			# 작업 시작일: 각 행의 '작업 시작일' 컬럼 읽기 (다양한 컬럼명 시도)
@@ -278,7 +278,8 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 					# 디버깅: 처음 10개만 상세 로그
 					if len(all_items) < 10:
 						logger.info(f"  ✓ 파싱 성공: '{start_date_str}' → {start_date}")
-						logger.info(f"     마감일: {end_date.strftime('%Y-%m-%d')} (오늘={today}, remain={remain}일)")
+						if end_date:
+							logger.info(f"     마감일: {end_date.strftime('%Y-%m-%d')} (오늘={today}, remain={remain}일)")
 				else:
 					# 파싱 실패 - 경고 로그
 					logger.warning(f"  ⚠️ 날짜 파싱 실패: {bizname}/{product} - '{start_date_str}' (컬럼: {start_col_found})")
@@ -297,7 +298,7 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 			
 			# 그래도 시작일이 없으면 None으로 유지 (필터링하지 않고 포함)
 			if not start_date:
-				if len(all_items) < 10:
+				if len(all_items) < 10 and end_date:
 					logger.info(f"  ○ {bizname}/{product}: 시작일(없음), 마감일={end_date.strftime('%Y-%m-%d')} (remain={remain}일) - 그대로 포함")
 			
 			# 작업명 생성
@@ -319,9 +320,7 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 				"task_display": task_display,
 				"workload": workload,
 				"start_date": start_date,
-				"start_date_raw": start_date_str,
 				"end_date": end_date,
-				"remain_days": remain,
 				"has_real_start_date": bool(start_date_str)  # 시트에 시작일 컬럼이 있었는지
 			})
 	
@@ -362,34 +361,16 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 		logger.debug(f"⊘ {business_name or company}: raw_items 없음")
 		return {"weeks": []}
 	
-	def _resolve_start(item: Dict[str, Any]):
-		start_dt = item.get("start_date")
-		if start_dt is None and item.get("start_date_raw"):
-			start_dt = parse_date_flexible(item.get("start_date_raw"))
-			if start_dt:
-				item["start_date"] = start_dt
-		return start_dt
-
-	def _resolve_end(item: Dict[str, Any]):
-		end_dt = item.get("end_date")
-		if end_dt is None and item.get("remain_days") is not None:
-			end_dt = today + timedelta(days=item.get("remain_days"))
-			item["end_date"] = end_dt
-		return end_dt
-
 	# 모든 데이터를 읽어온 후 4주 기준으로 필터링
 	four_weeks_ago = today - timedelta(days=28)
 	logger.info(f"  📅 오늘: {today}, 4주 전: {four_weeks_ago}")
-
-	filtered_items = []
-	for item in raw_items:
-		start_dt = _resolve_start(item)
-		end_dt = _resolve_end(item)
-		if start_dt is not None:
-			if start_dt >= four_weeks_ago:
-				filtered_items.append(item)
-		elif end_dt is not None and end_dt >= today:
-			filtered_items.append(item)
+	
+	# 시작일이 4주 이내이거나, 시작일이 없으면 마감일이 오늘 이후인 작업만 표시
+	filtered_items = [
+		item for item in raw_items 
+		if (item["start_date"] is not None and item["start_date"] >= four_weeks_ago) or
+		   (item["start_date"] is None and item["end_date"] is not None and item["end_date"] >= today)
+	]
 	
 	logger.info(f"  📊 필터 결과: {len(raw_items)}개 → {len(filtered_items)}개 (4주 필터 적용, 시작일 {four_weeks_ago.strftime('%m/%d')} 이후)")
 	
@@ -413,22 +394,17 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 			logger.info(f"    [{s_str} ~ {e.strftime('%m/%d')}] {len(tasks)}개 작업")
 	
 	for item in filtered_items:
-		start_dt = _resolve_start(item)
-		end_dt = _resolve_end(item)
-		remain_days = item.get("remain_days")
-
+		start_dt = item["start_date"]  # None 가능
+		end_dt = item["end_date"]  # None 가능
+		
+		# end_dt가 None이면 스킵
 		if end_dt is None:
-			logger.debug(f"⚠️ {item['bizname']}: 마감일 정보 없음 - 건너뜀")
 			continue
 		
 		# 날짜 검증 (시작일이 있는 경우만)
 		if start_dt is not None and start_dt > end_dt:
-			logger.warning(f"⚠️ {item['bizname']}: 시작일({start_dt})이 마감일({end_dt})보다 늦음 - 보정 처리")
-			if remain_days is not None and remain_days >= 0:
-				end_dt = start_dt + timedelta(days=remain_days)
-			else:
-				end_dt = start_dt
-			item["end_date"] = end_dt
+			logger.error(f"❌ {item['bizname']}: 시작일({start_dt}) > 마감일({end_dt}) - 논리 오류!")
+			continue  # 잘못된 데이터는 제외
 		
 		# 같은 기간(시작일-마감일)끼리 그룹핑 (시작일 None도 허용)
 		key = (start_dt, end_dt)
