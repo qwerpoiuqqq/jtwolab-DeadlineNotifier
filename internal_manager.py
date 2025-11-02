@@ -43,64 +43,82 @@ def parse_date_flexible(date_str: str):
 		return None
 	
 	try:
-		# Google Sheets 시리얼 넘버 처리 (1900-01-01 기준)
+		# 1. 한국어 날짜 형식 먼저 처리 (예: "10월 31일", "08월 04일")
+		match = re.match(r"^(\d{1,2})월\s*(\d{1,2})일$", date_str)
+		if match:
+			month, day = match.groups()
+			year = date.today().year
+			try:
+				return date(year, int(month), int(day))
+			except ValueError:
+				pass
+		
+		# 2. Google Sheets 시리얼 넘버 처리 (1900-01-01 기준)
 		# 예: 45582 = 2024-10-10
 		if re.match(r"^\d{5,6}$", date_str):
 			try:
-				# Excel/Sheets 시리얼 넘버를 날짜로 변환
 				serial = int(date_str)
-				# Excel은 1900-01-01을 1로 시작 (단, 1900-02-29 버그 고려)
 				base_date = datetime(1899, 12, 30)
 				result_date = base_date + timedelta(days=serial)
 				return result_date.date()
 			except:
 				pass
 		
-		# YYYY-MM-DD, YYYY.MM.DD, YYYY/MM/DD 형식
+		# 3. YYYY-MM-DD, YYYY.MM.DD, YYYY/MM/DD 형식
 		match = re.match(r"^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$", date_str)
 		if match:
 			year, month, day = match.groups()
-			return date(int(year), int(month), int(day))
+			try:
+				return date(int(year), int(month), int(day))
+			except ValueError:
+				pass
 		
-		# YYYY-MM-DD HH:MM:SS 형식 (datetime 문자열)
+		# 4. YYYY-MM-DD HH:MM:SS 형식 (datetime 문자열)
 		match = re.match(r"^(\d{4})[./-](\d{1,2})[./-](\d{1,2})\s+\d{1,2}:\d{1,2}(:\d{1,2})?$", date_str)
 		if match:
 			year, month, day = match.groups()[:3]
-			return date(int(year), int(month), int(day))
+			try:
+				return date(int(year), int(month), int(day))
+			except ValueError:
+				pass
 		
-		# YY. M. D 형식 (예: 25. 10. 27, 25.10.27)
-		match = re.match(r"^(\d{2})[./-]?\s*(\d{1,2})[./-]?\s*(\d{1,2})$", date_str)
+		# 5. YYYYMMDD 형식 (예: 20251027)
+		match = re.match(r"^(\d{4})(\d{2})(\d{2})$", date_str)
+		if match:
+			year, month, day = match.groups()
+			try:
+				return date(int(year), int(month), int(day))
+			except ValueError:
+				pass
+		
+		# 6. YY. M. D 형식 (예: 25. 10. 27, 25.10.27, 25-10-27)
+		# 구분자가 2개 있어야 함 (3개 부분)
+		match = re.match(r"^(\d{2})[./ -](\d{1,2})[./ -](\d{1,2})$", date_str)
 		if match:
 			year_short, month, day = match.groups()
 			year = 2000 + int(year_short)
-			return date(year, int(month), int(day))
+			try:
+				return date(year, int(month), int(day))
+			except ValueError:
+				pass
 		
-		# YYYY. M. D 형식 (예: 2025. 10. 27, 2025.10.27)
-		match = re.match(r"^(\d{4})[./-]?\s*(\d{1,2})[./-]?\s*(\d{1,2})$", date_str)
-		if match:
-			year, month, day = match.groups()
-			return date(int(year), int(month), int(day))
-		
-		# M/D 또는 MM/DD 형식 (예: 8/1, 10/27) - 현재 연도 기준
+		# 7. M/D 또는 MM/DD 형식 (예: 8/1, 10/27) - 현재 연도 기준
 		match = re.match(r"^(\d{1,2})/(\d{1,2})$", date_str)
 		if match:
 			month, day = match.groups()
 			month_int, day_int = int(month), int(day)
-			# 유효성 검사
 			if 1 <= month_int <= 12 and 1 <= day_int <= 31:
 				year = date.today().year
 				try:
 					return date(year, month_int, day_int)
 				except ValueError:
-					# 날짜가 유효하지 않으면 (예: 2월 30일) None 반환
 					pass
 		
-		# M-D 또는 MM-DD 형식 (예: 8-1, 10-24) - 현재 연도 기준
+		# 8. M-D 또는 MM-DD 형식 (예: 8-1, 10-24) - 현재 연도 기준
 		match = re.match(r"^(\d{1,2})-(\d{1,2})$", date_str)
 		if match:
 			month, day = match.groups()
 			month_int, day_int = int(month), int(day)
-			# 유효성 검사
 			if 1 <= month_int <= 12 and 1 <= day_int <= 31:
 				year = date.today().year
 				try:
@@ -108,12 +126,11 @@ def parse_date_flexible(date_str: str):
 				except ValueError:
 					pass
 		
-		# M.D 또는 MM.DD 형식 (예: 8.1, 10.27) - 현재 연도 기준
+		# 9. M.D 또는 MM.DD 형식 (예: 8.1, 10.27) - 현재 연도 기준
 		match = re.match(r"^(\d{1,2})\.(\d{1,2})$", date_str)
 		if match:
 			month, day = match.groups()
 			month_int, day_int = int(month), int(day)
-			# 유효성 검사
 			if 1 <= month_int <= 12 and 1 <= day_int <= 31:
 				year = date.today().year
 				try:
@@ -121,27 +138,16 @@ def parse_date_flexible(date_str: str):
 				except ValueError:
 					pass
 		
-		# YYYYMMDD 형식 (예: 20251027)
-		match = re.match(r"^(\d{4})(\d{2})(\d{2})$", date_str)
-		if match:
-			year, month, day = match.groups()
-			return date(int(year), int(month), int(day))
-		
-		# 기타 일반적인 형식 시도 (dateutil 사용)
+		# 10. dateutil 사용 (매우 복잡한 형식만 - 위에서 실패한 경우)
 		try:
-			from dateutil import parser
-			parsed = parser.parse(date_str, dayfirst=False)
+			from dateutil import parser as dateutil_parser
+			# dayfirst=False로 미국식 해석 (MM-DD-YYYY)
+			parsed = dateutil_parser.parse(date_str, dayfirst=False)
 			return parsed.date()
 		except ImportError:
-			# dateutil이 없는 경우 - 한국어 날짜 형식 수동 처리
-			# "10월 31일", "08월 04일" 등
-			match = re.match(r"^(\d{1,2})월\s*(\d{1,2})일$", date_str)
-			if match:
-				month, day = match.groups()
-				year = date.today().year
-				return date(year, int(month), int(day))
-		except:
-			pass
+			pass  # dateutil 없으면 스킵
+		except Exception:
+			pass  # dateutil 파싱 실패시 스킵
 			
 	except Exception as e:
 		import logging
