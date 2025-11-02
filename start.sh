@@ -13,6 +13,13 @@ mkdir -p data
 # Playwright 브라우저 경로 설정 (기본 위치 사용)
 export PLAYWRIGHT_BROWSERS_PATH=0
 
+echo "🎭 Checking Playwright browser..."
+# Playwright 브라우저 자동 설치 (누락된 경우)
+playwright install chromium 2>/dev/null || {
+    echo "⚠️  Playwright install skipped (may already be installed)"
+}
+
+echo ""
 echo "✅ Ready to start"
 echo "📍 Host: ${FLASK_HOST:-0.0.0.0}"
 echo "📍 Port: ${FLASK_PORT:-8080}"
