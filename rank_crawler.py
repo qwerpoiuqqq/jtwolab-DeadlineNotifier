@@ -219,61 +219,98 @@ class AdlogCrawler:
                 logger.warning(f"Browser install check failed: {install_error}")
             
             with sync_playwright() as p:
+                logger.info("Launching Chromium browser...")
                 # 브라우저 실행 (headless mode, 메모리 최적화)
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=[
-                        '--no-sandbox',
-                        '--disable-setuid-sandbox',
-                        '--disable-dev-shm-usage',  # Render 메모리 제한 대응
-                        '--disable-gpu',
-                        '--disable-software-rasterizer',
-                        '--disable-extensions',
-                        '--single-process',  # 단일 프로세스 모드 (메모리 절약)
-                        '--no-zygote'  # Zygote 프로세스 비활성화
-                    ]
-                )
+                try:
+                    browser = p.chromium.launch(
+                        headless=True,
+                        args=[
+                            '--no-sandbox',
+                            '--disable-setuid-sandbox',
+                            '--disable-dev-shm-usage',  # Render 메모리 제한 대응
+                            '--disable-gpu',
+                            '--disable-software-rasterizer',
+                            '--disable-extensions',
+                            '--single-process',  # 단일 프로세스 모드 (메모리 절약)
+                            '--no-zygote'  # Zygote 프로세스 비활성화
+                        ]
+                    )
+                    logger.info("✅ Browser launched successfully")
+                except Exception as browser_error:
+                    logger.error(f"Failed to launch browser: {browser_error}")
+                    raise
+                
                 context = browser.new_context(
                     viewport={'width': 1280, 'height': 720},  # 해상도 낮춤 (메모리 절약)
                     user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 )
                 page = context.new_page()
-                
-                logger.info("Browser launched")
+                logger.info("Browser context and page created")
                 
                 # 로그인 페이지로 이동
                 login_url = "https://www.adlog.kr/bbs/login.php?url=%2Fadlog%2Fnaver_place_rank_check.php%3Fsca%3D%26sfl%3Dapi_memo%26stx%3D%25EC%259B%2594%25EB%25B3%25B4%25EC%259E%25A5%26page_rows%3D100"
-                page.goto(login_url, wait_until="networkidle", timeout=30000)
-                logger.info(f"Navigated to login page: {login_url}")
+                logger.info(f"Navigating to login page: {login_url}")
+                
+                try:
+                    # networkidle 대신 domcontentloaded 사용 (더 빠름)
+                    page.goto(login_url, wait_until="domcontentloaded", timeout=60000)
+                    logger.info("✅ Login page loaded")
+                except Exception as nav_error:
+                    logger.error(f"Failed to navigate to login page: {nav_error}")
+                    raise
                 
                 # 로그인 처리
-                page.fill('input[name="mb_id"]', self.adlog_id)
-                page.fill('input[name="mb_password"]', self.adlog_password)
-                logger.info("Credentials filled")
+                logger.info("Filling login credentials...")
+                try:
+                    page.fill('input[name="mb_id"]', self.adlog_id)
+                    page.fill('input[name="mb_password"]', self.adlog_password)
+                    logger.info("✅ Credentials filled")
+                except Exception as fill_error:
+                    logger.error(f"Failed to fill credentials: {fill_error}")
+                    raise
                 
                 # 로그인 버튼 클릭
-                page.click('button[type="submit"], input[type="submit"]')
-                logger.info("Login button clicked")
+                logger.info("Clicking login button...")
+                try:
+                    page.click('button[type="submit"], input[type="submit"]')
+                    logger.info("✅ Login button clicked")
+                except Exception as click_error:
+                    logger.error(f"Failed to click login button: {click_error}")
+                    raise
                 
                 # 페이지 로드 대기
-                page.wait_for_load_state("networkidle", timeout=30000)
-                logger.info("Login completed, page loaded")
+                logger.info("Waiting for page to load after login...")
+                try:
+                    # domcontentloaded로 변경 (더 빠름)
+                    page.wait_for_load_state("domcontentloaded", timeout=60000)
+                    logger.info("✅ Login completed, page loaded")
+                except Exception as wait_error:
+                    logger.warning(f"Page load timeout: {wait_error}, continuing anyway...")
                 
                 # 테이블 데이터 추출
                 # 애드로그 페이지 구조에 맞게 셀렉터 조정 필요
-                rows = page.locator('table tbody tr').all()
-                logger.info(f"Found {len(rows)} rows in table")
+                logger.info("Looking for table data...")
+                try:
+                    rows = page.locator('table tbody tr').all()
+                    logger.info(f"✅ Found {len(rows)} rows in table")
+                except Exception as table_error:
+                    logger.error(f"Failed to find table: {table_error}")
+                    raise
                 
                 kst = pytz.timezone('Asia/Seoul')
                 checked_at = datetime.now(kst)
                 
                 # 보장건 데이터 로드 (회사 필터링용)
+                logger.info("Loading guarantee data for filtering...")
                 from guarantee_manager import GuaranteeManager
                 gm = GuaranteeManager()
                 guarantee_items = gm.get_items()
+                logger.info(f"Loaded {len(guarantee_items)} total guarantee items")
+                
                 if company:
                     guarantee_items = [item for item in guarantee_items 
                                      if item.get("company") == company]
+                    logger.info(f"Filtered to {len(guarantee_items)} items for company: {company}")
                 
                 # 상호명 -> 메인 키워드 매핑
                 business_to_keyword = {}
@@ -283,11 +320,15 @@ class AdlogCrawler:
                     if biz_name and main_kw:
                         business_to_keyword[biz_name] = main_kw
                 
-                logger.info(f"Mapped {len(business_to_keyword)} businesses with keywords")
+                logger.info(f"✅ Mapped {len(business_to_keyword)} businesses with keywords")
                 
                 # 각 행에서 데이터 추출
+                logger.info(f"Processing {len(rows)} rows...")
                 for idx, row in enumerate(rows):
                     try:
+                        if idx % 10 == 0:  # 10개마다 진행 상황 로그
+                            logger.info(f"Processing row {idx+1}/{len(rows)}...")
+                        
                         cells = row.locator('td').all()
                         if len(cells) < 3:
                             continue
@@ -346,12 +387,18 @@ class AdlogCrawler:
                         failed_count += 1
                         continue
                 
+                logger.info(f"✅ Processing complete: crawled={crawled_count}, failed={failed_count}")
+                
                 # 브라우저 종료
-                browser.close()
-                logger.info("Browser closed")
+                logger.info("Closing browser...")
+                try:
+                    browser.close()
+                    logger.info("✅ Browser closed successfully")
+                except Exception as close_error:
+                    logger.warning(f"Browser close warning: {close_error}")
         
         except Exception as e:
-            logger.error(f"Crawling failed: {e}")
+            logger.error(f"❌ Crawling failed: {e}")
             import traceback
             logger.error(traceback.format_exc())
             
@@ -364,7 +411,7 @@ class AdlogCrawler:
             }
         
         message = f"순위 크롤링 완료 - 성공: {crawled_count}건, 실패: {failed_count}건"
-        logger.info(message)
+        logger.info(f"🎉 {message}")
         
         return {
             "success": True,
