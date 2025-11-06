@@ -146,6 +146,20 @@
     .scroll-btn:hover{ background:var(--primary-dark); box-shadow:0 6px 16px rgba(59,130,246,.4); }
     .scroll-btn:active{ transform:scale(0.95); }
     
+    /* 정렬 가능한 테이블 헤더 */
+    th.sortable{ position:relative; }
+    th.sortable:hover{ background:#e2e8f0; color:var(--primary); }
+    th.sortable.sorted-asc .sort-icon{ color:var(--primary); }
+    th.sortable.sorted-desc .sort-icon{ color:var(--primary); }
+    th.sortable .sort-icon{ 
+      font-size:11px; 
+      color:var(--muted); 
+      margin-left:4px;
+      transition:color .2s;
+    }
+    th.sortable.sorted-asc .sort-icon::before{ content:'↑'; position:absolute; margin-left:2px; }
+    th.sortable.sorted-desc .sort-icon::before{ content:'↓'; position:absolute; margin-left:2px; }
+    
     /* 반응형 */
     @media(max-width:768px){
       .header-content{ flex-direction:column; align-items:stretch; }
@@ -325,14 +339,26 @@
               <thead>
                 <tr>
                   <th>구분</th>
-                  <th>대행사</th>
-                  <th>상호명</th>
+                  <th class="sortable" data-sort="agency" style="cursor:pointer; user-select:none;">
+                    대행사 <span class="sort-icon">⇅</span>
+                  </th>
+                  <th class="sortable" data-sort="business_name" style="cursor:pointer; user-select:none;">
+                    상호명 <span class="sort-icon">⇅</span>
+                  </th>
                   <th>키워드</th>
-                <th>상품</th>
-                <th>상태</th>
-                <th>현재순위</th>
-                <th>계약일</th>
-                  <th>작업시작</th>
+                  <th class="sortable" data-sort="product" style="cursor:pointer; user-select:none;">
+                    상품 <span class="sort-icon">⇅</span>
+                  </th>
+                  <th class="sortable" data-sort="status" style="cursor:pointer; user-select:none;">
+                    상태 <span class="sort-icon">⇅</span>
+                  </th>
+                  <th>현재순위</th>
+                  <th class="sortable" data-sort="contract_date" style="cursor:pointer; user-select:none;">
+                    계약일 <span class="sort-icon">⇅</span>
+                  </th>
+                  <th class="sortable" data-sort="work_start_date" style="cursor:pointer; user-select:none;">
+                    작업시작 <span class="sort-icon">⇅</span>
+                  </th>
                   <th>액션</th>
                 </tr>
               </thead>
@@ -527,6 +553,12 @@
     let businessWorkloadCache = {};  // 업체별 작업량 캐시
     let currentWorkloadData = null;  // 현재 표시중인 작업량 데이터
     let latestRanks = {};  // 크롤링된 최신 순위 데이터 (상호명 -> 순위)
+    
+    // 정렬 상태 관리
+    let currentSort = {
+      field: 'agency',  // 기본: 대행사명
+      direction: 'asc'   // asc | desc
+    };
 
     // Toast
     function showToast(msg) {
@@ -906,6 +938,62 @@
       }
     }
 
+    // 정렬 함수
+    function sortItems(items, field, direction) {
+      const sorted = [...items].sort((a, b) => {
+        let aVal = a[field] || '';
+        let bVal = b[field] || '';
+        
+        // 대행사명 기준 정렬 시: 빈 값은 맨 뒤로
+        if (field === 'agency') {
+          if (!aVal) return 1;
+          if (!bVal) return -1;
+        }
+        
+        // 날짜 필드 처리
+        if (field === 'contract_date' || field === 'work_start_date') {
+          aVal = aVal || '9999-99-99';  // 빈 날짜는 맨 뒤
+          bVal = bVal || '9999-99-99';
+        }
+        
+        // 문자열 비교
+        if (typeof aVal === 'string' && typeof bVal === 'string') {
+          const result = aVal.localeCompare(bVal, 'ko');
+          return direction === 'asc' ? result : -result;
+        }
+        
+        // 숫자 비교
+        if (aVal < bVal) return direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+      
+      // 대행사명 정렬 시: 같은 대행사 내에서는 상호명 정렬 (2차 정렬)
+      if (field === 'agency') {
+        return sorted.sort((a, b) => {
+          const agencyCompare = (a.agency || '').localeCompare(b.agency || '', 'ko');
+          if (agencyCompare !== 0) {
+            return direction === 'asc' ? agencyCompare : -agencyCompare;
+          }
+          // 같은 대행사 내에서는 상호명 오름차순
+          return (a.business_name || '').localeCompare(b.business_name || '', 'ko');
+        });
+      }
+      
+      return sorted;
+    }
+    
+    // 정렬 헤더 UI 업데이트
+    function updateSortHeaders() {
+      document.querySelectorAll('th.sortable').forEach(th => {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+        const field = th.dataset.sort;
+        if (field === currentSort.field) {
+          th.classList.add(currentSort.direction === 'asc' ? 'sorted-asc' : 'sorted-desc');
+        }
+      });
+    }
+    
     // 테이블 렌더링
     function renderTable(items) {
       const tbody = document.getElementById('table-body');
@@ -925,7 +1013,11 @@
         return;
       }
       
-      tbody.innerHTML = items.map(item => {
+      // 정렬 적용
+      const sortedItems = sortItems(items, currentSort.field, currentSort.direction);
+      updateSortHeaders();
+      
+      tbody.innerHTML = sortedItems.map(item => {
         // 크롤링된 실시간 순위 사용 (없으면 시트 데이터 사용)
         const businessName = item.business_name || '';
         let currentRank = '-';
@@ -1477,6 +1569,37 @@
       loadData();
     });
 
+    // 정렬 헤더 클릭 이벤트
+    document.querySelectorAll('th.sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const field = th.dataset.sort;
+        
+        // 같은 필드 클릭 시: 방향 토글
+        if (currentSort.field === field) {
+          currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+          // 다른 필드 클릭 시: 새 필드로 변경, 기본 오름차순
+          currentSort.field = field;
+          currentSort.direction = 'asc';
+        }
+        
+        // 테이블 다시 렌더링
+        renderTable(allData);
+        
+        // Toast로 정렬 상태 안내
+        const fieldName = {
+          'agency': '대행사명',
+          'business_name': '상호명',
+          'product': '상품',
+          'status': '상태',
+          'contract_date': '계약일',
+          'work_start_date': '작업시작일'
+        }[field] || field;
+        const directionName = currentSort.direction === 'asc' ? '오름차순' : '내림차순';
+        showToast(`${fieldName} ${directionName} 정렬`);
+      });
+    });
+    
     // 이벤트
     document.getElementById('btn-sync').addEventListener('click', syncData);
     document.getElementById('btn-refresh-workload').addEventListener('click', refreshWorkloadCache);
