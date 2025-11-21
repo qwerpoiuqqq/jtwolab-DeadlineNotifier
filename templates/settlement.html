@@ -1806,9 +1806,8 @@
         // 메시지 생성
         const lines = [];
         lines.push('[크림2]');
-        lines.push('');
         if(dateStr) lines.push(dateStr);
-        if(dateStr) lines.push('');
+        lines.push('');
         
         // 계정별 포인트 충전 요청
         Object.keys(accountGroups).sort().forEach(aid=>{
