@@ -465,6 +465,7 @@
         lastAggregates: null, // 마지막 계산 aggregates 그대로 보관
         missingPrices: [], // compute 응답의 missing_prices
         extraExpenses: [], // [{date,client,product,amount,report}]
+        unpaidReceivables: {}, // { agency: amount }
         exclusions: { products: [], rows: [] } // 결재선 반영 제외 세트
       };
       state.wizard = { step:1, receivables: [], payables: [], categories: {}, custom: {}, reportDate:'', vendorOrder: [] };
@@ -581,6 +582,7 @@
           state.previewRows = rows.map(r=>({ date: r.date, client: r.client, product: (r.type?`${r.job} ${r.type}`:r.job), qty: r.qty, price: r.unit_price, expense: r.expense||0, income: r.income||0 }));
           state.lastAggregates = data?.aggregates||{};
           state.missingPrices = Array.isArray(data?.missing_prices) ? data.missing_prices : [];
+          state.unpaidReceivables = data?.unpaid_receivables || {};
           await loadExtras();
           updateSettleStats(); // 통계 업데이트
           renderPrecheck();
@@ -1227,6 +1229,15 @@
             if(rp){ rp.style.display='none'; }
             if(hero){ hero.style.display='none'; }
             setSlide(1);
+            
+            // 미수금 데이터 자동 채우기 (수기 입력분 덮어쓰기)
+            if(state.unpaidReceivables && Object.keys(state.unpaidReceivables).length > 0){
+              state.wizard.receivables = Object.entries(state.unpaidReceivables).map(([agency, amount]) => ({
+                agency, 
+                amount: Math.round(Number(amount||0) * 1.1) // VAT 포함
+              }));
+            }
+            
             renderReceivables(); renderPayables();
             renderKakaoList(); buildKakaoText(); renderExcelTable();
           });
