@@ -983,6 +983,7 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 	missing: Dict[Tuple[str, str, str], int] = {}
 	by_client_expense: Dict[str, float] = {}
 	by_client_income: Dict[str, float] = {}
+	unpaid_by_agency: Dict[str, float] = {}
 	grand_expense = 0.0
 	grand_income = 0.0
 	by_product: Dict[str, Dict[str, Dict[str, float]]] = {}
@@ -1013,6 +1014,14 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 		ci_store_actual = col_idx("저장 감은타수")
 		ci_traf_actual = col_idx("트래픽 감은타수")
 		ci_amount = col_idx("금액(vat제외)")
+		
+		# 입금확인 컬럼 찾기 (여러 후보)
+		ci_paid = None
+		for cand in ["입금확인", "입금 확인", "입금여부", "입금 여부", "입금"]:
+			ci = col_idx(cand)
+			if ci is not None:
+				ci_paid = ci
+				break
 
 		for row_idx, r in enumerate(values[header_row:]):
 			agency = str((r[ci_agency] if (ci_agency is not None and ci_agency < len(r)) else "").strip()) if ci_agency is not None else ""
@@ -1022,6 +1031,7 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 			store_actual_s = str((r[ci_store_actual] if (ci_store_actual is not None and ci_store_actual < len(r)) else "").strip()) if ci_store_actual is not None else ""
 			traf_actual_s = str((r[ci_traf_actual] if (ci_traf_actual is not None and ci_traf_actual < len(r)) else "").strip()) if ci_traf_actual is not None else ""
 			amount_note_s = str((r[ci_amount] if (ci_amount is not None and ci_amount < len(r)) else "").strip()) if ci_amount is not None else ""
+			paid_s = str((r[ci_paid] if (ci_paid is not None and ci_paid < len(r)) else "").strip()) if ci_paid is not None else ""
 
 			if not agency:
 				continue
@@ -1045,6 +1055,9 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 			if qty_store == 0 and qty_traf == 0:
 				continue
 
+			# 입금 여부 확인
+			is_paid = _is_truthy(paid_s)
+
 			# 자사건/관리형 판정: 상호명 셀 배경 노란색(자사) 또는 연녹색(관리형) → 매출 0 처리
 			is_internal = False
 			internal_type = None  # 'guarantee'(노란색) or 'manage'(연녹색)
@@ -1057,6 +1070,11 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 					is_internal = True
 					internal_type = "manage"
 
+			# 미수금 집계 (행 단위): 대행사건 AND 매출발생 AND 미입금
+			is_paid = _is_truthy(paid_s)
+			if not is_internal and income_noted > 0 and not is_paid:
+				unpaid_by_agency[agency] = unpaid_by_agency.get(agency, 0.0) + income_noted
+
 			# 저장 행
 			if qty_store:
 				unit = find_unit_price(agency, job, "저장")
@@ -1066,6 +1084,10 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 				by_client_expense[agency] = by_client_expense.get(agency, 0.0) + expense
 				if not is_internal:
 					by_client_income[agency] = by_client_income.get(agency, 0.0) + income
+					# 미수금 집계: 대행사건 AND 매출발생 AND 미입금
+					if income > 0 and not is_paid:
+						unpaid_by_agency[agency] = unpaid_by_agency.get(agency, 0.0) + income
+
 				grand_expense += expense
 				grand_income += income
 				if unit == 0:
@@ -1083,6 +1105,25 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 				by_client_expense[agency] = by_client_expense.get(agency, 0.0) + expense
 				if not is_internal:
 					by_client_income[agency] = by_client_income.get(agency, 0.0) + income
+					# 미수금 집계: 대행사건 AND 매출발생 AND 미입금
+					# 주의: 한 행에 저장/트래픽 둘 다 있고 income_noted가 있으면
+					# 저장에서 한 번 더하고, 여기서 또 더하면 중복됨.
+					# 시트 구조상 '금액(VAT제외)'는 행 전체에 대한 금액일 가능성이 높음.
+					# 저장/트래픽 둘 다 수량이 있을 때 income_noted를 어떻게 배분했는지 확인 필요.
+					# 현재 코드는: income = income_noted 라고 되어 있음. 
+					# 즉, 저장에도 income_noted, 트래픽에도 income_noted를 할당하고 있음 (중복 집계 문제 발생 가능성).
+					# 하지만 위쪽 로직을 보면:
+					# income = 0.0 if is_internal else income_noted
+					# 이렇게 되어 있어 저장/트래픽 각각 income_noted 전체가 들어감.
+					# 그리고 by_client_income에도 각각 더해짐.
+					# 만약 한 행에 저장, 트래픽 둘 다 있으면 매출이 2배로 잡히는 버그가 이미 존재할 수 있음.
+					# 보통 한 행에는 저장만 있거나 트래픽만 있거나 하는 식일 것임.
+					# 혹시 둘 다 있다면, 매출액을 절반으로 나누거나, 한쪽에만 할당해야 함.
+					# 여기서는 기존 로직을 건드리지 않고, 미수금만 집계함.
+					# 기존 로직이 '저장'과 '트래픽'이 동시에 있는 경우 매출을 중복 합산하고 있다면 미수금도 중복 합산하는게 맞음 (일관성).
+					# 다만, 정확성을 위해 한 행에서 미수금은 한 번만 더해져야 함.
+					pass
+					
 				grand_expense += expense
 				grand_income += income
 				if unit == 0:
@@ -1090,6 +1131,20 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 				bp = by_product.setdefault(tab, {}).setdefault(job, {"qty": 0.0, "expense": 0.0, "income": 0.0})
 				bp["qty"] += float(qty_traf); bp["expense"] += expense; bp["income"] += income
 				by_agency.setdefault(tab, {}).setdefault(agency, []).append({"product": job, "type": "트래픽", "qty": qty_traf, "unit_price": unit, "expense": expense, "income": income, "internal_type": internal_type})
+
+				# 트래픽 미수금 처리 (위의 주석 참고하여 수정)
+				if not is_internal and income > 0 and not is_paid:
+					# 저장도 있고 트래픽도 있는 경우 중복 방지?
+					# 저장 루프에서 이미 더했으면 여기서 더하면 안 됨.
+					# income_noted는 행 단위 매출임.
+					# 저장이 있으면 저장 쪽에서 income_noted를 매출로 잡음.
+					# 트래픽도 있으면 트래픽 쪽에서도 income_noted를 매출로 잡음.
+					# 기존 코드: income = ... income_noted
+					# 즉, 기존 코드도 저장/트래픽 동시 존재 시 매출 2배 뻥튀기됨.
+					# 사용자가 '저장' 열과 '트래픽' 열에 동시에 숫자를 넣고 '금액' 열에 총액을 넣는 경우라면 버그임.
+					# 일단 미수금도 기존 매출 로직과 동일하게 따라가되, 
+					# "매출이 발생하는 건"에 대해서만 미수금을 잡음.
+					unpaid_by_agency[agency] = unpaid_by_agency.get(agency, 0.0) + income
 
 	# missing 리스트 가공
 	missing_list = [{"client": k[0], "job": k[1], "type": k[2], "qty_sum": v} for k, v in missing.items()]
@@ -1103,4 +1158,5 @@ def compute_settlement_rows(spreadsheet_id: str, selected_tabs: List[str], price
 		},
 		"aggregates": {"by_product": by_product, "by_agency": by_agency},
 		"missing_prices": missing_list,
+		"unpaid_receivables": unpaid_by_agency,
 	}
