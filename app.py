@@ -436,6 +436,34 @@ def create_app() -> Flask:
 			return jsonify({"error": str(e)}), 500
 		return jsonify({"ok": True}), 200
 
+	@app.route("/api/settlement/cream2-accounts", methods=["GET", "POST"])  # 크림2 배포 계정 관리
+	def api_settlement_cream2_accounts():
+		storage_path = os.getenv("CREAM2_ACCOUNTS_PATH", os.path.join(os.getcwd(), "cream2_accounts.json"))
+		if request.method == "GET":
+			try:
+				if os.path.exists(storage_path):
+					with open(storage_path, "r", encoding="utf-8") as f:
+						data = json.load(f)
+				else:
+					data = []
+			except Exception as e:
+				return jsonify({"error": str(e)}), 500
+			return jsonify({"items": data}), 200
+		# POST 저장 (전체 치환 방식)
+		try:
+			payload = request.get_json(force=True, silent=False) or {}
+		except Exception:
+			return jsonify({"error": "invalid_json"}), 400
+		items = payload.get("items")
+		if not isinstance(items, list):
+			return jsonify({"error": "invalid_items"}), 400
+		try:
+			with open(storage_path, "w", encoding="utf-8") as f:
+				json.dump(items, f, ensure_ascii=False, indent=2)
+		except Exception as e:
+			return jsonify({"error": str(e)}), 500
+		return jsonify({"ok": True}), 200
+
 	@app.route("/debug/headers")
 	def debug_headers():
 		try:
