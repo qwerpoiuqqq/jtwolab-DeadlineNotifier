@@ -337,6 +337,51 @@
               </div>
             </div>
           </div>
+          
+          <!-- 크림2 배포 계정 관리 -->
+          <div class="card" style="margin-top:20px;">
+            <div class="stack" style="justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <h3 style="font-size:16px; font-weight:600; color:var(--text); margin:0;">🎯 크림2 배포(캐리 배포2) 계정 관리</h3>
+            </div>
+            
+            <!-- 신규 계정 등록 -->
+            <div class="panel" style="background:var(--bg); margin-bottom:16px;">
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-bottom:12px;">
+                <div>
+                  <label>거래처(대행사명) *</label>
+                  <input id="cream2-client" type="text" placeholder="예: 엔티제컴퍼니" style="width:100%;" />
+                </div>
+                <div>
+                  <label>계정 아이디 *</label>
+                  <input id="cream2-account" type="text" placeholder="예: dngus286" style="width:100%;" />
+                </div>
+                <div>
+                  <label>단가(포인트 환산) *</label>
+                  <input id="cream2-price" type="number" placeholder="예: 650" style="width:100%;" />
+                </div>
+              </div>
+              <div class="btn-group">
+                <button id="cream2-add" class="btn btn-primary" type="button">➕ 추가</button>
+                <button id="btn-save-cream2" class="btn btn-success">💾 저장</button>
+              </div>
+            </div>
+            
+            <!-- 계정 목록 -->
+            <div style="overflow-x:auto; border:1px solid var(--line); border-radius:8px; max-height:300px;">
+              <table id="tbl-cream2" class="dense sticky" style="width:100%; min-width:600px;">
+                <thead>
+                  <tr>
+                    <th>거래처</th><th>계정 아이디</th><th>단가</th><th>관리</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="muted" style="margin-top:8px; font-size:12px;">
+              ℹ️ 기본 계정: kimcy1388 (단가: 550원) - 등록되지 않은 거래처는 자동으로 기본 계정 사용
+            </div>
+          </div>
+          
           </div>
           <!-- 단가 관리 탭 콘텐츠 끝 -->
           
@@ -399,6 +444,7 @@
                 <button id="btn-toggle-collapse" class="btn btn-sm btn-secondary">전체 접기</button>
                 <button id="btn-delete-toggle" class="btn btn-sm btn-secondary" title="결재선 반영에서 특정 건 제외">삭제</button>
                 <button id="btn-finalize-wizard" class="btn btn-accent" title="최종 보고 생성">🎯 최종 정산</button>
+                <button id="btn-cream2-message" class="btn btn-success" title="크림2 배포 포인트 충전 메시지">🎯 크림2 배포</button>
               </div>
             </div>
             <!-- 상품별 카드 그리드 -->
@@ -452,6 +498,27 @@
       </div>
     </div>
     
+    <!-- 크림2 배포 메시지 모달 -->
+    <div class="modal" id="cream2-modal">
+      <div class="modal-content" style="max-width:700px;">
+        <div class="modal-header">
+          <h3 class="modal-title">🎯 크림2 배포 포인트 충전 메시지</h3>
+          <button class="btn btn-sm btn-secondary" onclick="closeCream2Modal()">✕</button>
+        </div>
+        <div class="modal-body" style="padding:20px; background:var(--bg);">
+          <div id="cream2-content" style="font-family:'Malgun Gothic', sans-serif; font-size:13px; line-height:1.6;">
+            <div style="text-align:center; padding:40px; color:var(--muted);">
+              <div>캐리 배포2 항목이 없습니다</div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-success" id="btn-copy-cream2" onclick="copyCream2ToClipboard()">📋 복사</button>
+          <button type="button" class="btn btn-secondary" onclick="closeCream2Modal()">닫기</button>
+        </div>
+      </div>
+    </div>
+    
     <!-- Toast -->
     <div class="toast" id="toast"></div>
 
@@ -466,6 +533,7 @@
         missingPrices: [], // compute 응답의 missing_prices
         extraExpenses: [], // [{date,client,product,amount,report}]
         unpaidReceivables: {}, // { agency: amount }
+        cream2Accounts: [], // [{ client, account_id, unit_price }]
         exclusions: { products: [], rows: [] } // 결재선 반영 제외 세트
       };
       state.wizard = { step:1, receivables: [], payables: [], categories: {}, custom: {}, reportDate:'', vendorOrder: [] };
@@ -1546,12 +1614,244 @@
       // 검색 렌더 업데이트
       document.getElementById('pb-search').addEventListener('input', renderPriceBook);
 
+      // === 크림2 배포 계정 관리 ===
+      async function loadCream2Accounts(){
+        try{
+          const res = await fetch('/api/settlement/cream2-accounts');
+          const data = await res.json().catch(()=>({}));
+          if(res.ok && Array.isArray(data.items)) state.cream2Accounts = data.items;
+          else state.cream2Accounts = [];
+        }catch(e){ state.cream2Accounts = []; }
+      }
+      
+      async function saveCream2Accounts(){
+        showLoading('크림2 계정 저장 중...');
+        try{
+          const res = await fetch('/api/settlement/cream2-accounts', { 
+            method:'POST', 
+            headers:{'Content-Type':'application/json'}, 
+            body: JSON.stringify({ items: state.cream2Accounts }) 
+          });
+          const data = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(data?.error||'저장 실패');
+          toast('저장됨');
+        }catch(e){ alert(e.message||'저장 실패'); }
+        finally{ hideLoading(); }
+      }
+      
+      function renderCream2Accounts(){
+        const tb = document.querySelector('#tbl-cream2 tbody');
+        if(!tb) return;
+        tb.innerHTML = '';
+        for(const it of state.cream2Accounts){
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${it.client||''}</td>
+            <td>${it.account_id||''}</td>
+            <td>${Number(it.unit_price||0).toLocaleString()}</td>
+            <td>
+              <button class="btn btn-sm btn-outline" data-edit="${it.client}">수정</button>
+              <button class="btn btn-sm btn-outline" data-del="${it.client}">삭제</button>
+            </td>
+          `;
+          tb.appendChild(tr);
+        }
+        tb.querySelectorAll('button[data-del]')?.forEach(btn=>{
+          btn.addEventListener('click', async()=>{
+            const client = btn.getAttribute('data-del');
+            state.cream2Accounts = state.cream2Accounts.filter(x=> x.client !== client);
+            renderCream2Accounts();
+            await saveCream2Accounts();
+          });
+        });
+        tb.querySelectorAll('button[data-edit]')?.forEach(btn=>{
+          btn.addEventListener('click', ()=>{
+            const client = btn.getAttribute('data-edit');
+            const it = state.cream2Accounts.find(x=> x.client === client);
+            if(it){
+              document.getElementById('cream2-client').value = it.client||'';
+              document.getElementById('cream2-account').value = it.account_id||'';
+              document.getElementById('cream2-price').value = it.unit_price||'';
+            }
+          });
+        });
+      }
+      
+      document.getElementById('cream2-add')?.addEventListener('click', ()=>{
+        const client = (document.getElementById('cream2-client')?.value||'').trim();
+        const account_id = (document.getElementById('cream2-account')?.value||'').trim();
+        const unit_price = Number(document.getElementById('cream2-price')?.value||0);
+        
+        if(!client) return alert('거래처를 입력하세요');
+        if(!account_id) return alert('계정 아이디를 입력하세요');
+        if(!unit_price) return alert('단가를 입력하세요');
+        
+        const idx = state.cream2Accounts.findIndex(x=> x.client === client);
+        if(idx >= 0){
+          state.cream2Accounts[idx] = { client, account_id, unit_price };
+        } else {
+          state.cream2Accounts.push({ client, account_id, unit_price });
+        }
+        
+        renderCream2Accounts();
+        document.getElementById('cream2-client').value = '';
+        document.getElementById('cream2-account').value = '';
+        document.getElementById('cream2-price').value = '';
+      });
+      
+      document.getElementById('btn-save-cream2')?.addEventListener('click', saveCream2Accounts);
+
+      // === 크림2 배포 메시지 생성 ===
+      function openCream2Modal(){
+        const modal = document.getElementById('cream2-modal');
+        if(!modal) return;
+        modal.classList.add('show');
+        generateCream2Message();
+      }
+      
+      function closeCream2Modal(){
+        const modal = document.getElementById('cream2-modal');
+        if(modal) modal.classList.remove('show');
+      }
+      
+      function generateCream2Message(){
+        const content = document.getElementById('cream2-content');
+        if(!content) return;
+        
+        // '캐리 배포2' 항목 필터링
+        const aggs = augmentAggregatesWithExtras(state.lastAggregates||{}, state.extraExpenses||[]);
+        const byAgency = aggs.by_agency||{};
+        
+        // 캐리 배포2 항목 수집: { client: qty }
+        const cream2Data = {};
+        Object.keys(byAgency).forEach(date=>{
+          const clients = byAgency[date]||{};
+          Object.keys(clients).forEach(client=>{
+            const items = clients[client]||[];
+            items.forEach(it=>{
+              const prod = (it.product||'').trim();
+              // '캐리 배포2' 또는 유사한 이름 매칭
+              if(prod.includes('캐리') && prod.includes('배포') && prod.includes('2')){
+                cream2Data[client] = (cream2Data[client]||0) + Number(it.qty||0);
+              }
+            });
+          });
+        });
+        
+        if(Object.keys(cream2Data).length === 0){
+          content.innerHTML = `
+            <div style="text-align:center; padding:40px; color:var(--muted);">
+              <div class="empty-icon">📭</div>
+              <div class="empty-title">캐리 배포2 항목이 없습니다</div>
+              <div class="empty-desc">선택한 탭에 캐리 배포2 데이터가 없습니다</div>
+            </div>
+          `;
+          return;
+        }
+        
+        // 계정별 그룹핑 및 포인트 계산
+        const DEFAULT_ACCOUNT = 'kimcy1388';
+        const DEFAULT_PRICE = 550;
+        
+        const accountGroups = {}; // { account_id: { qty, unit_price } }
+        let totalQty = 0;
+        
+        Object.keys(cream2Data).forEach(client=>{
+          const qty = cream2Data[client];
+          totalQty += qty;
+          
+          // 크림2 계정 찾기
+          const account = state.cream2Accounts.find(x=> x.client === client);
+          if(account){
+            const aid = account.account_id;
+            const price = Number(account.unit_price||DEFAULT_PRICE);
+            if(!accountGroups[aid]){
+              accountGroups[aid] = { qty: 0, unit_price: price };
+            }
+            accountGroups[aid].qty += qty;
+          } else {
+            // 기본 계정
+            if(!accountGroups[DEFAULT_ACCOUNT]){
+              accountGroups[DEFAULT_ACCOUNT] = { qty: 0, unit_price: DEFAULT_PRICE };
+            }
+            accountGroups[DEFAULT_ACCOUNT].qty += qty;
+          }
+        });
+        
+        // 날짜 생성 (선택한 탭 기준)
+        let dateStr = '';
+        try{
+          if(Array.isArray(state.selectedTabs) && state.selectedTabs.length){
+            const toMMDD = (s)=>{ const t=String(s||''); const m=t.slice(0,2), d=t.slice(2); return `${m}/${d}`; };
+            const nums = state.selectedTabs.map(t=> Number(String(t).replace(/\D/g,''))).filter(n=>!isNaN(n));
+            if(nums.length){ 
+              nums.sort((a,b)=>a-b); 
+              const first=String(nums[0]).padStart(4,'0'); 
+              const last=String(nums[nums.length-1]).padStart(4,'0');
+              const fst=toMMDD(first), lst=toMMDD(last); 
+              dateStr = (fst===lst)? fst : `${fst} ~ ${lst}`; 
+            }
+          }
+        }catch(e){}
+        
+        // 메시지 생성
+        const lines = [];
+        lines.push('[크림2]');
+        lines.push('');
+        if(dateStr) lines.push(dateStr);
+        if(dateStr) lines.push('');
+        
+        // 계정별 포인트 충전 요청
+        Object.keys(accountGroups).sort().forEach(aid=>{
+          const g = accountGroups[aid];
+          const points = g.qty * g.unit_price;
+          lines.push(`${g.qty} * ${g.unit_price} = ${points.toLocaleString()} 포인트 (${aid} 계정)`);
+        });
+        lines.push('');
+        
+        Object.keys(accountGroups).sort().forEach(aid=>{
+          const g = accountGroups[aid];
+          const points = g.qty * g.unit_price;
+          lines.push(`총 ${aid} 계정에 ${points.toLocaleString()}포인트 충전 요청드립니다!`);
+        });
+        lines.push('');
+        
+        // 총 입금 금액 (총 건수 × 550원 × 1.1)
+        const totalAmount = totalQty * DEFAULT_PRICE;
+        const totalAmountVAT = Math.round(totalAmount * 1.1);
+        lines.push(`총 입금 금액: ${totalAmountVAT.toLocaleString()}원 (${totalQty}건 × ${DEFAULT_PRICE}원 × 1.1)`);
+        
+        const html = lines.map(line=> `<div>${line||'&nbsp;'}</div>`).join('');
+        content.innerHTML = `<div style="background:#fff; padding:16px; border-radius:8px; border:1px solid var(--line);">${html}</div>`;
+        
+        // 복사용 텍스트 저장
+        window.__cream2Text = lines.join('\n');
+      }
+      
+      function copyCream2ToClipboard(){
+        const text = window.__cream2Text || '';
+        if(!text){
+          toast('복사할 내용이 없습니다');
+          return;
+        }
+        navigator.clipboard?.writeText(text).then(()=>{
+          toast('📋 클립보드에 복사되었습니다');
+        }).catch(err=>{
+          console.error('복사 실패:', err);
+          toast('복사 실패');
+        });
+      }
+      
+      document.getElementById('btn-cream2-message')?.addEventListener('click', openCream2Modal);
+
       // 초기화: 가격표 로드 및 렌더
       (async function init(){
         try{
           showLoading('초기화 중...');
           await loadPriceBook();
+          await loadCream2Accounts();
           renderPriceBook();
+          renderCream2Accounts();
         }catch(e){ /* swallow */ }
         finally{ hideLoading(); }
         // 초기 탭 상태 강제: 정산으로 시작
