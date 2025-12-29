@@ -968,28 +968,29 @@
 
       <!-- 테이블 -->
       <div class="section" style="margin-top:-16px;">
-        <div class="table-container" style="box-shadow:0 4px 16px rgba(0,0,0,0.08); border-radius:12px;">
-          <table id="guarantee-table">
+        <div class="table-container"
+          style="box-shadow:0 4px 16px rgba(0,0,0,0.08); border-radius:12px; overflow:hidden;">
+          <table id="guarantee-table" style="font-size:13px;">
             <thead>
-              <tr style="background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                <th style="color:#fff;">구분</th>
+              <tr style="background:linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);">
+                <th style="color:#fff; padding:14px 12px; font-weight:600;">구분</th>
                 <th class="sortable" data-sort="agency"
-                  style="cursor:pointer; user-select:none; color:#fff; background:transparent;">
-                  대행사 <span class="sort-icon" style="color:rgba(255,255,255,0.7);">⇅</span>
+                  style="cursor:pointer; user-select:none; color:#fff; background:transparent; padding:14px 12px; font-weight:600;">
+                  대행사 <span class="sort-icon" style="color:rgba(255,255,255,0.6);">⇅</span>
                 </th>
                 <th class="sortable" data-sort="business_name"
-                  style="cursor:pointer; user-select:none; color:#fff; background:transparent;">
-                  상호명 <span class="sort-icon" style="color:rgba(255,255,255,0.7);">⇅</span>
+                  style="cursor:pointer; user-select:none; color:#fff; background:transparent; padding:14px 12px; font-weight:600;">
+                  상호명 <span class="sort-icon" style="color:rgba(255,255,255,0.6);">⇅</span>
                 </th>
-                <th style="color:#fff;">키워드</th>
+                <th style="color:#fff; padding:14px 12px; font-weight:600;">키워드</th>
                 <th class="sortable" data-sort="status"
-                  style="cursor:pointer; user-select:none; color:#fff; background:transparent;">
-                  상태 <span class="sort-icon" style="color:rgba(255,255,255,0.7);">⇅</span>
+                  style="cursor:pointer; user-select:none; color:#fff; background:transparent; padding:14px 12px; font-weight:600;">
+                  상태 <span class="sort-icon" style="color:rgba(255,255,255,0.6);">⇅</span>
                 </th>
-                <th style="color:#fff;">현재순위</th>
-                <th style="color:#fff;">N2 변화</th>
-                <th style="color:#fff;">진행일</th>
-                <th style="color:#fff;">리뷰변화</th>
+                <th style="color:#fff; padding:14px 12px; font-weight:600;">순위</th>
+                <th style="color:#fff; padding:14px 12px; font-weight:600;">N2 점수</th>
+                <th style="color:#fff; padding:14px 12px; font-weight:600;">진행/잔여</th>
+                <th style="color:#fff; padding:14px 12px; font-weight:600;">리뷰</th>
               </tr>
             </thead>
             <tbody id="table-body">
@@ -1766,41 +1767,70 @@
         // 레시피 분석 데이터에서 N2/리뷰 정보 가져오기
         const recipeData = recipeAnalysisData?.businesses?.find(b => b.name === businessName);
 
-        // N2 변화
-        let n2ChangeHtml = '<span style="color:var(--muted);">-</span>';
-        if (recipeData?.n2_analysis?.delta !== null && recipeData?.n2_analysis?.delta !== undefined) {
-          const n2Delta = recipeData.n2_analysis.delta;
-          const n2Sign = n2Delta >= 0 ? '▲' : '▼';
-          const n2Color = n2Delta >= 0 ? 'var(--success)' : 'var(--danger)';
-          n2ChangeHtml = `<span style="color:${n2Color}; font-weight:600;">${n2Sign}${Math.abs(n2Delta).toFixed(4)}</span>`;
+        // N2 점수 (현재값 + 변화량)
+        let n2Html = '<span style="color:var(--muted);">-</span>';
+        if (recipeData?.n2_analysis) {
+          const n2 = recipeData.n2_analysis;
+          const currentN2 = n2.end_n2?.toFixed(3) || '-';
+          const delta = n2.delta;
+
+          if (delta !== null && delta !== undefined) {
+            const sign = delta >= 0 ? '+' : '';
+            const color = delta >= 0 ? 'var(--success)' : 'var(--danger)';
+            n2Html = `<div style="line-height:1.3;">
+              <div style="font-weight:600;">${currentN2}</div>
+              <div style="font-size:11px; color:${color};">(${sign}${delta.toFixed(4)})</div>
+            </div>`;
+          } else {
+            n2Html = `<span style="font-weight:600;">${currentN2}</span>`;
+          }
         }
 
-        // 진행일
-        const exposureDays = recipeData?.exposure_days || item.exposure_days || '-';
+        // 진행일 / 잔여일 (25일 기준)
+        const exposureDays = recipeData?.exposure_days || item.exposure_days || 0;
+        const remainingDays = Math.max(0, 25 - exposureDays);
+        let daysHtml = '<span style="color:var(--muted);">-</span>';
+        if (exposureDays > 0) {
+          const remainColor = remainingDays <= 5 ? 'var(--danger)' : (remainingDays <= 10 ? 'var(--warning)' : 'var(--muted)');
+          daysHtml = `<div style="line-height:1.3;">
+            <div style="font-weight:600;">${exposureDays}일</div>
+            <div style="font-size:11px; color:${remainColor};">잔여 ${remainingDays}일</div>
+          </div>`;
+        }
 
-        // 리뷰 변화
-        let reviewChangeHtml = '<span style="color:var(--muted);">-</span>';
-        if (recipeData?.review_analysis?.delta !== null && recipeData?.review_analysis?.delta !== undefined) {
-          const reviewDelta = recipeData.review_analysis.delta;
-          const reviewSign = reviewDelta >= 0 ? '▲' : '▼';
-          const reviewColor = reviewDelta >= 0 ? 'var(--success)' : 'var(--danger)';
-          reviewChangeHtml = `<span style="color:${reviewColor}; font-weight:600;">${reviewSign}${Math.abs(reviewDelta)}</span>`;
+        // 리뷰 (현재값 + 변화량)
+        let reviewHtml = '<span style="color:var(--muted);">-</span>';
+        if (recipeData?.review_analysis) {
+          const review = recipeData.review_analysis;
+          const currentReview = review.end_reviews || '-';
+          const delta = review.delta;
+
+          if (delta !== null && delta !== undefined && currentReview !== '-') {
+            const sign = delta >= 0 ? '+' : '';
+            const color = delta >= 0 ? 'var(--success)' : 'var(--danger)';
+            reviewHtml = `<div style="line-height:1.3;">
+              <div style="font-weight:600;">${currentReview}개</div>
+              <div style="font-size:11px; color:${color};">(${sign}${delta})</div>
+            </div>`;
+          } else if (currentReview !== '-') {
+            reviewHtml = `<span style="font-weight:600;">${currentReview}개</span>`;
+          }
         }
 
         return `
           <tr onclick="openBusinessSlidePanel('${encodeURIComponent(businessName)}', '${item.id}')" 
-              style="cursor:pointer; transition:background 0.2s;"
-              onmouseover="this.style.background='rgba(99,102,241,0.08)'" 
+              style="cursor:pointer; transition:background 0.15s; border-bottom:1px solid var(--border);"
+              onmouseover="this.style.background='rgba(99,102,241,0.06)'" 
               onmouseout="this.style.background=''">
-            <td><span class="badge badge-${item.type || '신규'}">${item.type || '신규'}</span></td>
-            <td>${item.agency || '-'}</td>
-            <td><strong>${item.business_name || ''}</strong></td>
-            <td>${item.main_keyword || '-'}</td>
-            <td><span class="badge badge-${item.status || '세팅대기'}">${item.status || '세팅대기'}</span></td>
-            <td><strong style="color:${currentRank !== '-' && currentRank <= 5 ? 'var(--success)' : 'var(--text)'};">${currentRank}${currentRank !== '-' ? '위' : ''}</strong></td>
-            <td>${n2ChangeHtml}</td>
-            <td>${exposureDays}${exposureDays !== '-' ? '일' : ''}</td>
-            <td>${reviewChangeHtml}</td>
+            <td style="padding:12px 10px;"><span class="badge badge-${item.type || '신규'}">${item.type || '신규'}</span></td>
+            <td style="padding:12px 10px; color:var(--muted); font-size:12px;">${item.agency || '-'}</td>
+            <td style="padding:12px 10px;"><strong style="color:var(--text);">${item.business_name || ''}</strong></td>
+            <td style="padding:12px 10px; font-size:12px; color:var(--muted);">${item.main_keyword || '-'}</td>
+            <td style="padding:12px 10px;"><span class="badge badge-${item.status || '세팅대기'}">${item.status || '세팅대기'}</span></td>
+            <td style="padding:12px 10px;"><strong style="color:${currentRank !== '-' && currentRank <= 5 ? 'var(--success)' : 'var(--primary)'}; font-size:15px;">${currentRank}${currentRank !== '-' ? '위' : ''}</strong></td>
+            <td style="padding:12px 10px;">${n2Html}</td>
+            <td style="padding:12px 10px;">${daysHtml}</td>
+            <td style="padding:12px 10px;">${reviewHtml}</td>
           </tr>
         `;
       }).join('');
