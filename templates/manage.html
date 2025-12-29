@@ -928,43 +928,14 @@
         </div>
       </div>
 
-      <!-- 회사별 현황 -->
-      <div class="section">
-        <h2 class="section-title">📈 회사별 현황</h2>
-        <div class="grid grid-2">
-          <div class="card">
-            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px; color:var(--primary);"
-              id="company-chart-title-1">🏢 제이투랩</h3>
-            <div class="chart-container" id="chart-company"></div>
-          </div>
-          <div class="card">
-            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px;">📊 상태별 분포</h3>
-            <div class="chart-container" id="chart-status"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 상품별 / 월별 분석 -->
-      <div class="section">
-        <div class="grid grid-2">
-          <div class="card">
-            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px;">📦 상품별 분포</h3>
-            <div class="chart-container" id="chart-products"></div>
-          </div>
-          <div class="card">
-            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px;">📅 월별 계약 건수</h3>
-            <div class="chart-container" id="chart-monthly"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 필터 및 검색 -->
+      <!-- 필터 및 검색 (메인 섹션) -->
       <div class="section">
         <div class="section-header">
           <h2 class="section-title">📋 보장건 목록</h2>
           <button class="btn btn-success" id="btn-add">➕ 새 보장건 등록</button>
         </div>
-        <div class="filter-bar">
+        <div class="filter-bar"
+          style="background:linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border:none; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
           <div class="filter-group">
             <label class="filter-label">상태</label>
             <select class="filter-select" id="filter-status">
@@ -996,26 +967,29 @@
       </div>
 
       <!-- 테이블 -->
-      <div class="section">
-        <div class="table-container">
+      <div class="section" style="margin-top:-16px;">
+        <div class="table-container" style="box-shadow:0 4px 16px rgba(0,0,0,0.08); border-radius:12px;">
           <table id="guarantee-table">
             <thead>
-              <tr>
-                <th>구분</th>
-                <th class="sortable" data-sort="agency" style="cursor:pointer; user-select:none;">
-                  대행사 <span class="sort-icon">⇅</span>
+              <tr style="background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                <th style="color:#fff;">구분</th>
+                <th class="sortable" data-sort="agency"
+                  style="cursor:pointer; user-select:none; color:#fff; background:transparent;">
+                  대행사 <span class="sort-icon" style="color:rgba(255,255,255,0.7);">⇅</span>
                 </th>
-                <th class="sortable" data-sort="business_name" style="cursor:pointer; user-select:none;">
-                  상호명 <span class="sort-icon">⇅</span>
+                <th class="sortable" data-sort="business_name"
+                  style="cursor:pointer; user-select:none; color:#fff; background:transparent;">
+                  상호명 <span class="sort-icon" style="color:rgba(255,255,255,0.7);">⇅</span>
                 </th>
-                <th>키워드</th>
-                <th class="sortable" data-sort="status" style="cursor:pointer; user-select:none;">
-                  상태 <span class="sort-icon">⇅</span>
+                <th style="color:#fff;">키워드</th>
+                <th class="sortable" data-sort="status"
+                  style="cursor:pointer; user-select:none; color:#fff; background:transparent;">
+                  상태 <span class="sort-icon" style="color:rgba(255,255,255,0.7);">⇅</span>
                 </th>
-                <th>현재순위</th>
-                <th>N2 변화</th>
-                <th>진행일</th>
-                <th>리뷰변화</th>
+                <th style="color:#fff;">현재순위</th>
+                <th style="color:#fff;">N2 변화</th>
+                <th style="color:#fff;">진행일</th>
+                <th style="color:#fff;">리뷰변화</th>
               </tr>
             </thead>
             <tbody id="table-body">
@@ -1024,6 +998,39 @@
               </tr>
             </tbody>
           </table>
+        </div>
+        <div style="text-align:center; margin-top:12px; font-size:12px; color:var(--muted);">
+          💡 행을 클릭하면 상세 정보를 볼 수 있습니다
+        </div>
+      </div>
+
+      <!-- 회사별 현황 -->
+      <div class="section">
+        <h2 class="section-title">📈 회사별 현황</h2>
+        <div class="grid grid-2">
+          <div class="card">
+            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px; color:var(--primary);"
+              id="company-chart-title-1">🏢 제이투랩</h3>
+            <div class="chart-container" id="chart-company"></div>
+          </div>
+          <div class="card">
+            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px;">📊 상태별 분포</h3>
+            <div class="chart-container" id="chart-status"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 상품별 / 월별 분석 -->
+      <div class="section">
+        <div class="grid grid-2">
+          <div class="card">
+            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px;">📦 상품별 분포</h3>
+            <div class="chart-container" id="chart-products"></div>
+          </div>
+          <div class="card">
+            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px;">📅 월별 계약 건수</h3>
+            <div class="chart-container" id="chart-monthly"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1249,6 +1256,17 @@
       field: 'agency',  // 기본: 대행사명
       direction: 'asc'   // asc | desc
     };
+
+    // 보장 순위 포맷팅 (시트에서 "5위"로 오면 중복 제거)
+    function formatGuaranteeRank(rank) {
+      if (!rank || rank === '-' || rank === '') return '-';
+      // 숫자+위 형식으로 통일
+      const numMatch = String(rank).match(/(\d+)/);
+      if (numMatch) {
+        return numMatch[1] + '위';
+      }
+      return String(rank);
+    }
 
     // Toast
     function showToast(msg) {
@@ -2530,7 +2548,7 @@
           </div>
           <div style="text-align:right;">
             <div style="font-size:13px; color:var(--muted);">보장순위</div>
-            <div style="font-size:20px; font-weight:600;">${biz.guarantee_rank || '-'}위</div>
+            <div style="font-size:20px; font-weight:600;">${formatGuaranteeRank(biz.guarantee_rank)}</div>
           </div>
         </div>
       </div>`;
@@ -2637,7 +2655,7 @@
       }
 
       const rankDisplay = currentRank ? `${currentRank}위 ${rankSource}` : '순위 없음';
-      const guaranteeRank = biz.guarantee_rank || item.guarantee_rank || '-';
+      const guaranteeRank = formatGuaranteeRank(biz.guarantee_rank || item.guarantee_rank);
 
       html += `<div class="card" style="margin-bottom:16px; border-left:4px solid var(--primary);">
         <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2647,7 +2665,7 @@
           </div>
           <div style="text-align:right;">
             <div style="font-size:13px; color:var(--muted);">보장순위</div>
-            <div style="font-size:20px; font-weight:600;">${guaranteeRank}${guaranteeRank !== '-' ? '위' : ''}</div>
+            <div style="font-size:20px; font-weight:600;">${guaranteeRank}</div>
           </div>
         </div>
       </div>`;
