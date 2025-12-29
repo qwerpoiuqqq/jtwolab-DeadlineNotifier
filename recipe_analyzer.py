@@ -248,14 +248,14 @@ class RecipeAnalyzer:
         for item in guarantee_items:
             business_name = item.get("business_name")
             keyword = item.get("main_keyword")
-            place_url = item.get("place_url", "")
             contract_date_str = item.get("contract_date")
             status = item.get("status", "")
             
             if not business_name:
                 continue
             
-            # 키워드 분류
+            # 키워드 분류 (place_url 또는 url 둘 다 체크)
+            place_url = item.get("place_url") or item.get("url") or ""
             is_restaurant = is_restaurant_keyword(place_url)
             
             # 작업 시작일 파싱 (없어도 진행)
