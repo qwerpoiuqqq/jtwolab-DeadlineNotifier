@@ -1,0 +1,53 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+.venv
+venv
+env
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# 로컬 환경 파일
+.env
+.env.local
+service_account.json
+
+# 데이터베이스 (배포 시 새로 생성)
+*.db
+*.sqlite
+*.sqlite3
+
+# 캐시
+*.cache
+.cache
+
+# 로그
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 문서
+*.md
+!README.md
+
+# 테스트
+test_*.py

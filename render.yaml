@@ -1,0 +1,48 @@
+services:
+  - type: web
+    name: jtwolab-deadline-notifier
+    runtime: docker
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: 0
+      - key: FLASK_HOST
+        value: 0.0.0.0
+      - key: FLASK_PORT
+        value: 8080
+      - key: FLASK_DEBUG
+        value: false
+      - key: AUTO_SYNC_ON_START
+        value: true
+      # 아래 환경변수는 Render 대시보드에서 직접 설정 필요:
+      # 필수:
+      # - SERVICE_ACCOUNT_JSON (구글 서비스 계정 JSON 전체 내용)
+      # - SPREADSHEET_ID
+      # - JTWOLAB_SHEET_ID
+      # - ILRYU_SHEET_ID
+      # - ADLOG_ID
+      # - ADLOG_PASSWORD
+      # 
+      # 선택사항:
+      # - ADLOG_URL (기본값 있음)
+      # - DATA_ENCRYPTION_KEY
+      # - AGENCY_COLUMN
+      # - INTERNAL_COLUMN
+      # - REMAINING_DAYS_COLUMN
+      # - CHECKED_COLUMN
+      # - BIZNAME_COLUMN
+      #
+      # Disk 경로 기반 파일 저장 (서버 재시작 시 데이터 유지):
+      - key: CREAM2_ACCOUNTS_PATH
+        value: /var/data/cream2_accounts.json
+      - key: PRICEBOOK_PATH
+        value: /var/data/pricebook.json
+      - key: EXTRA_EXPENSES_PATH
+        value: /var/data/extra_expenses.json
+    disk:
+      name: deadline-data
+      mountPath: /var/data
+      sizeGB: 1
+

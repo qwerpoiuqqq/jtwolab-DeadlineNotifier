@@ -1,0 +1,2755 @@
+<!doctype html>
+<html lang="ko">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <title>월보장 관리 대시보드</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --text: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --primary: #3b82f6;
+      --primary-dark: #2563eb;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --card-bg: #ffffff;
+      --hover: #f1f5f9;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* 레이아웃 */
+    .header {
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--line);
+      padding: 20px 0;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    .header-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .logo {
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .logo:hover {
+      color: var(--primary);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 8px;
+    }
+
+    .nav-link {
+      padding: 8px 16px;
+      border-radius: 8px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all .2s;
+    }
+
+    .nav-link:hover {
+      background: var(--hover);
+      color: var(--text);
+    }
+
+    .nav-link.active {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .main {
+      padding: 32px 0;
+    }
+
+    .section {
+      margin-bottom: 32px;
+    }
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    /* 토글 스위치 */
+    .company-toggle {
+      display: flex;
+      gap: 8px;
+      background: var(--card-bg);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 4px;
+    }
+
+    .toggle-btn {
+      padding: 10px 24px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s;
+    }
+
+    .toggle-btn.active {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    /* 버튼 */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: all .2s;
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-dark);
+    }
+
+    .btn-secondary {
+      background: #fff;
+      color: var(--text);
+      border: 1px solid var(--line);
+    }
+
+    .btn-secondary:hover {
+      background: var(--hover);
+    }
+
+    .btn-success {
+      background: var(--success);
+      color: #fff;
+    }
+
+    .btn-danger {
+      background: var(--danger);
+      color: #fff;
+    }
+
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 13px;
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* 그리드 */
+    .grid {
+      display: grid;
+      gap: 20px;
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .grid-4 {
+      grid-template-columns: repeat(4, 1fr);
+    }
+
+    /* 카드 */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 20px;
+      transition: all .2s;
+    }
+
+    .card:hover {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, .08);
+    }
+
+    /* 통계 카드 */
+    .stat-card {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .stat-icon {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      font-size: 32px;
+      opacity: 0.2;
+    }
+
+    .stat-label {
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      font-size: 36px;
+      font-weight: 800;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+
+    .stat-change {
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .stat-change.up {
+      color: var(--success);
+    }
+
+    .stat-change.down {
+      color: var(--danger);
+    }
+
+    /* 동기화 배너 */
+    .sync-banner {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .sync-info {
+      flex: 1;
+    }
+
+    .sync-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .sync-meta {
+      font-size: 13px;
+      opacity: 0.9;
+    }
+
+    /* 차트 */
+    .chart-container {
+      padding: 20px 0;
+    }
+
+    .chart-bar-group {
+      margin-bottom: 16px;
+    }
+
+    .chart-label {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .chart-bar-bg {
+      background: var(--line);
+      height: 32px;
+      border-radius: 6px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .chart-bar {
+      background: linear-gradient(90deg, var(--primary), var(--primary-dark));
+      height: 100%;
+      transition: width .4s ease;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    /* 필터 */
+    .filter-bar {
+      background: var(--card-bg);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .filter-group {
+      flex: 1;
+      min-width: 150px;
+    }
+
+    .filter-label {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+      margin-bottom: 6px;
+      display: block;
+    }
+
+    .filter-input,
+    .filter-select {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+      transition: all .2s;
+    }
+
+    .filter-input:focus,
+    .filter-select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, .1);
+    }
+
+    /* 테이블 */
+    .table-container {
+      overflow-x: auto;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--card-bg);
+    }
+
+    th {
+      background: var(--hover);
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 14px 16px;
+      border-top: 1px solid var(--line);
+      font-size: 14px;
+    }
+
+    tbody tr {
+      transition: background .2s;
+    }
+
+    tbody tr:hover {
+      background: var(--hover);
+    }
+
+    /* 배지 */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .badge-진행중 {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+
+    .badge-완료 {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .badge-세팅대기 {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .badge-중단 {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .badge-환불 {
+      background: #f3e8ff;
+      color: #6b21a8;
+    }
+
+    .badge-후불 {
+      background: #fce7f3;
+      color: #9f1239;
+    }
+
+    .badge-신규 {
+      background: #e0f2fe;
+      color: #075985;
+    }
+
+    .badge-연장 {
+      background: #fce7f3;
+      color: #9f1239;
+    }
+
+    /* 증감 표시 */
+    .trend {
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .trend-up {
+      color: var(--success);
+    }
+
+    .trend-down {
+      color: var(--danger);
+    }
+
+    /* 모달 */
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+
+    .modal.show {
+      display: flex;
+    }
+
+    .modal-content {
+      background: #fff;
+      border-radius: 16px;
+      max-width: 600px;
+      width: 90%;
+      max-height: 90vh;
+      overflow: auto;
+    }
+
+    .modal-header {
+      padding: 24px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-title {
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .modal-body {
+      padding: 24px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .form-input,
+    .form-select,
+    .form-textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+      transition: all .2s;
+    }
+
+    .form-input:focus,
+    .form-select:focus,
+    .form-textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, .1);
+    }
+
+    .form-textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    .modal-footer {
+      padding: 24px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--text);
+      color: #fff;
+      padding: 14px 20px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .15);
+      z-index: 200;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all .3s;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* 빈 상태 */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--muted);
+    }
+
+    .empty-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    .empty-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+
+    .empty-desc {
+      font-size: 14px;
+    }
+
+    /* 로딩 */
+    .loading {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, .3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    /* 스크롤 버튼 */
+    .scroll-buttons {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 90;
+    }
+
+    .scroll-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, .3);
+      transition: all .2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transform: scale(0.8);
+    }
+
+    .scroll-btn.show {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    .scroll-btn:hover {
+      background: var(--primary-dark);
+      box-shadow: 0 6px 16px rgba(59, 130, 246, .4);
+    }
+
+    .scroll-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* 정렬 가능한 테이블 헤더 */
+    th.sortable {
+      position: relative;
+    }
+
+    th.sortable:hover {
+      background: #e2e8f0;
+      color: var(--primary);
+    }
+
+    th.sortable.sorted-asc .sort-icon {
+      color: var(--primary);
+    }
+
+    th.sortable.sorted-desc .sort-icon {
+      color: var(--primary);
+    }
+
+    th.sortable .sort-icon {
+      font-size: 11px;
+      color: var(--muted);
+      margin-left: 4px;
+      transition: color .2s;
+    }
+
+    th.sortable.sorted-asc .sort-icon::before {
+      content: '↑';
+      position: absolute;
+      margin-left: 2px;
+    }
+
+    th.sortable.sorted-desc .sort-icon::before {
+      content: '↓';
+      position: absolute;
+      margin-left: 2px;
+    }
+
+    /* 반응형 */
+    @media(max-width:768px) {
+      .header-content {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .grid-2,
+      .grid-3,
+      .grid-4 {
+        grid-template-columns: 1fr;
+      }
+
+      .filter-bar {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .modal-content {
+        width: 95%;
+      }
+
+      .scroll-buttons {
+        bottom: 16px;
+        right: 16px;
+      }
+
+      .scroll-btn {
+        width: 44px;
+        height: 44px;
+        font-size: 18px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- 헤더 -->
+  <header class="header">
+    <div class="container">
+      <div class="header-content">
+        <a href="/" class="logo">🏢 제이투랩 관리시스템</a>
+        <div class="nav-links">
+          <a href="/" class="nav-link">마감 안내</a>
+          <a href="/manage" class="nav-link active">월보장 관리</a>
+          <a href="/settlement" class="nav-link">결재선 · 정산</a>
+        </div>
+        <div id="user-info" style="display:flex; align-items:center; gap:12px;">
+          <span id="user-name" style="font-size:13px; color:var(--muted);"></span>
+          <span id="user-role" class="pill" style="font-size:11px;"></span>
+          <button id="btn-logout" class="btn btn-sm btn-secondary" onclick="logout()">로그아웃</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- 메인 -->
+  <main class="main">
+    <div class="container">
+      <!-- 동기화 배너 -->
+      <div class="sync-banner">
+        <div class="sync-info">
+          <div class="sync-title">📡 구글 시트 동기화</div>
+          <div class="sync-meta">
+            <span id="sync-status">마지막 동기화: -</span> ·
+            <span id="next-sync">다음: -</span>
+          </div>
+          <div class="sync-meta" style="margin-top:4px; font-size:12px; opacity:0.85;">
+            <span id="workload-cache-status">⚡ 작업량 캐시: 로딩 중...</span>
+          </div>
+        </div>
+        <div style="display:flex; gap:12px; align-items:center;">
+          <!-- 회사 토글 -->
+          <div class="company-toggle" style="background:rgba(255,255,255,.15); border-color:rgba(255,255,255,.2);">
+            <button class="toggle-btn active" data-company="제이투랩" style="color:#fff;">🏢 제이투랩</button>
+            <button class="toggle-btn" data-company="일류기획" style="color:rgba(255,255,255,.7);">🏢 일류기획</button>
+          </div>
+          <button class="btn" id="btn-sync"
+            style="background:#fff; color:var(--primary); font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,.15);"
+            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,.2)'"
+            onmouseout="this.style.transform=''; this.style.boxShadow='0 2px 8px rgba(0,0,0,.15)'">
+            <span id="sync-btn-text">🔄 동기화</span>
+          </button>
+          <button class="btn" id="btn-refresh-workload"
+            style="background:#10b981; color:#fff; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,.15);"
+            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,.2)'; this.style.background='#059669'"
+            onmouseout="this.style.transform=''; this.style.boxShadow='0 2px 8px rgba(0,0,0,.15)'; this.style.background='#10b981'">
+            <span id="workload-btn-text">⚡ 작업량 갱신</span>
+          </button>
+          <button class="btn" id="btn-crawl-ranks"
+            style="background:#8b5cf6; color:#fff; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,.15);"
+            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,.2)'; this.style.background='#7c3aed'"
+            onmouseout="this.style.transform=''; this.style.boxShadow='0 2px 8px rgba(0,0,0,.15)'; this.style.background='#8b5cf6'">
+            <span id="rank-btn-text">🏆 순위 갱신</span>
+          </button>
+          <span id="last-crawl-time" style="margin-left:12px; font-size:12px; color:#666;"></span>
+        </div>
+      </div>
+
+      <!-- 주요 통계 -->
+      <div class="section" style="margin-top:32px;">
+        <div class="grid grid-4">
+          <div class="card stat-card" style="border-left:4px solid var(--primary);">
+            <div class="stat-icon">🚀</div>
+            <div class="stat-label">진행중 업체</div>
+            <div class="stat-value" id="stat-working">0</div>
+            <div class="stat-change muted" style="font-size:11px;">진행중 + 후불</div>
+          </div>
+          <div class="card stat-card" style="border-left:4px solid var(--success); cursor:pointer;"
+            onclick="toggleExposureDetails()">
+            <div class="stat-icon">📊</div>
+            <div class="stat-label">실시간 노출 현황</div>
+            <div style="display:flex; gap:12px; align-items:baseline; margin-top:8px;">
+              <div style="flex:1;">
+                <div style="font-size:14px; color:var(--success); font-weight:600;">노출 <span id="stat-exposed">0</span>
+                </div>
+              </div>
+              <div style="flex:1;">
+                <div style="font-size:14px; color:var(--danger); font-weight:600;">미노출 <span
+                    id="stat-not-exposed">0</span></div>
+              </div>
+            </div>
+            <div class="stat-change muted" style="font-size:11px; margin-top:8px;">클릭하여 상세보기</div>
+          </div>
+          <div class="card stat-card" style="border-left:4px solid var(--warning); cursor:pointer;"
+            onclick="toggleDeadlineDetails()">
+            <div class="stat-icon">⏰</div>
+            <div class="stat-label">마감 5일 이내</div>
+            <div class="stat-value" style="color:var(--warning);" id="stat-deadline-total">0</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5;">
+              <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                <span>오늘: <strong id="stat-deadline-0">0</strong></span>
+                <span>1일: <strong id="stat-deadline-1">0</strong></span>
+                <span>2일: <strong id="stat-deadline-2">0</strong></span>
+              </div>
+              <div style="display:flex; justify-content:space-between;">
+                <span>3일: <strong id="stat-deadline-3">0</strong></span>
+                <span>4일: <strong id="stat-deadline-4">0</strong></span>
+                <span>5일: <strong id="stat-deadline-5">0</strong></span>
+              </div>
+            </div>
+          </div>
+          <div class="card stat-card" style="border-left:4px solid #8b5cf6;">
+            <div class="stat-icon">💳</div>
+            <div class="stat-label">후불 진행건</div>
+            <div class="stat-value" style="color:#8b5cf6;" id="stat-postpaid">0</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 레시피 분석 섹션 (N2 통계만 유지) -->
+      <div class="section">
+        <h2 class="section-title">📊 N2 분석 통계 <span id="recipe-weeks-badge"
+            style="font-size:12px; background:var(--primary); color:#fff; padding:2px 8px; border-radius:12px; margin-left:8px;">3주</span>
+        </h2>
+
+        <!-- N2 통계 카드 -->
+        <div class="grid grid-2" style="margin-bottom:20px;">
+          <div class="card" style="border-left:4px solid var(--success);">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <div style="font-size:13px; color:var(--muted);">일반 키워드</div>
+                <div style="font-size:24px; font-weight:700; color:var(--success);" id="general-n2-change">+0.000</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:12px; color:var(--muted);">분석 업체</div>
+                <div style="font-size:18px; font-weight:600;" id="general-count">0</div>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="border-left:4px solid var(--warning);">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <div style="font-size:13px; color:var(--muted);">맛집 키워드 (restaurant)</div>
+                <div style="font-size:24px; font-weight:700; color:var(--warning);" id="restaurant-n2-change">+0.000
+                </div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:12px; color:var(--muted);">분석 업체</div>
+                <div style="font-size:18px; font-weight:600;" id="restaurant-count">0</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 리뷰 급감 알림 -->
+        <div id="recipe-alerts" style="display:none;">
+          <div class="card" style="border-left:4px solid var(--danger);">
+            <h3 style="font-size:15px; font-weight:600; color:var(--danger); margin-bottom:12px;">⚠️ 리뷰 감소 경고</h3>
+            <div id="recipe-alerts-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 업체 대시보드 슬라이드 패널 -->
+      <div id="business-dashboard-panel" class="slide-panel"
+        style="display:none; position:fixed; top:0; right:-500px; width:500px; height:100vh; background:var(--card-bg); box-shadow:-5px 0 30px rgba(0,0,0,0.3); z-index:1000; transition:right 0.3s ease; padding:24px; overflow-y:auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
+          <h3 id="dashboard-business-name" style="font-size:18px; font-weight:700;">업체명</h3>
+          <button onclick="closeDashboardPanel()"
+            style="background:none; border:none; font-size:24px; cursor:pointer; color:var(--muted);">&times;</button>
+        </div>
+        <div id="dashboard-content">
+          <!-- 동적 콘텐츠 -->
+        </div>
+      </div>
+
+      <!-- 회사별 현황 -->
+      <div class="section">
+        <h2 class="section-title">📈 회사별 현황</h2>
+        <div class="grid grid-2">
+          <div class="card">
+            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px; color:var(--primary);"
+              id="company-chart-title-1">🏢 제이투랩</h3>
+            <div class="chart-container" id="chart-company"></div>
+          </div>
+          <div class="card">
+            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px;">📊 상태별 분포</h3>
+            <div class="chart-container" id="chart-status"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 상품별 / 월별 분석 -->
+      <div class="section">
+        <div class="grid grid-2">
+          <div class="card">
+            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px;">📦 상품별 분포</h3>
+            <div class="chart-container" id="chart-products"></div>
+          </div>
+          <div class="card">
+            <h3 style="font-size:16px; font-weight:600; margin-bottom:16px;">📅 월별 계약 건수</h3>
+            <div class="chart-container" id="chart-monthly"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 필터 및 검색 -->
+      <div class="section">
+        <div class="section-header">
+          <h2 class="section-title">📋 보장건 목록</h2>
+          <button class="btn btn-success" id="btn-add">➕ 새 보장건 등록</button>
+        </div>
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label class="filter-label">상태</label>
+            <select class="filter-select" id="filter-status">
+              <option value="">전체</option>
+              <option value="진행중,후불">진행중(후불건 포함)</option>
+              <option value="세팅대기">세팅대기</option>
+              <option value="완료">완료</option>
+              <option value="중단">중단</option>
+              <option value="환불">환불</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">상품</label>
+            <select class="filter-select" id="filter-product">
+              <option value="">전체</option>
+              <option value="플레이스">플레이스</option>
+              <option value="쇼핑">쇼핑</option>
+              <option value="자동완성">자동완성</option>
+              <option value="기타">기타</option>
+            </select>
+          </div>
+          <div class="filter-group" style="flex:2;">
+            <label class="filter-label">검색</label>
+            <input type="text" class="filter-input" id="search-input" placeholder="상호명, 키워드, 대행사 검색...">
+          </div>
+          <button class="btn btn-primary" id="btn-search">🔍 검색</button>
+          <button class="btn btn-secondary" id="btn-reset">🔄 초기화</button>
+        </div>
+      </div>
+
+      <!-- 테이블 -->
+      <div class="section">
+        <div class="table-container">
+          <table id="guarantee-table">
+            <thead>
+              <tr>
+                <th>구분</th>
+                <th class="sortable" data-sort="agency" style="cursor:pointer; user-select:none;">
+                  대행사 <span class="sort-icon">⇅</span>
+                </th>
+                <th class="sortable" data-sort="business_name" style="cursor:pointer; user-select:none;">
+                  상호명 <span class="sort-icon">⇅</span>
+                </th>
+                <th>키워드</th>
+                <th class="sortable" data-sort="status" style="cursor:pointer; user-select:none;">
+                  상태 <span class="sort-icon">⇅</span>
+                </th>
+                <th>현재순위</th>
+                <th>N2 변화</th>
+                <th>진행일</th>
+                <th>리뷰변화</th>
+              </tr>
+            </thead>
+            <tbody id="table-body">
+              <tr>
+                <td colspan="9" style="text-align:center; padding:40px; color:var(--muted);">데이터를 불러오는 중...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- 모달 -->
+  <div class="modal" id="guarantee-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-title">새 보장건 등록</h3>
+        <button class="btn btn-sm btn-secondary" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="guarantee-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">구분*</label>
+              <select name="type" class="form-select" required>
+                <option value="신규">신규</option>
+                <option value="연장">연장</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">회사*</label>
+              <select name="company" class="form-select" required>
+                <option value="제이투랩">제이투랩</option>
+                <option value="일류기획">일류기획</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">계약일*</label>
+              <input type="date" name="contract_date" class="form-input" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">작업 시작일</label>
+              <input type="date" name="work_start_date" class="form-input">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">대행사</label>
+              <input type="text" name="agency" class="form-input" placeholder="대행사명">
+            </div>
+            <div class="form-group">
+              <label class="form-label">상호명*</label>
+              <input type="text" name="business_name" class="form-input" placeholder="업체 상호명" required>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">메인 키워드</label>
+              <input type="text" name="main_keyword" class="form-input" placeholder="노출 키워드">
+            </div>
+            <div class="form-group">
+              <label class="form-label">보장 순위</label>
+              <input type="text" name="guarantee_rank" class="form-input" placeholder="예: 5위 이상">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">상품</label>
+              <select name="product" class="form-select">
+                <option value="플레이스">플레이스</option>
+                <option value="쇼핑">쇼핑</option>
+                <option value="자동완성">자동완성</option>
+                <option value="기타">기타</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">상태</label>
+              <select name="status" class="form-select">
+                <option value="세팅대기">세팅대기</option>
+                <option value="진행중">진행중</option>
+                <option value="완료">완료</option>
+                <option value="중단">중단</option>
+                <option value="환불">환불</option>
+                <option value="후불">후불</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">총 계약금 (VAT 제외)</label>
+              <input type="number" name="total_contract" class="form-input" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">입금액/마진 (VAT 제외)</label>
+              <input type="number" name="deposit_amount" class="form-input" placeholder="0">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">메모</label>
+            <textarea name="memo" class="form-textarea" placeholder="메모 입력..."></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">취소</button>
+        <button type="submit" form="guarantee-form" class="btn btn-primary">💾 저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 작업량 스케줄 모달 -->
+  <div class="modal" id="workload-modal">
+    <div class="modal-content" style="max-width:500px;">
+      <div class="modal-header">
+        <h3 class="modal-title" style="font-size:16px;">📊 작업량 스케줄 (최근 4주)</h3>
+        <button class="btn btn-sm btn-secondary" onclick="closeWorkloadModal()">✕</button>
+      </div>
+      <div class="modal-body" style="padding:20px; background:var(--bg);">
+        <div id="workload-content" style="font-family:'Malgun Gothic', sans-serif; font-size:13px; line-height:1.6;">
+          <div style="text-align:center; padding:40px; color:var(--muted);">
+            <div class="loading" style="margin:0 auto 16px;"></div>
+            <div>데이터를 불러오는 중...</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-success" id="btn-copy-workload" onclick="copyWorkloadToClipboard()"
+          style="display:inline-flex;">📋 복사</button>
+        <button type="button" class="btn btn-secondary" onclick="closeWorkloadModal()">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 노출 현황 상세 모달 -->
+  <div class="modal" id="exposure-modal">
+    <div class="modal-content" style="max-width:600px;">
+      <div class="modal-header">
+        <h3 class="modal-title">📊 실시간 노출 현황</h3>
+        <button class="btn btn-sm btn-secondary" onclick="closeExposureModal()">✕</button>
+      </div>
+      <div class="modal-body" style="padding:20px; background:var(--bg); max-height:70vh; overflow-y:auto;">
+        <div id="exposure-details-content">
+          <div style="text-align:center; padding:40px; color:var(--muted);">
+            <div class="loading" style="margin:0 auto 16px;"></div>
+            <div>데이터를 불러오는 중...</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeExposureModal()">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 마감 임박 상세 모달 -->
+  <div class="modal" id="deadline-modal">
+    <div class="modal-content" style="max-width:500px;">
+      <div class="modal-header">
+        <h3 class="modal-title">⏰ 마감 임박 현황</h3>
+        <button class="btn btn-sm btn-secondary" onclick="closeDeadlineModal()">✕</button>
+      </div>
+      <div class="modal-body" style="padding:20px; background:var(--bg); max-height:70vh; overflow-y:auto;">
+        <div id="deadline-details-content">
+          <div style="text-align:center; padding:40px; color:var(--muted);">
+            <div class="loading" style="margin:0 auto 16px;"></div>
+            <div>데이터를 불러오는 중...</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeDeadlineModal()">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <!-- 스크롤 버튼 -->
+  <div class="scroll-buttons">
+    <button class="scroll-btn" id="scroll-top" onclick="scrollToTop()" title="맨 위로">↑</button>
+    <button class="scroll-btn" id="scroll-bottom" onclick="scrollToBottom()" title="맨 아래로">↓</button>
+  </div>
+
+  <script>
+    // 사용자 정보 로드
+    async function loadUserInfo() {
+      try {
+        const res = await fetch('/api/auth/me');
+        if (res.ok) {
+          const data = await res.json();
+          const user = data.user;
+          if (user) {
+            const nameEl = document.getElementById('user-name');
+            const roleEl = document.getElementById('user-role');
+            if (nameEl) nameEl.textContent = user.name || user.username;
+            if (roleEl) {
+              const roleNames = { admin: '관리자', manager: '매니저', user: '일반' };
+              roleEl.textContent = roleNames[user.role] || user.role;
+            }
+          }
+        }
+      } catch (e) { console.warn('User info load error:', e); }
+    }
+
+    // 로그아웃
+    async function logout() {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        window.location.href = '/login';
+      } catch (e) {
+        window.location.href = '/login';
+      }
+    }
+
+    // 페이지 로드 시 사용자 정보 로드
+    document.addEventListener('DOMContentLoaded', loadUserInfo);
+
+    let allData = [];
+    let currentEditId = null;
+    let currentCompany = '제이투랩';  // 기본값
+    let businessWorkloadCache = {};  // 업체별 작업량 캐시
+    let currentWorkloadData = null;  // 현재 표시중인 작업량 데이터
+    let latestRanks = {};  // 크롤링된 최신 순위 데이터 (상호명 -> 순위)
+
+    // 정렬 상태 관리
+    let currentSort = {
+      field: 'agency',  // 기본: 대행사명
+      direction: 'asc'   // asc | desc
+    };
+
+    // Toast
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // 작업량 캐시 상태 업데이트
+    async function updateWorkloadCacheStatus() {
+      try {
+        const res = await fetch('/api/workload/cache/status');
+        const status = await res.json();
+
+        const statusEl = document.getElementById('workload-cache-status');
+        if (status.is_valid && status.updated_at) {
+          const updateTime = new Date(status.updated_at);
+          const timeStr = updateTime.toLocaleString('ko-KR', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          });
+          const businessInfo = status.business_count > 0 ? `, ${status.business_count}개 업체` : '';
+          statusEl.innerHTML = `⚡ 작업량 캐시: ${timeStr} (${status.company_count}개 회사${businessInfo})`;
+          statusEl.style.color = 'rgba(255,255,255,0.9)';
+        } else {
+          statusEl.innerHTML = '⚡ 작업량 캐시: 없음 (갱신 필요)';
+          statusEl.style.color = 'rgba(255,200,0,0.9)';
+        }
+      } catch (e) {
+        console.error('Failed to load cache status:', e);
+        document.getElementById('workload-cache-status').innerHTML = '⚡ 작업량 캐시: 상태 확인 실패';
+      }
+    }
+
+    // 업체별 작업량 데이터 미리 로드
+    async function loadBusinessWorkloads() {
+      const statusEl = document.getElementById('workload-cache-status');
+
+      try {
+        console.log(`Loading business workloads for ${currentCompany}...`);
+        statusEl.innerHTML = '⚡ 작업량 캐시: 로딩 중...';
+        statusEl.style.color = 'rgba(255,200,0,0.9)';
+
+        const res = await fetch(`/api/workload/businesses?company=${encodeURIComponent(currentCompany)}`);
+        const data = await res.json();
+
+        if (data.businesses && Object.keys(data.businesses).length > 0) {
+          businessWorkloadCache = data.businesses;
+          console.log(`✅ Loaded ${data.count} business workloads from ${data.from_cache ? 'cache' : 'direct'}`);
+          console.log(`📋 업체 목록: ${Object.keys(data.businesses).join(', ')}`);
+        } else {
+          businessWorkloadCache = {};
+          console.log('⚠️ No business workload data available');
+          if (data.message) {
+            console.log(data.message);
+          }
+        }
+
+        // 캐시 상태도 업데이트
+        updateWorkloadCacheStatus();
+      } catch (e) {
+        console.error('Failed to load business workloads:', e);
+        businessWorkloadCache = {};
+        statusEl.innerHTML = '⚡ 작업량 캐시: 로드 실패';
+        statusEl.style.color = 'rgba(255,100,100,0.9)';
+      }
+    }
+
+    // 회사 토글
+    document.querySelectorAll('.toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentCompany = btn.dataset.company;
+
+        // 토글 버튼 스타일 업데이트
+        document.querySelectorAll('.toggle-btn').forEach(b => {
+          b.classList.remove('active');
+          b.style.color = 'rgba(255,255,255,.7)';
+        });
+        btn.classList.add('active');
+        btn.style.color = '#fff';
+
+        // 데이터 재로드
+        loadLatestRanks();  // 순위 데이터 먼저 로드
+        loadData();
+        updateExposureStatus();
+        updateDeadlineStatus();
+        loadBusinessWorkloads();  // 업체별 작업량도 재로드
+        loadRecipeAnalysis();  // 레시피 분석도 재로드
+      });
+    });
+
+    // 모달
+    function openModal(item = null) {
+      const modal = document.getElementById('guarantee-modal');
+      const form = document.getElementById('guarantee-form');
+      const title = document.getElementById('modal-title');
+
+      if (item) {
+        title.textContent = '보장건 수정';
+        currentEditId = item.id;
+        Object.keys(item).forEach(key => {
+          if (form[key]) form[key].value = item[key] || '';
+        });
+      } else {
+        title.textContent = '새 보장건 등록';
+        currentEditId = null;
+        form.reset();
+        // 현재 선택된 회사로 기본값 설정
+        form.company.value = currentCompany;
+      }
+
+      modal.classList.add('show');
+    }
+
+    function closeModal() {
+      document.getElementById('guarantee-modal').classList.remove('show');
+      currentEditId = null;
+    }
+
+    // 노출 현황 로드
+    async function updateExposureStatus() {
+      try {
+        const res = await fetch(`/api/guarantee/exposure-status?company=${encodeURIComponent(currentCompany)}`);
+        const data = await res.json();
+
+        // 통계 업데이트
+        document.getElementById('stat-exposed').textContent = data.exposed || 0;
+        document.getElementById('stat-not-exposed').textContent = data.not_exposed || 0;
+
+        // 진행중 업체 수 (노출+미노출)
+        const workingCount = (data.exposed || 0) + (data.not_exposed || 0);
+        document.getElementById('stat-working').textContent = workingCount;
+
+      } catch (e) {
+        console.error('Exposure status error:', e);
+      }
+    }
+
+    // 마감 임박 현황 로드
+    async function updateDeadlineStatus() {
+      try {
+        const res = await fetch(`/api/guarantee/deadline-status?company=${encodeURIComponent(currentCompany)}`);
+        const data = await res.json();
+
+        // 통계 업데이트
+        document.getElementById('stat-deadline-total').textContent = data.total || 0;
+
+        // 일별 통계 업데이트
+        const byDays = data.items_by_days_remaining || {};
+        for (let i = 0; i <= 5; i++) {
+          const el = document.getElementById(`stat-deadline-${i}`);
+          if (el) {
+            el.textContent = (byDays[i] || []).length;
+          }
+        }
+
+      } catch (e) {
+        console.error('Deadline status error:', e);
+      }
+    }
+
+    // 노출 현황 상세 모달
+    async function toggleExposureDetails() {
+      const modal = document.getElementById('exposure-modal');
+      const content = document.getElementById('exposure-details-content');
+      modal.classList.add('show');
+
+      try {
+        const res = await fetch(`/api/guarantee/exposure-status?company=${encodeURIComponent(currentCompany)}`);
+        const data = await res.json();
+
+        if (!data.exposure_details || data.exposure_details.length === 0) {
+          content.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">📭</div>
+              <div class="empty-title">데이터가 없습니다</div>
+              <div class="empty-desc">진행중인 업체가 없습니다</div>
+            </div>
+          `;
+          return;
+        }
+
+        // 노출/미노출 구분
+        const exposed = data.exposure_details.filter(d => d.is_exposed);
+        const notExposed = data.exposure_details.filter(d => !d.is_exposed);
+
+        let html = '';
+
+        if (exposed.length > 0) {
+          html += `<div style="margin-bottom:20px;">
+            <h4 style="color:var(--success); font-size:15px; font-weight:600; margin-bottom:10px;">✅ 노출 중 (${exposed.length}건)</h4>
+            <div style="display:grid; gap:6px;">`;
+          exposed.forEach(item => {
+            // 크롤링된 순위가 있으면 우선 사용
+            const displayRank = item.crawled_rank || item.current_rank || '-';
+            const rankSource = item.crawled_rank ? '(실시간)' : '(시트)';
+
+            html += `
+              <div style="padding:10px; background:var(--card-bg); border-radius:6px; border:1px solid #d1fae5;">
+                <div style="font-weight:600; font-size:14px; margin-bottom:2px;">${item.business_name}</div>
+                <div style="font-size:12px; color:var(--muted);">
+                  ${item.main_keyword || '-'} | 순위: <strong style="color:var(--success);">${displayRank}${displayRank !== '-' ? '위' : ''}</strong> <span style="font-size:11px;">${displayRank !== '-' ? rankSource : ''}</span>
+                </div>
+              </div>
+            `;
+          });
+          html += '</div></div>';
+        }
+
+        if (notExposed.length > 0) {
+          html += `<div>
+            <h4 style="color:var(--danger); font-size:15px; font-weight:600; margin-bottom:10px;">⚠️ 미노출 (${notExposed.length}건)</h4>
+            <div style="display:grid; gap:6px;">`;
+          notExposed.forEach(item => {
+            // 크롤링된 순위가 있으면 우선 사용
+            const displayRank = item.crawled_rank || item.current_rank || '-';
+            const rankSource = item.crawled_rank ? '(실시간)' : '(시트)';
+
+            html += `
+              <div style="padding:10px; background:var(--card-bg); border-radius:6px; border:1px solid #fee2e2;">
+                <div style="font-weight:600; font-size:14px; margin-bottom:2px;">${item.business_name}</div>
+                <div style="font-size:12px; color:var(--muted);">
+                  ${item.main_keyword || '-'} | 순위: <strong>${displayRank}${displayRank !== '-' ? '위' : ''}</strong> <span style="font-size:11px;">${displayRank !== '-' ? rankSource : ''}</span>
+                </div>
+              </div>
+            `;
+          });
+          html += '</div></div>';
+        }
+
+        content.innerHTML = html;
+      } catch (e) {
+        console.error('Error loading exposure details:', e);
+        content.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">⚠️</div>
+            <div class="empty-title">오류 발생</div>
+            <div class="empty-desc">${e.message}</div>
+          </div>
+        `;
+      }
+    }
+
+    function closeExposureModal() {
+      document.getElementById('exposure-modal').classList.remove('show');
+    }
+
+    // 마감 임박 상세 모달
+    async function toggleDeadlineDetails() {
+      const modal = document.getElementById('deadline-modal');
+      const content = document.getElementById('deadline-details-content');
+      modal.classList.add('show');
+
+      try {
+        const res = await fetch(`/api/guarantee/deadline-status?company=${encodeURIComponent(currentCompany)}`);
+        const data = await res.json();
+
+        if (data.total === 0) {
+          content.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">✅</div>
+              <div class="empty-title">마감 임박 건이 없습니다</div>
+              <div class="empty-desc">5일 이내 마감되는 업체가 없습니다</div>
+            </div>
+          `;
+          return;
+        }
+
+        const byDays = data.items_by_days_remaining || {};
+        let html = '';
+
+        // 남은 일수별 색상 및 아이콘 매핑
+        const dayConfig = {
+          0: { icon: '🔴', label: '오늘 만료', bg: '#fee2e2', border: 'var(--danger)', color: 'var(--danger)' },
+          1: { icon: '🟠', label: '1일 남음', bg: '#ffedd5', border: '#fb923c', color: '#ea580c' },
+          2: { icon: '🟡', label: '2일 남음', bg: '#fef3c7', border: 'var(--warning)', color: 'var(--warning)' },
+          3: { icon: '🟢', label: '3일 남음', bg: '#d1fae5', border: '#10b981', color: '#059669' },
+          4: { icon: '🔵', label: '4일 남음', bg: '#dbeafe', border: 'var(--primary)', color: 'var(--primary)' },
+          5: { icon: '⚪', label: '5일 남음', bg: '#e0e7ff', border: '#6366f1', color: '#4f46e5' }
+        };
+
+        // 0일부터 5일까지 순서대로 표시
+        for (let i = 0; i <= 5; i++) {
+          const items = byDays[i] || [];
+          if (items.length === 0) continue;
+
+          const config = dayConfig[i];
+          html += `<div style="margin-bottom:16px;">
+            <h4 style="color:${config.color}; font-size:15px; font-weight:600; margin-bottom:10px;">
+              ${config.icon} ${config.label} (${items.length}건)
+            </h4>
+            <div style="display:grid; gap:6px;">`;
+
+          items.forEach(item => {
+            html += `
+              <div style="padding:10px; background:${config.bg}; border-radius:6px; border:1px solid ${config.border};">
+                <div style="font-weight:600; font-size:14px; margin-bottom:2px;">${item.business_name}</div>
+                <div style="font-size:12px; color:var(--muted);">
+                  ${item.main_keyword || '-'}
+                </div>
+              </div>
+            `;
+          });
+
+          html += '</div></div>';
+        }
+
+        content.innerHTML = html;
+      } catch (e) {
+        console.error('Error loading deadline details:', e);
+        content.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">⚠️</div>
+            <div class="empty-title">오류 발생</div>
+            <div class="empty-desc">${e.message}</div>
+          </div>
+        `;
+      }
+    }
+
+    function closeDeadlineModal() {
+      document.getElementById('deadline-modal').classList.remove('show');
+    }
+
+    // 최신 순위 데이터 로드
+    let lastCollectedAt = null;  // 마지막 수집 시간
+
+    async function loadLatestRanks() {
+      try {
+        const res = await fetch(`/api/guarantee/latest-ranks?company=${encodeURIComponent(currentCompany)}`);
+        const data = await res.json();
+
+        // 상호명 -> 순위 매핑
+        latestRanks = {};
+        (data.ranks || []).forEach(r => {
+          latestRanks[r.business_name] = {
+            rank: r.rank,
+            keyword: r.keyword,
+            checked_at: r.checked_at,
+            collected_at: r.collected_at
+          };
+          // 마지막 수집 시간 저장
+          if (r.collected_at) {
+            lastCollectedAt = r.collected_at;
+          }
+        });
+
+        console.log(`✅ Loaded ${Object.keys(latestRanks).length} latest ranks`);
+
+        // 마지막 집계 시간 UI 업데이트
+        updateLastCrawlTime();
+      } catch (e) {
+        console.error('Failed to load latest ranks:', e);
+        latestRanks = {};
+      }
+    }
+
+    // 데이터 로드
+    async function loadData() {
+      try {
+        const status = document.getElementById('filter-status').value;
+        const product = document.getElementById('filter-product').value;
+
+        const params = new URLSearchParams();
+        params.append('company', currentCompany);
+        if (status) params.append('status', status);
+        if (product) params.append('product', product);
+
+        const res = await fetch(`/api/guarantee/items?${params}`);
+        const data = await res.json();
+
+        allData = data.items || [];
+
+        // 최신 순위 데이터도 로드
+        await loadLatestRanks();
+
+        renderTable(allData);
+        updateStatistics();
+        updateCharts();
+      } catch (e) {
+        console.error(e);
+        showToast('데이터 로드 실패');
+      }
+    }
+
+    // 정렬 함수
+    function sortItems(items, field, direction) {
+      const sorted = [...items].sort((a, b) => {
+        let aVal = a[field] || '';
+        let bVal = b[field] || '';
+
+        // 대행사명 기준 정렬 시: 빈 값은 맨 뒤로
+        if (field === 'agency') {
+          if (!aVal) return 1;
+          if (!bVal) return -1;
+        }
+
+        // 날짜 필드 처리
+        if (field === 'contract_date' || field === 'work_start_date') {
+          aVal = aVal || '9999-99-99';  // 빈 날짜는 맨 뒤
+          bVal = bVal || '9999-99-99';
+        }
+
+        // 문자열 비교
+        if (typeof aVal === 'string' && typeof bVal === 'string') {
+          const result = aVal.localeCompare(bVal, 'ko');
+          return direction === 'asc' ? result : -result;
+        }
+
+        // 숫자 비교
+        if (aVal < bVal) return direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+
+      // 대행사명 정렬 시: 같은 대행사 내에서는 상호명 정렬 (2차 정렬)
+      if (field === 'agency') {
+        return sorted.sort((a, b) => {
+          const agencyCompare = (a.agency || '').localeCompare(b.agency || '', 'ko');
+          if (agencyCompare !== 0) {
+            return direction === 'asc' ? agencyCompare : -agencyCompare;
+          }
+          // 같은 대행사 내에서는 상호명 오름차순
+          return (a.business_name || '').localeCompare(b.business_name || '', 'ko');
+        });
+      }
+
+      return sorted;
+    }
+
+    // 정렬 헤더 UI 업데이트
+    function updateSortHeaders() {
+      document.querySelectorAll('th.sortable').forEach(th => {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+        const field = th.dataset.sort;
+        if (field === currentSort.field) {
+          th.classList.add(currentSort.direction === 'asc' ? 'sorted-asc' : 'sorted-desc');
+        }
+      });
+    }
+
+    // 테이블 렌더링
+    function renderTable(items) {
+      const tbody = document.getElementById('table-body');
+
+      if (!items || items.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="9">
+              <div class="empty-state">
+                <div class="empty-icon">📭</div>
+                <div class="empty-title">데이터가 없습니다</div>
+                <div class="empty-desc">필터를 변경하거나 새 보장건을 등록해보세요</div>
+              </div>
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      // 정렬 적용
+      const sortedItems = sortItems(items, currentSort.field, currentSort.direction);
+      updateSortHeaders();
+
+      tbody.innerHTML = sortedItems.map(item => {
+        // 크롤링된 실시간 순위 사용 (없으면 시트 데이터 사용)
+        const businessName = item.business_name || '';
+        let currentRank = '-';
+
+        // 1순위: 크롤링된 순위
+        if (latestRanks[businessName]) {
+          currentRank = latestRanks[businessName].rank || '-';
+        } else {
+          // 2순위: 시트의 daily_ranks
+          const dailyRanks = item.daily_ranks || {};
+          const sortedDays = Object.keys(dailyRanks).map(d => parseInt(d)).sort((a, b) => a - b);
+
+          if (sortedDays.length > 0) {
+            const latestDay = sortedDays[sortedDays.length - 1];
+            const latestRankData = dailyRanks[latestDay];
+
+            // daily_ranks가 객체 형태인 경우 처리 (새 형식: {date: "...", rank: 3})
+            if (typeof latestRankData === 'object' && latestRankData !== null) {
+              currentRank = latestRankData.rank || '-';
+            } else {
+              // 레거시 형식 (숫자만)
+              currentRank = latestRankData || '-';
+            }
+          }
+        }
+
+        // 레시피 분석 데이터에서 N2/리뷰 정보 가져오기
+        const recipeData = recipeAnalysisData?.businesses?.find(b => b.name === businessName);
+
+        // N2 변화
+        let n2ChangeHtml = '<span style="color:var(--muted);">-</span>';
+        if (recipeData?.n2_analysis?.delta !== null && recipeData?.n2_analysis?.delta !== undefined) {
+          const n2Delta = recipeData.n2_analysis.delta;
+          const n2Sign = n2Delta >= 0 ? '▲' : '▼';
+          const n2Color = n2Delta >= 0 ? 'var(--success)' : 'var(--danger)';
+          n2ChangeHtml = `<span style="color:${n2Color}; font-weight:600;">${n2Sign}${Math.abs(n2Delta).toFixed(4)}</span>`;
+        }
+
+        // 진행일
+        const exposureDays = recipeData?.exposure_days || item.exposure_days || '-';
+
+        // 리뷰 변화
+        let reviewChangeHtml = '<span style="color:var(--muted);">-</span>';
+        if (recipeData?.review_analysis?.delta !== null && recipeData?.review_analysis?.delta !== undefined) {
+          const reviewDelta = recipeData.review_analysis.delta;
+          const reviewSign = reviewDelta >= 0 ? '▲' : '▼';
+          const reviewColor = reviewDelta >= 0 ? 'var(--success)' : 'var(--danger)';
+          reviewChangeHtml = `<span style="color:${reviewColor}; font-weight:600;">${reviewSign}${Math.abs(reviewDelta)}</span>`;
+        }
+
+        return `
+          <tr onclick="openBusinessSlidePanel('${encodeURIComponent(businessName)}', '${item.id}')" 
+              style="cursor:pointer; transition:background 0.2s;"
+              onmouseover="this.style.background='rgba(99,102,241,0.08)'" 
+              onmouseout="this.style.background=''">
+            <td><span class="badge badge-${item.type || '신규'}">${item.type || '신규'}</span></td>
+            <td>${item.agency || '-'}</td>
+            <td><strong>${item.business_name || ''}</strong></td>
+            <td>${item.main_keyword || '-'}</td>
+            <td><span class="badge badge-${item.status || '세팅대기'}">${item.status || '세팅대기'}</span></td>
+            <td><strong style="color:${currentRank !== '-' && currentRank <= 5 ? 'var(--success)' : 'var(--text)'};">${currentRank}${currentRank !== '-' ? '위' : ''}</strong></td>
+            <td>${n2ChangeHtml}</td>
+            <td>${exposureDays}${exposureDays !== '-' ? '일' : ''}</td>
+            <td>${reviewChangeHtml}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // 통계 업데이트
+    async function updateStatistics() {
+      try {
+        const res = await fetch('/api/guarantee/statistics');
+        const stats = await res.json();
+
+        // 후불 진행건 수 계산
+        let postpaidCount = 0;
+        allData.forEach(item => {
+          if (item.status === '후불') postpaidCount++;
+        });
+        document.getElementById('stat-postpaid').textContent = postpaidCount;
+
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // 차트 업데이트
+    async function updateCharts() {
+      try {
+        const res = await fetch('/api/guarantee/statistics');
+        const stats = await res.json();
+
+        // 회사별 차트
+        const companyData = stats.by_company[currentCompany] || {};
+        renderCompanyChart(companyData);
+
+        // 상태별 차트
+        const statusData = {};
+        allData.forEach(item => {
+          const status = item.status || '기타';
+          statusData[status] = (statusData[status] || 0) + 1;
+        });
+        renderBarChart('chart-status', statusData);
+
+        // 상품별 차트
+        const productData = {};
+        allData.forEach(item => {
+          const product = item.product || '기타';
+          productData[product] = (productData[product] || 0) + 1;
+        });
+        renderBarChart('chart-products', productData);
+
+        // 월별 차트 (전체 통계 사용)
+        renderBarChart('chart-monthly', stats.by_month || {});
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function renderCompanyChart(data) {
+      const el = document.getElementById('chart-company');
+      const total = data.total || 0;
+      const active = data.active || 0;
+      const completed = data.completed || 0;
+
+      el.innerHTML = `
+        <div class="chart-bar-group">
+          <div class="chart-label"><span>전체</span><span>${total}건</span></div>
+          <div class="chart-bar-bg">
+            <div class="chart-bar" style="width:${total > 0 ? 100 : 0}%; background:linear-gradient(90deg, #3b82f6, #2563eb);">${total}</div>
+          </div>
+        </div>
+        <div class="chart-bar-group">
+          <div class="chart-label"><span>진행중(후불 포함)</span><span>${active}건</span></div>
+          <div class="chart-bar-bg">
+            <div class="chart-bar" style="width:${total > 0 ? (active / total * 100) : 0}%; background:linear-gradient(90deg, #3b82f6, #2563eb);">${active}</div>
+          </div>
+        </div>
+        <div class="chart-bar-group">
+          <div class="chart-label"><span>완료</span><span>${completed}건</span></div>
+          <div class="chart-bar-bg">
+            <div class="chart-bar" style="width:${total > 0 ? (completed / total * 100) : 0}%; background:linear-gradient(90deg, #10b981, #059669);">${completed}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderBarChart(elementId, data) {
+      const el = document.getElementById(elementId);
+      const entries = Object.entries(data).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      const maxValue = Math.max(...entries.map(e => typeof e[1] === 'object' ? e[1].total || 0 : e[1]), 1);
+
+      if (entries.length === 0) {
+        el.innerHTML = '<div style="text-align:center; color:var(--muted); padding:20px;">데이터 없음</div>';
+        return;
+      }
+
+      el.innerHTML = entries.map(([key, value]) => {
+        const val = typeof value === 'object' ? value.total || 0 : value;
+        return `
+          <div class="chart-bar-group">
+            <div class="chart-label"><span>${key}</span><span>${val}건</span></div>
+            <div class="chart-bar-bg">
+              <div class="chart-bar" style="width:${(val / maxValue * 100)}%;">${val}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 동기화
+    async function syncData() {
+      const btn = document.getElementById('btn-sync');
+      const btnText = document.getElementById('sync-btn-text');
+      btn.disabled = true;
+      btnText.innerHTML = '<span class="loading"></span> 동기화 중...';
+
+      try {
+        const res = await fetch('/api/guarantee/sync', { method: 'POST' });
+        const data = await res.json();
+
+        if (res.ok) {
+          showToast(data.message || '동기화 완료');
+          loadData();
+          updateExposureStatus();
+          updateDeadlineStatus();
+          updateSyncStatus();
+        } else {
+          showToast('동기화 실패: ' + (data.error || '알 수 없는 오류'));
+        }
+      } catch (e) {
+        showToast('동기화 실패');
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = '🔄 동기화';
+      }
+    }
+
+    // 작업량 캐시 갱신
+    async function refreshWorkloadCache() {
+      const btn = document.getElementById('btn-refresh-workload');
+      const btnText = document.getElementById('workload-btn-text');
+      const statusEl = document.getElementById('workload-cache-status');
+
+      btn.disabled = true;
+      btnText.innerHTML = '<span class="loading"></span> 갱신 중...';
+      statusEl.innerHTML = '⚡ 작업량 캐시: 갱신 중... (진행중인 업체만 조회)';
+      statusEl.style.color = 'rgba(255,200,0,0.9)';
+
+      // 시작 시간 기록
+      const startTime = Date.now();
+
+      try {
+        const res = await fetch('/api/workload/cache/refresh', { method: 'POST' });
+        const data = await res.json();
+
+        // 소요 시간 계산
+        const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
+
+        if (res.ok) {
+          const businessCount = data.business_count || 0;
+          const msg = `${data.message || '작업량 캐시 갱신 완료'} (${elapsedSeconds}초 소요)`;
+          showToast(msg);
+          console.log('캐시 갱신 결과:', data);
+          console.log(`소요 시간: ${elapsedSeconds}초`);
+
+          // 업체별 데이터 다시 로드 (캐시 상태도 함께 업데이트)
+          await loadBusinessWorkloads();
+        } else {
+          showToast('캐시 갱신 실패: ' + (data.error || '알 수 없는 오류'));
+          statusEl.innerHTML = '⚡ 작업량 캐시: 갱신 실패';
+          statusEl.style.color = 'rgba(255,100,100,0.9)';
+        }
+      } catch (e) {
+        console.error('캐시 갱신 오류:', e);
+        showToast('캐시 갱신 실패');
+        statusEl.innerHTML = '⚡ 작업량 캐시: 갱신 실패';
+        statusEl.style.color = 'rgba(255,100,100,0.9)';
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = '⚡ 작업량 갱신';
+      }
+    }
+
+    async function updateSyncStatus() {
+      try {
+        const res = await fetch('/api/guarantee/sync-status');
+        const data = await res.json();
+
+        if (data.last_sync) {
+          const date = new Date(data.last_sync);
+          const dateStr = date.toLocaleString('ko-KR', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+          });
+          document.getElementById('sync-status').textContent =
+            `마지막 동기화: ${dateStr}`;
+        }
+
+        if (data.next_sync_kst) {
+          // KST 제거
+          const nextSyncStr = data.next_sync_kst.replace(' KST', '');
+          document.getElementById('next-sync').textContent = `다음: ${nextSyncStr}`;
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // 폼 제출
+    document.getElementById('guarantee-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const formData = new FormData(e.target);
+      const data = Object.fromEntries(formData);
+
+      try {
+        const url = currentEditId
+          ? `/api/guarantee/items/${currentEditId}`
+          : '/api/guarantee/items';
+        const method = currentEditId ? 'PUT' : 'POST';
+
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+
+        if (res.ok) {
+          showToast(currentEditId ? '수정되었습니다' : '등록되었습니다');
+          closeModal();
+          loadData();
+          updateExposureStatus();
+          updateDeadlineStatus();
+        }
+      } catch (e) {
+        showToast('저장 실패');
+      }
+    });
+
+    // 순위 크롤링
+    async function crawlRanks() {
+      const btn = document.getElementById('btn-crawl-ranks');
+      const btnText = document.getElementById('rank-btn-text');
+      btn.disabled = true;
+      btnText.innerHTML = '<span class="loading"></span> 크롤링 중...';
+
+      try {
+        const res = await fetch(`/api/guarantee/crawl-ranks?company=${encodeURIComponent(currentCompany)}`, {
+          method: 'POST'
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+          showToast(data.message || '순위 크롤링 완료');
+          // 순위 데이터 재로드
+          await loadLatestRanks();
+          renderTable(allData);  // 테이블 다시 렌더링
+          updateExposureStatus();  // 노출 현황도 업데이트
+          // 마지막 집계 시간 업데이트
+          updateLastCrawlTime();
+        } else {
+          showToast('크롤링 실패: ' + (data.error || data.message || '알 수 없는 오류'));
+        }
+      } catch (e) {
+        console.error('Crawling error:', e);
+        showToast('크롤링 실패');
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = '🏆 순위 갱신';
+      }
+    }
+
+    // 마지막 집계 시간 표시
+    function updateLastCrawlTime() {
+      const el = document.getElementById('last-crawl-time');
+      if (!el) return;
+
+      if (lastCollectedAt) {
+        try {
+          const date = new Date(lastCollectedAt);
+          const formatted = date.toLocaleString('ko-KR', {
+            month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
+          });
+          el.textContent = `📅 마지막 집계: ${formatted}`;
+        } catch (e) {
+          el.textContent = '';
+        }
+      }
+    }
+
+    // 복사 버튼 함수
+    function copyWorkloadToClipboard() {
+      if (!currentWorkloadData || !currentWorkloadData.weeks || currentWorkloadData.weeks.length === 0) {
+        showToast('복사할 데이터가 없습니다');
+        return;
+      }
+
+      // 텍스트 형식으로 변환
+      const lines = [];
+
+      // 헤더 (월보장, 보장 순위, 대행사)
+      if (currentWorkloadData.business_name) {
+        let rank = '';
+        if (currentWorkloadData.guarantee_rank) {
+          const rankStr = String(currentWorkloadData.guarantee_rank);
+          // "위"가 이미 포함되어 있으면 그대로, 없으면 추가
+          rank = rankStr.includes('위') ? `(${rankStr})` : `(${rankStr}위)`;
+        }
+        lines.push(`월보장 ${rank}`);
+
+        const agency = currentWorkloadData.agency || '흐름';
+        lines.push(agency);
+        lines.push('');  // 대행사명과 작업량 사이에만 빈 줄
+      }
+
+      // 기간별 작업량
+      currentWorkloadData.weeks.forEach((week, idx) => {
+        // 시작일이 없으면 "~ 마감일" 형식으로
+        const dateRange = week.start_date
+          ? `${week.start_date} ~ ${week.end_date}`
+          : `~ ${week.end_date}`;
+        lines.push(dateRange);
+
+        week.items.forEach(item => {
+          lines.push(`${item.name} : ${item.workload}`);
+        });
+
+        // 마지막 기간이 아니면 빈 줄 추가
+        if (idx < currentWorkloadData.weeks.length - 1) {
+          lines.push('');
+        }
+      });
+
+      const text = lines.join('\n').trim();
+
+      console.log('복사할 텍스트:', text);
+
+      // 클립보드에 복사
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('📋 클립보드에 복사되었습니다');
+      }).catch(err => {
+        console.error('복사 실패:', err);
+        showToast('복사 실패');
+      });
+    }
+
+    // 작업량 데이터 렌더링
+    function renderWorkloadData(data) {
+      const content = document.getElementById('workload-content');
+      const copyBtn = document.getElementById('btn-copy-workload');
+
+      // 현재 데이터 저장 (복사용)
+      currentWorkloadData = data;
+
+      if (!data.weeks || data.weeks.length === 0) {
+        content.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">📭</div>
+            <div class="empty-title">작업 스케줄이 없습니다</div>
+            <div class="empty-desc">최근 4주간 진행된 작업이 없습니다</div>
+          </div>
+        `;
+        currentWorkloadData = null;
+        if (copyBtn) copyBtn.style.display = 'none';
+        return;
+      }
+
+      // 헤더 생성 (월보장, 보장 순위, 대행사)
+      let headerHtml = '';
+      if (data.business_name) {
+        let rank = '';
+        if (data.guarantee_rank) {
+          const rankStr = String(data.guarantee_rank);
+          // "위"가 이미 포함되어 있으면 그대로, 없으면 추가
+          rank = rankStr.includes('위') ? `(${rankStr})` : `(${rankStr}위)`;
+        }
+        const agency = data.agency || '흐름';
+
+        headerHtml = `
+          <div style="margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--border);">
+            <div style="font-weight:700; font-size:15px; color:var(--primary);">
+              월보장 ${rank}
+            </div>
+            <div style="color:var(--text); font-size:14px; font-weight:500; margin-top:2px;">
+              ${agency}
+            </div>
+          </div>
+        `;
+      }
+
+      // 스케줄 렌더링 (같은 기간의 작업들을 함께 표시)
+      const weeksHtml = data.weeks.map(week => {
+        const itemsText = week.items.map(item =>
+          `<div style="padding-left:0; color:var(--text);">${item.name} : ${item.workload}</div>`
+        ).join('');
+
+        // 시작일이 없으면 "~ 마감일" 형식으로 표시
+        const dateRange = week.start_date
+          ? `${week.start_date} ~ ${week.end_date}`
+          : `~ ${week.end_date}`;
+
+        return `
+          <div style="margin-bottom:16px;">
+            <div style="font-weight:700; font-size:14px; color:var(--text); margin-bottom:6px;">
+              ${dateRange}
+            </div>
+            ${itemsText}
+          </div>
+        `;
+      }).join('');
+
+      content.innerHTML = headerHtml + weeksHtml;
+
+      // 복사 버튼 표시
+      if (copyBtn) copyBtn.style.display = 'inline-flex';
+
+      console.log(`📊 렌더링: ${data.weeks.length}개 기간, 총 ${data.weeks.reduce((sum, w) => sum + w.items.length, 0)}개 작업`);
+
+      // 디버깅: 처음 몇 개 출력
+      data.weeks.slice(0, 3).forEach((week, idx) => {
+        console.log(`  [${idx + 1}] ${week.start_date} ~ ${week.end_date}: ${week.items.map(i => i.name).join(', ')}`);
+      });
+    }
+
+    // 작업량 스케줄 모달
+    async function showWorkload(company, businessName = null) {
+      const modal = document.getElementById('workload-modal');
+      const content = document.getElementById('workload-content');
+
+      // 모달 표시
+      modal.classList.add('show');
+
+      // 모달 제목 업데이트
+      const modalTitle = modal.querySelector('.modal-title');
+      if (businessName) {
+        modalTitle.textContent = `📊 ${businessName}`;
+      } else {
+        modalTitle.textContent = `📊 작업량 스케줄`;
+      }
+
+      // 업체별 조회: 캐시만 사용
+      if (businessName) {
+        if (businessWorkloadCache[businessName]) {
+          console.log(`✅ Using cached data for ${businessName} (instant load!)`);
+          renderWorkloadData(businessWorkloadCache[businessName]);
+          return;
+        } else {
+          // 캐시가 없으면 안내 메시지
+          console.log(`⚠️ No cache for ${businessName}`);
+          console.log('Available businesses in cache:', Object.keys(businessWorkloadCache));
+
+          // 복사 버튼 숨기기
+          const copyBtn = document.getElementById('btn-copy-workload');
+          if (copyBtn) copyBtn.style.display = 'none';
+
+          content.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">⏱️</div>
+              <div class="empty-title">캐시된 데이터가 없습니다</div>
+              <div class="empty-desc" style="margin-bottom:16px;">
+                상단의 <strong style="color:var(--success);">'⚡ 작업량 갱신'</strong> 버튼을 눌러<br>
+                업체별 작업량을 미리 불러온 후 다시 시도해주세요.
+              </div>
+              <button class="btn btn-success" onclick="closeWorkloadModal(); document.getElementById('btn-refresh-workload').click();">
+                ⚡ 지금 갱신하기
+              </button>
+            </div>
+          `;
+          return;
+        }
+      }
+
+      // 회사 전체 조회: API 호출
+      content.innerHTML = `
+        <div style="text-align:center; padding:40px; color:var(--muted);">
+          <div class="loading" style="margin:0 auto 16px;"></div>
+          <div>데이터를 불러오는 중...</div>
+        </div>
+      `;
+
+      try {
+        const url = `/api/workload/schedule?company=${encodeURIComponent(company)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        renderWorkloadData(data);
+      } catch (e) {
+        console.error('Workload schedule error:', e);
+        content.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">⚠️</div>
+            <div class="empty-title">데이터 로드 실패</div>
+            <div class="empty-desc">${e.message || '알 수 없는 오류가 발생했습니다'}</div>
+          </div>
+        `;
+      }
+    }
+
+    function closeWorkloadModal() {
+      document.getElementById('workload-modal').classList.remove('show');
+    }
+
+    window.showWorkload = showWorkload;
+
+    // 검색
+    document.getElementById('btn-search').addEventListener('click', async () => {
+      const query = document.getElementById('search-input').value.trim();
+      if (!query) return loadData();
+
+      try {
+        const res = await fetch(`/api/guarantee/search?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        // 현재 회사 필터 적용
+        const filtered = data.items.filter(item => item.company === currentCompany);
+        renderTable(filtered);
+      } catch (e) {
+        showToast('검색 실패');
+      }
+    });
+
+    // 초기화
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      document.getElementById('filter-status').value = '';
+      document.getElementById('filter-product').value = '';
+      document.getElementById('search-input').value = '';
+      loadData();
+    });
+
+    // 정렬 헤더 클릭 이벤트
+    document.querySelectorAll('th.sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const field = th.dataset.sort;
+
+        // 같은 필드 클릭 시: 방향 토글
+        if (currentSort.field === field) {
+          currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+          // 다른 필드 클릭 시: 새 필드로 변경, 기본 오름차순
+          currentSort.field = field;
+          currentSort.direction = 'asc';
+        }
+
+        // 테이블 다시 렌더링
+        renderTable(allData);
+
+        // Toast로 정렬 상태 안내
+        const fieldName = {
+          'agency': '대행사명',
+          'business_name': '상호명',
+          'product': '상품',
+          'status': '상태',
+          'contract_date': '계약일',
+          'work_start_date': '작업시작일'
+        }[field] || field;
+        const directionName = currentSort.direction === 'asc' ? '오름차순' : '내림차순';
+        showToast(`${fieldName} ${directionName} 정렬`);
+      });
+    });
+
+    // 이벤트
+    document.getElementById('btn-sync').addEventListener('click', syncData);
+    document.getElementById('btn-refresh-workload').addEventListener('click', refreshWorkloadCache);
+    document.getElementById('btn-crawl-ranks').addEventListener('click', crawlRanks);
+    document.getElementById('btn-add').addEventListener('click', () => openModal());
+    document.getElementById('filter-status').addEventListener('change', loadData);
+    document.getElementById('filter-product').addEventListener('change', loadData);
+    document.getElementById('search-input').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') document.getElementById('btn-search').click();
+    });
+
+    // 스크롤 버튼 함수
+    function scrollToTop() {
+      window.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+    }
+
+    function scrollToBottom() {
+      window.scrollTo({
+        top: document.documentElement.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+
+    // 스크롤 이벤트 (버튼 표시/숨김)
+    function updateScrollButtons() {
+      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+      const scrollHeight = document.documentElement.scrollHeight;
+      const clientHeight = document.documentElement.clientHeight;
+      const scrollBottom = scrollHeight - scrollTop - clientHeight;
+
+      const btnTop = document.getElementById('scroll-top');
+      const btnBottom = document.getElementById('scroll-bottom');
+
+      // 위로 버튼: 100px 이상 스크롤 시 표시
+      if (scrollTop > 100) {
+        btnTop.classList.add('show');
+      } else {
+        btnTop.classList.remove('show');
+      }
+
+      // 아래로 버튼: 하단에서 100px 이상 떨어져 있을 때 표시
+      if (scrollBottom > 100) {
+        btnBottom.classList.add('show');
+      } else {
+        btnBottom.classList.remove('show');
+      }
+    }
+
+    // 스크롤 이벤트 리스너
+    window.addEventListener('scroll', updateScrollButtons);
+    window.addEventListener('resize', updateScrollButtons);
+
+    // === 레시피 분석 함수 ===
+    let recipeAnalysisData = null;
+
+    async function loadRecipeAnalysis() {
+      try {
+        const response = await fetch('/api/recipe-analysis?weeks=3');
+        if (!response.ok) throw new Error('API 호출 실패');
+
+        const rawData = await response.json();
+
+        // 현재 선택된 회사로 필터링
+        const filteredBusinesses = (rawData.businesses || []).filter(
+          biz => (biz.company || '') === currentCompany
+        );
+
+        // 필터링된 데이터를 recipeAnalysisData에 저장
+        recipeAnalysisData = {
+          ...rawData,
+          businesses: filteredBusinesses
+        };
+
+        // N2 통계 계산 (필터링된 업체 기준)
+        const generalBusinesses = filteredBusinesses.filter(b => !b.is_restaurant);
+        const restaurantBusinesses = filteredBusinesses.filter(b => b.is_restaurant);
+
+        // 일반 키워드 N2 평균 변화
+        const generalChanges = generalBusinesses
+          .map(b => b.n2_analysis?.delta)
+          .filter(d => d !== null && d !== undefined);
+        const generalAvg = generalChanges.length > 0
+          ? generalChanges.reduce((a, b) => a + b, 0) / generalChanges.length
+          : 0;
+
+        // 맛집 키워드 N2 평균 변화
+        const restaurantChanges = restaurantBusinesses
+          .map(b => b.n2_analysis?.delta)
+          .filter(d => d !== null && d !== undefined);
+        const restaurantAvg = restaurantChanges.length > 0
+          ? restaurantChanges.reduce((a, b) => a + b, 0) / restaurantChanges.length
+          : 0;
+
+        document.getElementById('general-n2-change').textContent =
+          (generalAvg >= 0 ? '+' : '') + generalAvg.toFixed(4);
+        document.getElementById('general-count').textContent = generalBusinesses.length;
+
+        document.getElementById('restaurant-n2-change').textContent =
+          (restaurantAvg >= 0 ? '+' : '') + restaurantAvg.toFixed(4);
+        document.getElementById('restaurant-count').textContent = restaurantBusinesses.length;
+
+        // 알림 렌더링 (현재 회사의 알림만)
+        const filteredAlerts = (rawData.alerts || []).filter(
+          alert => filteredBusinesses.some(b => b.name === alert.business_name)
+        );
+        renderAlerts(filteredAlerts);
+
+        // 테이블 다시 렌더링 (N2 데이터 반영)
+        renderTable(allData);
+
+      } catch (error) {
+        console.error('Recipe analysis error:', error);
+      }
+    }
+
+    function renderAlerts(alerts) {
+      const container = document.getElementById('recipe-alerts');
+      const list = document.getElementById('recipe-alerts-list');
+
+      if (!alerts.length) {
+        container.style.display = 'none';
+        return;
+      }
+
+      container.style.display = 'block';
+      let html = '';
+
+      alerts.forEach(alert => {
+        const icon = alert.level === '경고' ? '🚨' : '⚠️';
+        html += `<div style="padding:8px 0; border-bottom:1px solid var(--border);">
+          ${icon} <strong>${alert.business_name}</strong>: ${alert.message}
+        </div>`;
+      });
+
+      list.innerHTML = html;
+    }
+
+    function openDashboardPanel(encodedName) {
+      const name = decodeURIComponent(encodedName);
+      const panel = document.getElementById('business-dashboard-panel');
+      const content = document.getElementById('dashboard-content');
+
+      document.getElementById('dashboard-business-name').textContent = name;
+
+      // 데이터에서 찾기
+      const biz = recipeAnalysisData?.businesses?.find(b => b.name === name);
+
+      if (!biz) {
+        content.innerHTML = '<div style="text-align:center; padding:40px; color:var(--muted);">데이터를 찾을 수 없습니다</div>';
+      } else {
+        content.innerHTML = renderDashboardContent(biz);
+      }
+
+      panel.style.display = 'block';
+      setTimeout(() => panel.style.right = '0', 10);
+    }
+
+    function closeDashboardPanel() {
+      const panel = document.getElementById('business-dashboard-panel');
+      panel.style.right = '-500px';
+      setTimeout(() => panel.style.display = 'none', 300);
+    }
+
+    function renderDashboardContent(biz) {
+      const n2 = biz.n2_analysis;
+      const review = biz.review_analysis;
+
+      let html = '';
+
+      // 현재 순위
+      const currentRank = biz.current_rank;
+      const rankSource = biz.rank_source === 'crawled' ? '(크롤링)' : '(시트)';
+      const rankDisplay = currentRank ? `${currentRank}위 ${rankSource}` : '순위 없음';
+
+      html += `<div class="card" style="margin-bottom:16px; border-left:4px solid var(--primary);">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div style="font-size:13px; color:var(--muted);">🏆 현재 순위</div>
+            <div style="font-size:28px; font-weight:700; color:var(--primary);">${rankDisplay}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:13px; color:var(--muted);">보장순위</div>
+            <div style="font-size:20px; font-weight:600;">${biz.guarantee_rank || '-'}위</div>
+          </div>
+        </div>
+      </div>`;
+
+      // 기본 정보
+      html += `<div class="card" style="margin-bottom:16px;">
+        <div style="font-size:13px; color:var(--muted); margin-bottom:8px;">📍 기본 정보</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:13px;">
+          <div>키워드: <strong>${biz.keyword || '-'}</strong></div>
+          <div>유형: <strong>${biz.is_restaurant ? '맛집' : '일반'}</strong></div>
+          <div>상태: <strong>${biz.status || '-'}</strong></div>
+          <div>노출일수: <strong>${biz.exposure_days || 0}일</strong></div>
+          <div>대행사: <strong>${biz.agency || '-'}</strong></div>
+          <div>회사: <strong>${biz.company || '-'}</strong></div>
+        </div>
+      </div>`;
+
+      // 작업량 버튼
+      html += `<div class="card" style="margin-bottom:16px;">
+        <div style="font-size:13px; color:var(--muted); margin-bottom:8px;">📋 작업량</div>
+        <button class="btn btn-primary" style="width:100%;" onclick="showBusinessWorkload('${encodeURIComponent(biz.company || '제이투랩')}', '${encodeURIComponent(biz.name)}')">
+          🔍 작업량 상세보기
+        </button>
+      </div>`;
+
+      // N2 분석
+      if (n2) {
+        const n2Color = n2.delta >= 0 ? 'var(--success)' : 'var(--danger)';
+        html += `<div class="card" style="margin-bottom:16px;">
+          <div style="font-size:13px; color:var(--muted); margin-bottom:8px;">📈 N2 점수 변화 (${n2.day_used}일째 기준)</div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <span style="font-size:16px;">${n2.start_n2?.toFixed(4) || '-'}</span>
+              <span style="margin:0 8px;">→</span>
+              <span style="font-size:16px;">${n2.end_n2?.toFixed(4) || '-'}</span>
+            </div>
+            <div style="font-size:24px; font-weight:700; color:${n2Color};">
+              ${n2.delta >= 0 ? '+' : ''}${n2.delta?.toFixed(4) || '-'}
+            </div>
+          </div>
+        </div>`;
+      }
+
+      // 리뷰 분석
+      if (review) {
+        const reviewColor = review.delta >= 0 ? 'var(--success)' : 'var(--danger)';
+        html += `<div class="card" style="margin-bottom:16px;">
+          <div style="font-size:13px; color:var(--muted); margin-bottom:8px;">💬 리뷰 변화</div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <span style="font-size:16px;">${review.start_reviews}</span>
+              <span style="margin:0 8px;">→</span>
+              <span style="font-size:16px;">${review.end_reviews}</span>
+            </div>
+            <div style="font-size:18px; font-weight:700; color:${reviewColor};">
+              ${review.delta >= 0 ? '+' : ''}${review.delta} (${review.change_rate >= 0 ? '+' : ''}${review.change_rate}%)
+            </div>
+          </div>
+          ${review.warning ? `<div style="margin-top:8px; padding:8px; background:rgba(239,68,68,0.1); border-radius:6px; color:var(--danger); font-size:12px;">
+            ⚠️ 리뷰 감소 ${review.warning}
+          </div>` : ''}
+        </div>`;
+      }
+
+      return html;
+    }
+
+    // 테이블 행 클릭 시 슬라이드 패널 열기
+    function openBusinessSlidePanel(encodedName, itemId) {
+      const name = decodeURIComponent(encodedName);
+      const panel = document.getElementById('business-dashboard-panel');
+      const content = document.getElementById('dashboard-content');
+
+      document.getElementById('dashboard-business-name').textContent = name;
+
+      // 보장건 데이터에서 찾기
+      const guaranteeItem = allData.find(item => item.business_name === name);
+      // 레시피 분석 데이터에서 찾기
+      const recipeData = recipeAnalysisData?.businesses?.find(b => b.name === name);
+
+      // 두 데이터를 합쳐서 패널 내용 생성
+      content.innerHTML = renderCombinedDashboardContent(guaranteeItem, recipeData);
+
+      panel.style.display = 'block';
+      setTimeout(() => panel.style.right = '0', 10);
+    }
+
+    // 통합 대시보드 내용 렌더링
+    function renderCombinedDashboardContent(guaranteeItem, recipeData) {
+      let html = '';
+
+      const biz = recipeData || {};
+      const item = guaranteeItem || {};
+      const businessName = biz.name || item.business_name || '';
+      const company = biz.company || item.company || currentCompany;
+
+      // 현재 순위
+      let currentRank = biz.current_rank;
+      let rankSource = biz.rank_source === 'crawled' ? '(크롤링)' : '(시트)';
+
+      if (!currentRank && latestRanks[businessName]) {
+        currentRank = latestRanks[businessName].rank;
+        rankSource = '(크롤링)';
+      }
+
+      const rankDisplay = currentRank ? `${currentRank}위 ${rankSource}` : '순위 없음';
+      const guaranteeRank = biz.guarantee_rank || item.guarantee_rank || '-';
+
+      html += `<div class="card" style="margin-bottom:16px; border-left:4px solid var(--primary);">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div style="font-size:13px; color:var(--muted);">🏆 현재 순위</div>
+            <div style="font-size:28px; font-weight:700; color:var(--primary);">${rankDisplay}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:13px; color:var(--muted);">보장순위</div>
+            <div style="font-size:20px; font-weight:600;">${guaranteeRank}${guaranteeRank !== '-' ? '위' : ''}</div>
+          </div>
+        </div>
+      </div>`;
+
+      // 진행 정보
+      const exposureDays = biz.exposure_days || item.exposure_days || 0;
+      html += `<div class="card" style="margin-bottom:16px; border-left:4px solid var(--warning);">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div style="font-size:13px; color:var(--muted);">📅 총 진행일</div>
+            <div style="font-size:28px; font-weight:700; color:var(--warning);">${exposureDays}일</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:13px; color:var(--muted);">상태</div>
+            <div style="font-size:16px; font-weight:600;">${item.status || biz.status || '-'}</div>
+          </div>
+        </div>
+      </div>`;
+
+      // 기본 정보
+      html += `<div class="card" style="margin-bottom:16px;">
+        <div style="font-size:13px; color:var(--muted); margin-bottom:8px;">📍 기본 정보</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:13px;">
+          <div>키워드: <strong>${item.main_keyword || biz.keyword || '-'}</strong></div>
+          <div>유형: <strong>${biz.is_restaurant ? '맛집' : (item.product || '일반')}</strong></div>
+          <div>계약일: <strong>${item.contract_date || '-'}</strong></div>
+          <div>작업시작: <strong>${item.work_start_date || '-'}</strong></div>
+          <div>대행사: <strong>${item.agency || biz.agency || '-'}</strong></div>
+          <div>회사: <strong>${company}</strong></div>
+        </div>
+      </div>`;
+
+      // 작업량 버튼
+      html += `<div class="card" style="margin-bottom:16px;">
+        <div style="font-size:13px; color:var(--muted); margin-bottom:8px;">📋 작업량</div>
+        <button class="btn btn-primary" style="width:100%;" onclick="showWorkload('${company}', '${businessName}')">
+          🔍 작업량 상세보기
+        </button>
+      </div>`;
+
+      // N2 분석
+      const n2 = biz.n2_analysis;
+      if (n2) {
+        const n2Color = n2.delta >= 0 ? 'var(--success)' : 'var(--danger)';
+        html += `<div class="card" style="margin-bottom:16px;">
+          <div style="font-size:13px; color:var(--muted); margin-bottom:8px;">📈 N2 점수 변화 (${n2.day_used || '-'}일째 기준)</div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <span style="font-size:16px;">${n2.start_n2?.toFixed(4) || '-'}</span>
+              <span style="margin:0 8px;">→</span>
+              <span style="font-size:16px;">${n2.end_n2?.toFixed(4) || '-'}</span>
+            </div>
+            <div style="font-size:24px; font-weight:700; color:${n2Color};">
+              ${n2.delta >= 0 ? '+' : ''}${n2.delta?.toFixed(4) || '-'}
+            </div>
+          </div>
+        </div>`;
+      }
+
+      // 리뷰 분석
+      const review = biz.review_analysis;
+      if (review) {
+        const reviewColor = review.delta >= 0 ? 'var(--success)' : 'var(--danger)';
+        html += `<div class="card" style="margin-bottom:16px;">
+          <div style="font-size:13px; color:var(--muted); margin-bottom:8px;">💬 리뷰 변화</div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <span style="font-size:16px;">${review.start_reviews}</span>
+              <span style="margin:0 8px;">→</span>
+              <span style="font-size:16px;">${review.end_reviews}</span>
+            </div>
+            <div style="font-size:18px; font-weight:700; color:${reviewColor};">
+              ${review.delta >= 0 ? '+' : ''}${review.delta} (${review.change_rate >= 0 ? '+' : ''}${review.change_rate}%)
+            </div>
+          </div>
+          ${review.warning ? `<div style="margin-top:8px; padding:8px; background:rgba(239,68,68,0.1); border-radius:6px; color:var(--danger); font-size:12px;">
+            ⚠️ 리뷰 감소 ${review.warning}
+          </div>` : ''}
+        </div>`;
+      }
+
+      return html;
+    }
+
+    // 업체별 작업량 상세 보기
+    function showBusinessWorkload(encodedCompany, encodedName) {
+      const company = decodeURIComponent(encodedCompany);
+      const name = decodeURIComponent(encodedName);
+
+      // showWorkload 함수 호출
+      showWorkload(company, name);
+    }
+
+    // 초기 로드
+    loadData();
+    updateExposureStatus();
+    updateDeadlineStatus();
+    updateSyncStatus();
+    loadBusinessWorkloads();  // 업체별 작업량 미리 로드
+    updateScrollButtons();  // 스크롤 버튼 상태 초기화
+    loadRecipeAnalysis();  // 레시피 분석 로드
+  </script>
+</body>
+
+</html>

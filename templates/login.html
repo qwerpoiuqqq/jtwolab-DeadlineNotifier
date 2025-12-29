@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>로그인 - DeadlineNotifier</title>
+  <style>
+    :root {
+      --primary: #3b82f6;
+      --primary-dark: #2563eb;
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --danger: #ef4444;
+      --success: #10b981;
+      --line: #334155;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-image: 
+        radial-gradient(ellipse at top, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse at bottom, rgba(16, 185, 129, 0.1) 0%, transparent 50%);
+    }
+    
+    .login-container {
+      width: 100%;
+      max-width: 420px;
+      padding: 24px;
+    }
+    
+    .login-card {
+      background: var(--card);
+      border-radius: 16px;
+      padding: 40px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      border: 1px solid var(--line);
+    }
+    
+    .logo {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    
+    .logo h1 {
+      font-size: 28px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--success) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .logo p {
+      color: var(--muted);
+      font-size: 14px;
+      margin-top: 8px;
+    }
+    
+    .form-group {
+      margin-bottom: 20px;
+    }
+    
+    .form-group label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 8px;
+      color: var(--muted);
+    }
+    
+    .form-group input {
+      width: 100%;
+      padding: 14px 16px;
+      font-size: 15px;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--text);
+      transition: all 0.2s ease;
+    }
+    
+    .form-group input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+    
+    .form-group input::placeholder {
+      color: var(--muted);
+    }
+    
+    .btn-login {
+      width: 100%;
+      padding: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      margin-top: 8px;
+    }
+    
+    .btn-login:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px -10px rgba(59, 130, 246, 0.5);
+    }
+    
+    .btn-login:active {
+      transform: translateY(0);
+    }
+    
+    .btn-login:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    .error-message {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: var(--danger);
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      margin-bottom: 20px;
+      display: none;
+    }
+    
+    .error-message.show {
+      display: block;
+    }
+    
+    .footer-text {
+      text-align: center;
+      margin-top: 24px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    
+    .loading {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: white;
+      animation: spin 0.8s linear infinite;
+      margin-right: 8px;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    @media (max-width: 480px) {
+      .login-card {
+        padding: 28px 24px;
+      }
+      
+      .logo h1 {
+        font-size: 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-card">
+      <div class="logo">
+        <h1>🔐 DeadlineNotifier</h1>
+        <p>사내 업무 관리 시스템</p>
+      </div>
+      
+      <div id="error-message" class="error-message"></div>
+      
+      <form id="login-form">
+        <div class="form-group">
+          <label for="username">아이디</label>
+          <input type="text" id="username" name="username" placeholder="아이디를 입력하세요" autocomplete="username" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="password">비밀번호</label>
+          <input type="password" id="password" name="password" placeholder="비밀번호를 입력하세요" autocomplete="current-password" required>
+        </div>
+        
+        <button type="submit" class="btn-login" id="btn-login">
+          로그인
+        </button>
+      </form>
+      
+      <p class="footer-text">© 2024 J2Lab. All rights reserved.</p>
+    </div>
+  </div>
+  
+  <script>
+    const form = document.getElementById('login-form');
+    const btn = document.getElementById('btn-login');
+    const errorEl = document.getElementById('error-message');
+    
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      
+      if (!username || !password) {
+        showError('아이디와 비밀번호를 입력해주세요.');
+        return;
+      }
+      
+      btn.disabled = true;
+      btn.innerHTML = '<span class="loading"></span> 로그인 중...';
+      errorEl.classList.remove('show');
+      
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        
+        const data = await res.json();
+        
+        if (res.ok && data.ok) {
+          // 로그인 성공 - 메인 페이지로 이동
+          window.location.href = data.redirect || '/';
+        } else {
+          showError(data.error || '로그인에 실패했습니다.');
+        }
+      } catch (e) {
+        showError('서버 연결에 실패했습니다.');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '로그인';
+      }
+    });
+    
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.classList.add('show');
+    }
+    
+    // Enter 키 지원
+    document.querySelectorAll('input').forEach(input => {
+      input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          form.dispatchEvent(new Event('submit'));
+        }
+      });
+    });
+  </script>
+</body>
+</html>

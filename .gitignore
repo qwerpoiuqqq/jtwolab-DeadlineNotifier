@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+.venv/
+ENV/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+*.log
+*.db
+service_account.json
+credentials.json
+
+# 보장건 데이터 (민감 정보)
+guarantee_data.json
+guarantee_data.enc
+secure_data/
+*.bak
+pricebook.json
+extra_expenses.json
+internal_cache.json
+
+# 암호화 키 (절대 커밋 금지)
+.encryption_key
+*.key
+
+# Playwright
+.cache/
+ms-playwright/
+
+# Render
+.render/
