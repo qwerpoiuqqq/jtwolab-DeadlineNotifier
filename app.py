@@ -1116,6 +1116,19 @@ def create_app() -> Flask:
 							log_scheduler_event("rank_crawl", "순위 크롤링 (자동)", "success", 
 								f"{crawl_result.get('crawled_count', 0)}건 완료")
 							logger.info(f"✅ Auto rank crawl completed: {crawl_result.get('message', 'OK')}")
+							
+							# 크롤링 후 보장건 시트 자동 업데이트
+							try:
+								log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "started", "자동 업데이트")
+								logger.info("📋 Updating guarantee sheets after auto crawl...")
+								from rank_update_service import update_guarantee_sheets_from_snapshots
+								update_result = update_guarantee_sheets_from_snapshots()
+								logger.info(f"✅ Guarantee sheets updated: {update_result}")
+								log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "success", "업데이트 완료")
+							except Exception as ue:
+								logger.error(f"❌ Guarantee sheet update failed: {ue}")
+								log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "failed", str(ue))
+								
 						except Exception as ce:
 							from scheduler_logs import log_scheduler_event
 							log_scheduler_event("rank_crawl", "순위 크롤링 (자동)", "failed", str(ce))

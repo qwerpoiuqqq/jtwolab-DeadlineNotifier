@@ -2003,23 +2003,58 @@
     async function syncData() {
       const btn = document.getElementById('btn-sync');
       const btnText = document.getElementById('sync-btn-text');
+      const statusEl = document.getElementById('workload-cache-status');
       btn.disabled = true;
       btnText.innerHTML = '<span class="loading"></span> 동기화 중...';
 
+      // 진행 상태 업데이트 함수
+      const updateProgress = (msg, color = 'rgba(255,200,0,0.9)') => {
+        statusEl.innerHTML = msg;
+        statusEl.style.color = color;
+      };
+
       try {
+        // 1단계: 업체 정보 불러오기
+        updateProgress('📡 업체 정보 불러오는 중...');
+
         const res = await fetch('/api/guarantee/sync', { method: 'POST' });
         const data = await res.json();
 
         if (res.ok) {
-          showToast(data.message || '동기화 완료');
-          loadData();
+          // 2단계: 동기화 완료
+          updateProgress('✅ 업체 정보 불러오기 완료');
+
+          // 3단계: 작업량/순위 상태 체크
+          if (data.workload_refreshed) {
+            updateProgress('⚡ 작업량 캐시 갱신됨');
+          }
+          if (data.rank_crawled) {
+            updateProgress('🏆 순위 크롤링 시작됨 (백그라운드 진행 중...)');
+          }
+
+          // 4단계: UI 갱신
+          updateProgress('🔄 화면 갱신 중...');
+          await loadData();
           updateExposureStatus();
           updateDeadlineStatus();
           updateSyncStatus();
+
+          // 5단계: 완료
+          const now = new Date();
+          const timeStr = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+          if (data.rank_crawled) {
+            updateProgress(`✅ ${timeStr} 완료 · 순위 크롤링 백그라운드 진행 중`, 'rgba(16,185,129,0.9)');
+          } else {
+            updateProgress(`✅ ${timeStr} 동기화 완료`, 'rgba(16,185,129,0.9)');
+          }
+
+          showToast(data.message || '동기화 완료');
         } else {
+          updateProgress('❌ 동기화 실패', 'rgba(239,68,68,0.9)');
           showToast('동기화 실패: ' + (data.error || '알 수 없는 오류'));
         }
       } catch (e) {
+        updateProgress('❌ 동기화 실패', 'rgba(239,68,68,0.9)');
         showToast('동기화 실패');
       } finally {
         btn.disabled = false;
