@@ -144,6 +144,8 @@ def create_app() -> Flask:
 		
 		주의: Render에서 workers=1 권장. 또는 외부 cron이 token endpoint를 호출하는 방식 사용.
 		"""
+		from scheduler_logs import log_scheduler_event
+		log_scheduler_event("rank_crawl", "순위 크롤링", "started", "크롤링 시작")
 		try:
 			logger.info(f"🏆 Starting automatic rank crawling at {datetime.now(pytz.timezone('Asia/Seoul'))}")
 			from rank_crawler import crawl_ranks_for_company
@@ -152,41 +154,56 @@ def create_app() -> Flask:
 			result = crawl_ranks_for_company(None)
 			logger.info(f"✅ Rank crawling completed: {result.get('message', 'Unknown')}")
 			logger.info(f"   Crawled: {result.get('crawled_count', 0)}, Failed: {result.get('failed_count', 0)}")
+			log_scheduler_event("rank_crawl", "순위 크롤링", "success", 
+				f"크롤링 {result.get('crawled_count', 0)}건 완료", result)
 			
 			# 15시 크롤링인 경우 보장건 시트 자동 업데이트
 			current_hour = datetime.now(pytz.timezone('Asia/Seoul')).hour
 			if current_hour >= 12:  # 오후 크롤링인 경우
+				# 보장건 시트 업데이트
 				try:
+					log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "started", "업데이트 시작")
 					logger.info("📋 Updating guarantee sheets...")
 					from rank_update_service import update_guarantee_sheets_from_snapshots
 					update_result = update_guarantee_sheets_from_snapshots()
 					logger.info(f"✅ Guarantee sheets updated: {update_result}")
+					log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "success", "업데이트 완료")
 				except Exception as update_error:
 					logger.error(f"❌ Guarantee sheet update failed: {update_error}")
+					log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "failed", str(update_error))
 				
 				# 레시피 분석 실행
 				try:
+					log_scheduler_event("recipe_analysis", "레시피 분석", "started", "분석 시작")
 					logger.info("📊 Running recipe analysis...")
 					from recipe_analyzer import get_analyzer
 					analyzer = get_analyzer()
 					analysis_result = analyzer.analyze_all(weeks=3)
 					logger.info(f"✅ Recipe analysis complete: {analysis_result.get('total_analyzed', 0)} businesses")
+					log_scheduler_event("recipe_analysis", "레시피 분석", "success", 
+						f"{analysis_result.get('total_analyzed', 0)}개 업체 분석 완료")
 				except Exception as analysis_error:
 					logger.error(f"❌ Recipe analysis failed: {analysis_error}")
+					log_scheduler_event("recipe_analysis", "레시피 분석", "failed", str(analysis_error))
 				
 				# 학습 데이터셋 빌드 (크롤링 후 자동 실행)
 				try:
+					log_scheduler_event("training_build", "학습 데이터셋 빌드", "started", "빌드 시작")
 					logger.info("🎓 Building training dataset...")
 					from training_dataset_builder import build_and_save
 					build_result = build_and_save(weeks=3)
 					logger.info(f"✅ Training dataset built: {build_result.get('training_rows_count', 0)} rows")
+					log_scheduler_event("training_build", "학습 데이터셋 빌드", "success", 
+						f"{build_result.get('training_rows_count', 0)}행 생성 완료")
 				except Exception as build_error:
 					logger.error(f"❌ Training dataset build failed: {build_error}")
+					log_scheduler_event("training_build", "학습 데이터셋 빌드", "failed", str(build_error))
 					
 		except Exception as e:
 			logger.error(f"❌ Automatic rank crawling failed: {e}")
 			import traceback
 			logger.error(traceback.format_exc())
+			log_scheduler_event("rank_crawl", "순위 크롤링", "failed", str(e))
 	
 	# 매일 9시, 16시 스케줄 등록 (보장건 동기화)
 	scheduler.add_job(func=sync_guarantee_data, trigger="cron", hour=9, minute=0, id="morning_sync")
@@ -195,13 +212,18 @@ def create_app() -> Flask:
 	# 매일 11:20 스케줄 등록 (Worklog 캐시 갱신)
 	def refresh_worklog_cache_task():
 		"""Worklog 캐시 자동 갱신"""
+		from scheduler_logs import log_scheduler_event
+		log_scheduler_event("worklog_cache", "Worklog 캐시", "started", "캐시 갱신 시작")
 		try:
 			logger.info(f"📝 Starting worklog cache refresh at {datetime.now(pytz.timezone('Asia/Seoul'))}")
 			from worklog_cache import refresh_worklog_cache as _refresh_worklog
 			result = _refresh_worklog()
 			logger.info(f"✅ Worklog cache refresh completed: {result.get('message')}")
+			log_scheduler_event("worklog_cache", "Worklog 캐시", "success", 
+				f"{result.get('records_count', 0)}건 갱신 완료", result)
 		except Exception as e:
 			logger.error(f"❌ Worklog cache refresh failed: {e}")
+			log_scheduler_event("worklog_cache", "Worklog 캐시", "failed", str(e))
 	
 	scheduler.add_job(func=refresh_worklog_cache_task, trigger="cron", hour=11, minute=20, id="worklog_cache_refresh_task")
 	
@@ -1390,6 +1412,36 @@ def create_app() -> Flask:
 			return jsonify({"recipes": recipes, "count": len(recipes)}), 200
 		except Exception as e:
 			logger.error(f"Recipe top error: {e}")
+			return jsonify({"error": str(e)}), 500
+
+	# --- Scheduler Logs API ---
+	@app.route("/api/scheduler/logs", methods=["GET"])
+	@login_required
+	def api_scheduler_logs():
+		"""스케줄러 로그 조회"""
+		job_id = request.args.get("job_id")
+		status = request.args.get("status")
+		limit = request.args.get("limit", 50, type=int)
+		limit = min(max(limit, 1), 100)
+		
+		try:
+			from scheduler_logs import get_scheduler_logs
+			logs = get_scheduler_logs(job_id=job_id, status=status, limit=limit)
+			return jsonify({"logs": logs, "count": len(logs)}), 200
+		except Exception as e:
+			logger.error(f"Scheduler logs error: {e}")
+			return jsonify({"error": str(e)}), 500
+	
+	@app.route("/api/scheduler/summary", methods=["GET"])
+	@login_required
+	def api_scheduler_summary():
+		"""스케줄러 요약 조회"""
+		try:
+			from scheduler_logs import get_scheduler_summary
+			summary = get_scheduler_summary()
+			return jsonify(summary), 200
+		except Exception as e:
+			logger.error(f"Scheduler summary error: {e}")
 			return jsonify({"error": str(e)}), 500
 
 	# Shutdown scheduler when app closes

@@ -820,6 +820,66 @@
         </div>
       </div>
 
+      <!-- 스케줄러 로그 패널 -->
+      <div class="section" style="margin-top:20px;">
+        <div class="card"
+          style="background:linear-gradient(135deg, #1e293b 0%, #334155 100%); color:#fff; border:none;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <span style="font-size:20px;">📋</span>
+              <div>
+                <div style="font-weight:600; font-size:16px;">스케줄러 작업 로그</div>
+                <div style="font-size:12px; opacity:0.8;" id="scheduler-log-status">로딩 중...</div>
+              </div>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-sm" onclick="refreshSchedulerLogs()"
+                style="background:rgba(255,255,255,0.15); color:#fff; border:1px solid rgba(255,255,255,0.2);">
+                🔄 새로고침
+              </button>
+              <button class="btn btn-sm" onclick="toggleLogPanel()" id="btn-toggle-logs"
+                style="background:rgba(255,255,255,0.15); color:#fff; border:1px solid rgba(255,255,255,0.2);">
+                ▼ 펼치기
+              </button>
+            </div>
+          </div>
+
+          <!-- 작업별 최신 상태 요약 -->
+          <div id="scheduler-summary"
+            style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px;">
+            <!-- JS로 채워짐 -->
+          </div>
+
+          <!-- 로그 상세 패널 (접기/펼치기) -->
+          <div id="scheduler-log-detail"
+            style="display:none; margin-top:16px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.1);">
+            <div style="display:flex; gap:8px; margin-bottom:12px;">
+              <select id="log-filter-job"
+                style="padding:6px 12px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#1e293b; color:#fff; font-size:13px;">
+                <option value="">전체 작업</option>
+                <option value="guarantee_sync">보장건 동기화</option>
+                <option value="workload_cache">작업량 캐시</option>
+                <option value="worklog_cache">Worklog 캐시</option>
+                <option value="rank_crawl">순위 크롤링</option>
+                <option value="guarantee_update">보장건 업데이트</option>
+                <option value="recipe_analysis">레시피 분석</option>
+                <option value="training_build">학습 데이터 빌드</option>
+              </select>
+              <select id="log-filter-status"
+                style="padding:6px 12px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#1e293b; color:#fff; font-size:13px;">
+                <option value="">전체 상태</option>
+                <option value="success">✅ 성공</option>
+                <option value="failed">❌ 실패</option>
+                <option value="started">🚀 시작</option>
+              </select>
+            </div>
+            <div id="scheduler-log-list" style="max-height:300px; overflow-y:auto;">
+              <!-- JS로 채워짐 -->
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 주요 통계 -->
       <div class="section" style="margin-top:32px;">
         <div class="grid grid-4">
@@ -2797,6 +2857,140 @@
     loadBusinessWorkloads();  // 업체별 작업량 미리 로드
     updateScrollButtons();  // 스크롤 버튼 상태 초기화
     loadRecipeAnalysis();  // 레시피 분석 로드
+    loadSchedulerLogs();  // 스케줄러 로그 로드
+
+    // ========== 스케줄러 로그 함수 ==========
+    let schedulerLogExpanded = false;
+
+    async function loadSchedulerLogs() {
+      try {
+        const res = await fetch('/api/scheduler/summary');
+        if (!res.ok) throw new Error('API 오류');
+        const data = await res.json();
+
+        // 상태 업데이트
+        const statusEl = document.getElementById('scheduler-log-status');
+        const todayCount = data.today_count || 0;
+        const successCount = data.success_count || 0;
+        const failedCount = data.failed_count || 0;
+        statusEl.textContent = `오늘 ${todayCount}건 실행 · 성공 ${successCount} · 실패 ${failedCount}`;
+
+        // 작업별 요약 카드 렌더링
+        const summaryEl = document.getElementById('scheduler-summary');
+        const latestByJob = data.latest_by_job || {};
+
+        const jobLabels = {
+          'guarantee_sync': '🔄 보장건 동기화',
+          'workload_cache': '⚡ 작업량 캐시',
+          'worklog_cache': '📝 Worklog 캐시',
+          'rank_crawl': '🏆 순위 크롤링',
+          'guarantee_update': '📋 보장건 업데이트',
+          'recipe_analysis': '📊 레시피 분석',
+          'training_build': '🎓 학습 데이터'
+        };
+
+        let html = '';
+        for (const [jobId, log] of Object.entries(latestByJob)) {
+          const label = jobLabels[jobId] || jobId;
+          const status = log.status;
+          const statusEmoji = status === 'success' ? '✅' : status === 'failed' ? '❌' : '🚀';
+          const bgColor = status === 'success' ? 'rgba(16, 185, 129, 0.2)' :
+            status === 'failed' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)';
+          const time = log.time || '';
+          const date = log.date || '';
+
+          html += `
+            <div style="background:${bgColor}; padding:12px; border-radius:8px;">
+              <div style="font-size:13px; font-weight:600; margin-bottom:4px;">${label}</div>
+              <div style="font-size:12px; opacity:0.9;">${statusEmoji} ${log.message || status}</div>
+              <div style="font-size:11px; opacity:0.7; margin-top:4px;">${date} ${time}</div>
+            </div>
+          `;
+        }
+
+        if (!html) {
+          html = '<div style="text-align:center; opacity:0.7; padding:20px;">로그가 없습니다</div>';
+        }
+
+        summaryEl.innerHTML = html;
+      } catch (e) {
+        console.error('스케줄러 로그 로드 실패:', e);
+        document.getElementById('scheduler-log-status').textContent = '로드 실패';
+      }
+    }
+
+    async function refreshSchedulerLogs() {
+      await loadSchedulerLogs();
+      if (schedulerLogExpanded) {
+        await loadSchedulerLogList();
+      }
+      showToast('스케줄러 로그 새로고침 완료');
+    }
+
+    function toggleLogPanel() {
+      const detailEl = document.getElementById('scheduler-log-detail');
+      const btnEl = document.getElementById('btn-toggle-logs');
+
+      schedulerLogExpanded = !schedulerLogExpanded;
+
+      if (schedulerLogExpanded) {
+        detailEl.style.display = 'block';
+        btnEl.textContent = '▲ 접기';
+        loadSchedulerLogList();
+      } else {
+        detailEl.style.display = 'none';
+        btnEl.textContent = '▼ 펼치기';
+      }
+    }
+
+    async function loadSchedulerLogList() {
+      const jobId = document.getElementById('log-filter-job').value;
+      const status = document.getElementById('log-filter-status').value;
+
+      let url = '/api/scheduler/logs?limit=50';
+      if (jobId) url += `&job_id=${jobId}`;
+      if (status) url += `&status=${status}`;
+
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('API 오류');
+        const data = await res.json();
+
+        const listEl = document.getElementById('scheduler-log-list');
+        const logs = data.logs || [];
+
+        if (logs.length === 0) {
+          listEl.innerHTML = '<div style="text-align:center; opacity:0.7; padding:20px;">로그가 없습니다</div>';
+          return;
+        }
+
+        let html = '';
+        for (const log of logs) {
+          const statusEmoji = log.status === 'success' ? '✅' :
+            log.status === 'failed' ? '❌' : '🚀';
+          const bgColor = log.status === 'success' ? 'rgba(16, 185, 129, 0.1)' :
+            log.status === 'failed' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)';
+
+          html += `
+            <div style="background:${bgColor}; padding:10px 12px; border-radius:6px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <span style="font-weight:600;">${statusEmoji} ${log.job_name}</span>
+                <span style="opacity:0.8; margin-left:8px; font-size:12px;">${log.message}</span>
+              </div>
+              <div style="font-size:11px; opacity:0.7;">${log.time}</div>
+            </div>
+          `;
+        }
+
+        listEl.innerHTML = html;
+      } catch (e) {
+        console.error('로그 목록 로드 실패:', e);
+      }
+    }
+
+    // 필터 변경 시 자동 새로고침
+    document.getElementById('log-filter-job').addEventListener('change', loadSchedulerLogList);
+    document.getElementById('log-filter-status').addEventListener('change', loadSchedulerLogList);
   </script>
 </body>
 
