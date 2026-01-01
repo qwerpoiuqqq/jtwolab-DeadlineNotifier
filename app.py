@@ -173,6 +173,15 @@ def create_app() -> Flask:
 					logger.info(f"✅ Recipe analysis complete: {analysis_result.get('total_analyzed', 0)} businesses")
 				except Exception as analysis_error:
 					logger.error(f"❌ Recipe analysis failed: {analysis_error}")
+				
+				# 학습 데이터셋 빌드 (크롤링 후 자동 실행)
+				try:
+					logger.info("🎓 Building training dataset...")
+					from training_dataset_builder import build_and_save
+					build_result = build_and_save(weeks=3)
+					logger.info(f"✅ Training dataset built: {build_result.get('training_rows_count', 0)} rows")
+				except Exception as build_error:
+					logger.error(f"❌ Training dataset build failed: {build_error}")
 					
 		except Exception as e:
 			logger.error(f"❌ Automatic rank crawling failed: {e}")
@@ -183,6 +192,19 @@ def create_app() -> Flask:
 	scheduler.add_job(func=sync_guarantee_data, trigger="cron", hour=9, minute=0, id="morning_sync")
 	scheduler.add_job(func=sync_guarantee_data, trigger="cron", hour=16, minute=0, id="afternoon_sync")
 	
+	# 매일 11:20 스케줄 등록 (Worklog 캐시 갱신)
+	def refresh_worklog_cache_task():
+		"""Worklog 캐시 자동 갱신"""
+		try:
+			logger.info(f"📝 Starting worklog cache refresh at {datetime.now(pytz.timezone('Asia/Seoul'))}")
+			from worklog_cache import refresh_worklog_cache as _refresh_worklog
+			result = _refresh_worklog()
+			logger.info(f"✅ Worklog cache refresh completed: {result.get('message')}")
+		except Exception as e:
+			logger.error(f"❌ Worklog cache refresh failed: {e}")
+	
+	scheduler.add_job(func=refresh_worklog_cache_task, trigger="cron", hour=11, minute=20, id="worklog_cache_refresh_task")
+	
 	# 매일 11시 30분 스케줄 등록 (작업량 캐시 갱신)
 	scheduler.add_job(func=refresh_workload_cache, trigger="cron", hour=11, minute=30, id="workload_cache_refresh")
 	
@@ -191,6 +213,7 @@ def create_app() -> Flask:
 	if os.getenv("USE_INTERNAL_SCHEDULER", "true").lower() == "true":
 		scheduler.add_job(func=crawl_ranks_auto, trigger="cron", hour=15, minute=10, id="daily_rank_crawl")
 		logger.info("📅 Internal scheduler enabled for rank crawling (15:10 KST, once daily)")
+		logger.info("📅 Worklog cache refresh scheduled at 11:20 KST")
 	else:
 		logger.info("📅 Internal scheduler disabled. Use /api/cron/crawl-ranks with CRON_TOKEN")
 
@@ -1309,6 +1332,64 @@ def create_app() -> Flask:
 				return jsonify({"error": "복원 실패"}), 500
 		except Exception as e:
 			logger.error(f"Rank import error: {e}")
+			return jsonify({"error": str(e)}), 500
+
+	# --- Worklog Cache API ---
+	@app.route("/api/worklog/cache/refresh", methods=["POST"])
+	@login_required
+	def api_worklog_cache_refresh():
+		"""Worklog 캐시 갱신"""
+		try:
+			from worklog_cache import refresh_worklog_cache
+			result = refresh_worklog_cache()
+			return jsonify(result), 200 if result.get("success") else 500
+		except Exception as e:
+			logger.error(f"Worklog cache refresh error: {e}")
+			return jsonify({"error": str(e)}), 500
+	
+	@app.route("/api/worklog/cache/status", methods=["GET"])
+	@login_required
+	def api_worklog_cache_status():
+		"""Worklog 캐시 상태 조회"""
+		try:
+			from worklog_cache import get_worklog_cache_status
+			status = get_worklog_cache_status()
+			return jsonify(status), 200
+		except Exception as e:
+			logger.error(f"Worklog cache status error: {e}")
+			return jsonify({"error": str(e)}), 500
+	
+	# --- Training Dataset API ---
+	@app.route("/api/training/build", methods=["POST"])
+	@login_required
+	def api_training_build():
+		"""학습 데이터셋 빌드"""
+		weeks = request.args.get("weeks", 3, type=int)
+		weeks = min(max(weeks, 1), 8)  # 1~8주 제한
+		
+		try:
+			from training_dataset_builder import build_and_save
+			result = build_and_save(weeks=weeks)
+			return jsonify(result), 200 if result.get("success") else 500
+		except Exception as e:
+			logger.error(f"Training build error: {e}")
+			import traceback
+			logger.error(traceback.format_exc())
+			return jsonify({"error": str(e)}), 500
+	
+	@app.route("/api/recipe/top", methods=["GET"])
+	@login_required
+	def api_recipe_top():
+		"""상위 레시피 조회"""
+		weeks = request.args.get("weeks", 3, type=int)
+		weeks = min(max(weeks, 1), 8)
+		
+		try:
+			from training_dataset_builder import get_top_recipes
+			recipes = get_top_recipes(weeks=weeks)
+			return jsonify({"recipes": recipes, "count": len(recipes)}), 200
+		except Exception as e:
+			logger.error(f"Recipe top error: {e}")
 			return jsonify({"error": str(e)}), 500
 
 	# Shutdown scheduler when app closes
