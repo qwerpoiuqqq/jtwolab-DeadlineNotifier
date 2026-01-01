@@ -342,24 +342,34 @@ class TrainingDatasetBuilder:
     def save_results(
         self, 
         training_path: str = None,
-        recipe_path: str = None
+        recipe_path: str = None,
+        save_to_sheets: bool = True
     ) -> Dict:
-        """결과 저장
+        """결과 저장 (JSON + Google Sheets)
         
+        Args:
+            save_to_sheets: True면 Google Sheets에도 백업
+            
         Returns:
             저장 결과 {"success": bool, ...}
         """
         training_path = training_path or os.getenv("TRAINING_ROWS_FILE", DEFAULT_TRAINING_PATH)
         recipe_path = recipe_path or os.getenv("RECIPE_STATS_FILE", DEFAULT_RECIPE_PATH)
         
+        result = {
+            "success": True,
+            "training_rows_count": len(self.training_rows),
+            "json_saved": False,
+            "sheets_saved": False
+        }
+        
+        # 1. JSON 파일 저장
         try:
-            # 디렉토리 생성
             for path in [training_path, recipe_path]:
                 dir_path = os.path.dirname(path)
                 if dir_path and not os.path.exists(dir_path):
                     os.makedirs(dir_path, exist_ok=True)
             
-            # Training rows 저장
             with open(training_path, "w", encoding="utf-8") as f:
                 json.dump({
                     "generated_at": datetime.now(KST).isoformat(),
@@ -367,21 +377,157 @@ class TrainingDatasetBuilder:
                     "rows": self.training_rows
                 }, f, ensure_ascii=False, indent=2)
             
-            # Recipe stats 저장
             with open(recipe_path, "w", encoding="utf-8") as f:
                 json.dump(self.recipe_stats, f, ensure_ascii=False, indent=2)
             
-            logger.info(f"✅ 결과 저장 완료 - {training_path}, {recipe_path}")
-            return {
-                "success": True,
-                "training_rows_path": training_path,
-                "recipe_stats_path": recipe_path,
-                "training_rows_count": len(self.training_rows)
-            }
+            result["json_saved"] = True
+            result["training_rows_path"] = training_path
+            result["recipe_stats_path"] = recipe_path
+            logger.info(f"✅ JSON 저장 완료 - {training_path}")
             
         except Exception as e:
-            logger.error(f"❌ 결과 저장 실패: {e}")
-            return {"success": False, "error": str(e)}
+            logger.error(f"❌ JSON 저장 실패: {e}")
+            result["json_error"] = str(e)
+        
+        # 2. Google Sheets 백업
+        if save_to_sheets and self.training_rows:
+            try:
+                sheets_result = self._save_to_google_sheets()
+                result["sheets_saved"] = sheets_result.get("success", False)
+                result["sheets_result"] = sheets_result
+            except Exception as e:
+                logger.error(f"❌ Sheets 백업 실패: {e}")
+                result["sheets_error"] = str(e)
+        
+        return result
+    
+    def _save_to_google_sheets(self) -> Dict:
+        """Google Sheets에 학습 데이터 백업
+        
+        월보장 순위 DB 시트에 training_rows와 recipe_stats 탭 생성/갱신
+        """
+        import gspread
+        from google.oauth2.service_account import Credentials
+        import os
+        import json as json_module
+        
+        logger.info("📊 Google Sheets 백업 시작...")
+        
+        # 인증 설정
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        
+        creds = None
+        json_str = os.getenv("SERVICE_ACCOUNT_JSON", "")
+        if json_str:
+            import io
+            creds = Credentials.from_service_account_info(
+                json_module.loads(json_str), scopes=scopes
+            )
+        else:
+            creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "service_account.json")
+            if os.path.exists(creds_path):
+                creds = Credentials.from_service_account_file(creds_path, scopes=scopes)
+        
+        if not creds:
+            return {"success": False, "error": "인증 정보 없음"}
+        
+        client = gspread.authorize(creds)
+        
+        # 스프레드시트 열기 (RANK_SHEET_ID 또는 JTWOLAB_SHEET_ID)
+        sheet_id = os.getenv("RANK_SHEET_ID") or os.getenv(
+            "JTWOLAB_SHEET_ID", "1zRgtvTZ6SZF-bWiMO8qmnIhhrNVsrDxbIj3HvE8Tv3Y"
+        )
+        ss = client.open_by_key(sheet_id)
+        
+        result = {"success": True, "training_rows": 0, "recipe_stats": 0}
+        
+        # === training_rows 탭 저장 ===
+        try:
+            tab_name = "training_rows"
+            try:
+                ws = ss.worksheet(tab_name)
+                ws.clear()
+            except gspread.WorksheetNotFound:
+                ws = ss.add_worksheet(title=tab_name, rows=1000, cols=20)
+            
+            # 헤더
+            headers = [
+                "date", "time_slot", "business_name", "keyword", "company",
+                "n2_score", "n2_delta_3d", "delta_day_used", "start_n2",
+                "rank", "saves", "blog_reviews", "visitor_reviews",
+                "tasks_active", "tasks_hash", "task_totals", "tasks_count"
+            ]
+            
+            # 데이터 행 생성
+            rows = [headers]
+            for row in self.training_rows[:500]:  # 최대 500행
+                rows.append([
+                    row.get("date", ""),
+                    row.get("time_slot", ""),
+                    row.get("business_name", ""),
+                    row.get("keyword", ""),
+                    row.get("company", ""),
+                    row.get("n2_score") or "",
+                    row.get("n2_delta_3d") or "",
+                    row.get("delta_day_used") or "",
+                    row.get("start_n2") or "",
+                    row.get("rank") or "",
+                    row.get("saves") or "",
+                    row.get("blog_reviews") or "",
+                    row.get("visitor_reviews") or "",
+                    "|".join(row.get("tasks_active", [])),
+                    row.get("tasks_hash", ""),
+                    json_module.dumps(row.get("task_totals", {}), ensure_ascii=False),
+                    row.get("tasks_count") or 0
+                ])
+            
+            ws.update(rows, value_input_option="USER_ENTERED")
+            result["training_rows"] = len(rows) - 1
+            logger.info(f"  ✅ training_rows 탭: {len(rows)-1}행 저장")
+            
+        except Exception as e:
+            logger.error(f"  ❌ training_rows 저장 실패: {e}")
+            result["training_rows_error"] = str(e)
+        
+        # === recipe_stats 탭 저장 ===
+        try:
+            tab_name = "recipe_stats"
+            try:
+                ws = ss.worksheet(tab_name)
+                ws.clear()
+            except gspread.WorksheetNotFound:
+                ws = ss.add_worksheet(title=tab_name, rows=200, cols=10)
+            
+            # 헤더
+            headers = ["recipe_name", "avg_delta", "count", "up_count", "down_count", "stable_count", "up_rate"]
+            
+            # top_recipes 저장
+            rows = [headers]
+            top_recipes = self.recipe_stats.get("top_recipes", [])
+            for recipe in top_recipes:
+                rows.append([
+                    recipe.get("name", ""),
+                    recipe.get("avg_delta", 0),
+                    recipe.get("count", 0),
+                    recipe.get("up_count", 0),
+                    recipe.get("down_count", 0),
+                    recipe.get("stable_count", 0),
+                    recipe.get("up_rate", 0)
+                ])
+            
+            ws.update(rows, value_input_option="USER_ENTERED")
+            result["recipe_stats"] = len(rows) - 1
+            logger.info(f"  ✅ recipe_stats 탭: {len(rows)-1}행 저장")
+            
+        except Exception as e:
+            logger.error(f"  ❌ recipe_stats 저장 실패: {e}")
+            result["recipe_stats_error"] = str(e)
+        
+        logger.info(f"✅ Google Sheets 백업 완료 - training:{result['training_rows']}, recipe:{result['recipe_stats']}")
+        return result
 
 
 def build_and_save(weeks: int = 3) -> Dict:
