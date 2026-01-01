@@ -5,12 +5,13 @@
 핵심 기능:
 - worksheet.get_all_values() 1회/탭으로 API 호출 최소화
 - 429/5xx 대응: 지수 백오프 재시도
-- business_name + date 기반 조회 지원
+- MID(place_id) 기반 조회 지원 (fallback: business_name)
 """
 import os
 import json
 import time
 import hashlib
+import re
 import logging
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Any
@@ -56,6 +57,31 @@ def _with_retry(func, *args, max_attempts: int = 5, base_delay: float = 1.0, **k
                 time.sleep(delay)
             else:
                 raise
+    return None
+
+
+def extract_mid_from_url(url: str) -> Optional[str]:
+    """URL에서 MID(place_id) 추출
+    
+    Args:
+        url: place.naver.com URL
+        
+    Returns:
+        MID 문자열 (예: "1234567890") 또는 None
+    """
+    if not url:
+        return None
+    
+    # place.naver.com/restaurant/1234567890 형식
+    match = re.search(r'place\.naver\.com/[^/]+/(\d{5,})', url)
+    if match:
+        return match.group(1)
+    
+    # /1234567890 형식 (숫자만)
+    match = re.search(r'/(\d{7,})', url)
+    if match:
+        return match.group(1)
+    
     return None
 
 
@@ -232,6 +258,75 @@ class WorklogCache:
         
         return results
     
+    def get_active_tasks_by_mid(self, mid: str, target_date: date) -> List[Dict]:
+        """MID(place_id) 기준으로 활성 작업 조회
+        
+        Args:
+            mid: place_id (숫자 문자열)
+            target_date: 대상 날짜
+            
+        Returns:
+            해당 날짜에 활성 상태인 작업 리스트
+        """
+        results = []
+        
+        for record in self.cache_data.get("records", []):
+            rec_mid = record.get("mid")
+            if not rec_mid or rec_mid != mid:
+                continue
+            
+            # 날짜 범위 확인
+            start_str = record.get("start_date")
+            end_str = record.get("end_date")
+            
+            try:
+                if start_str:
+                    start_dt = date.fromisoformat(start_str)
+                    if target_date < start_dt:
+                        continue
+                
+                if end_str:
+                    end_dt = date.fromisoformat(end_str)
+                    if target_date > end_dt:
+                        continue
+                
+                results.append(record)
+            except Exception:
+                results.append(record)
+        
+        return results
+    
+    def get_active_tasks_smart(
+        self, 
+        mid: str = None, 
+        business_name: str = None, 
+        target_date: date = None
+    ) -> List[Dict]:
+        """MID 우선, business_name fallback으로 활성 작업 조회
+        
+        Args:
+            mid: place_id (우선 사용)
+            business_name: 상호명 (MID 없을 때 fallback)
+            target_date: 대상 날짜
+            
+        Returns:
+            해당 날짜에 활성 상태인 작업 리스트
+        """
+        if not target_date:
+            target_date = datetime.now(KST).date()
+        
+        # 1. MID로 먼저 시도
+        if mid:
+            results = self.get_active_tasks_by_mid(mid, target_date)
+            if results:
+                return results
+        
+        # 2. Fallback: business_name으로 조회
+        if business_name:
+            return self.get_active_tasks_on_date(business_name, target_date)
+        
+        return []
+    
     def get_task_totals_on_date(self, business_name: str, target_date: date) -> Dict[str, int]:
         """특정 날짜의 작업별 workload 합계
         
@@ -376,11 +471,33 @@ class WorklogCache:
                                 start_date = parsed.isoformat()
                                 break
                     
+                    # URL/MID 추출 (새 컬럼)
+                    place_url = None
+                    mid = None
+                    for col in ["URL", "url", "플레이스 URL", "플레이스URL", "장소 URL", "장소URL"]:
+                        val = _get_value_flexible(row_norm, col, "")
+                        if val:
+                            place_url = str(val).strip()
+                            mid = extract_mid_from_url(place_url)
+                            break
+                    
+                    # MID 컬럼 직접 읽기 (URL 없을 때 대비)
+                    if not mid:
+                        for col in ["MID", "mid", "place_id", "플레이스ID"]:
+                            val = _get_value_flexible(row_norm, col, "")
+                            if val:
+                                mid_str = str(val).strip()
+                                if mid_str.isdigit() and len(mid_str) >= 5:
+                                    mid = mid_str
+                                    break
+                    
                     # 레코드 생성
                     record = {
                         "company": company,
                         "agency": agency,
                         "business_name": bizname,
+                        "mid": mid,  # MID 추가
+                        "place_url": place_url,  # URL 추가
                         "task_name": task_name,
                         "workload": workload,
                         "start_date": start_date,

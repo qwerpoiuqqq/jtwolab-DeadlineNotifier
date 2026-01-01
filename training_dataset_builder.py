@@ -170,10 +170,35 @@ class TrainingDatasetBuilder:
                         continue
                     processed_keys.add(unique_key)
                     
-                    # 해당 날짜의 활성 작업 조회
-                    active_tasks = worklog_cache.get_active_tasks_on_date(biz_name, snap_date)
+                    # MID 추출 (place_url에서)
+                    place_url = snap.get("place_url", "")
+                    mid = None
+                    if place_url:
+                        from worklog_cache import extract_mid_from_url
+                        mid = extract_mid_from_url(place_url)
+                    
+                    # 해당 날짜의 활성 작업 조회 (MID 우선, fallback: business_name)
+                    active_tasks = worklog_cache.get_active_tasks_smart(
+                        mid=mid,
+                        business_name=biz_name,
+                        target_date=snap_date
+                    )
                     task_names = [t.get("task_name", "") for t in active_tasks if t.get("task_name")]
-                    task_totals = worklog_cache.get_task_totals_on_date(biz_name, snap_date)
+                    
+                    # task_totals 계산 (MID 기반이면 mid로, 아니면 business_name으로)
+                    if mid and any(t.get("mid") == mid for t in active_tasks):
+                        # MID 매칭 성공
+                        task_totals = {}
+                        for task in active_tasks:
+                            task_name = task.get("task_name", "Unknown")
+                            try:
+                                workload = int(task.get("workload", 0) or 0)
+                            except:
+                                workload = 0
+                            task_totals[task_name] = task_totals.get(task_name, 0) + workload
+                    else:
+                        # Fallback: business_name
+                        task_totals = worklog_cache.get_task_totals_on_date(biz_name, snap_date)
                     
                     # N2 delta 계산
                     n2_delta, day_used, start_n2, end_n2 = None, 0, None, None
