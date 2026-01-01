@@ -971,6 +971,18 @@ def create_app() -> Flask:
 			
 			logger.info(f"Getting items with filters: {filters}")
 			items = gm.get_items(filters)
+			
+			# 데이터가 없으면 자동 동기화 시도 (서버 재시작 후 첫 요청)
+			if len(gm.get_items()) == 0:
+				logger.info("📦 No local data found. Auto-syncing from Google Sheets...")
+				try:
+					sync_result = gm.sync_from_google_sheets()
+					logger.info(f"✅ Auto-sync completed: Added {sync_result.get('added', 0)} items")
+					# 다시 데이터 조회
+					items = gm.get_items(filters)
+				except Exception as sync_err:
+					logger.error(f"❌ Auto-sync failed: {sync_err}")
+			
 			logger.info(f"Found {len(items)} items")
 			
 			# 디버깅: 처음 몇 개 아이템 로그
