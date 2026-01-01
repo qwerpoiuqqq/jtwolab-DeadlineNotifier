@@ -116,60 +116,103 @@ class GuaranteeSheetUpdater:
         url_to_rank: Dict[str, Dict],
         name_keyword_to_rank: Dict[str, Dict]
     ) -> Dict[str, Any]:
-        """단일 시트 업데이트"""
-        # 상수 정의
-        COL_STATUS_IDX = 4     # E열 (0-indexed)
-        VALID_STATUSES = ["진행중", "후불", "반불"]
-        
-        # 일별 기록 시작 열 (R열) -> 0-indexed: 17
-        DAILY_START_IDX = COL_DAILY_START - 1
-        MAX_DAILY_COUNT = 25   # 25일치 관리
-        
+        """단일 시트 업데이트 (동적 헤더 매핑 적용)"""
         try:
             spreadsheet = self.gc.open_by_key(sheet_id)
             worksheet = spreadsheet.worksheet("보장건")
             
             # 전체 데이터 가져오기 (헤더 포함)
             all_values = worksheet.get_all_values()
-            if len(all_values) < 3:
+            
+            # 헤더 행 인덱스 (1행 or 2행 확인)
+            # 보통 2행이 실제 헤더
+            header_row_idx = 1 # 0-indexed (2행)
+            if len(all_values) <= header_row_idx:
                 return {"success": False, "error": "Sheet has insufficient rows"}
             
+            headers = all_values[header_row_idx]
+            
+            # 헤더 매핑
+            col_map = {}
+            daily_start_idx = -1
+            
+            for idx, header in enumerate(headers):
+                h = str(header).strip()
+                
+                if "작업" in h and "여부" in h: 
+                    col_map["status"] = idx
+                elif "상호" in h or ("플레이스" in h and "자동완성" in h): 
+                    col_map["business_name"] = idx
+                elif "키워드" in h and "메인" in h: 
+                    col_map["keyword"] = idx
+                elif "상품" in h: 
+                    col_map["product"] = idx
+                elif "URL" in h.upper(): 
+                    col_map["url"] = idx
+                elif "보장" in h and "순위" in h: 
+                    col_map["guarantee_rank"] = idx
+                
+                # 일별 순위 시작 열 찾기 ("1" 또는 "1일")
+                # 단, 날짜 열은 보통 뒤쪽에 위치하므로 앞에서 발견된 '1'이 다른 의미일 수 있음에 주의
+                # 여기서는 '순위'나 '계약' 등이 아닌 순수 숫자 '1' 또는 '1일'을 찾음
+                if daily_start_idx == -1:
+                    if h == "1" or h == "1일":
+                        daily_start_idx = idx
+
+            # 필수 컬럼 체크
+            required_cols = ["business_name", "status", "product", "guarantee_rank"]
+            missing = [c for c in required_cols if c not in col_map]
+            if missing:
+                logger.error(f"[{sheet_name}] Missing headers: {missing}")
+                return {"success": False, "error": f"Missing headers: {missing}"}
+            
+            if daily_start_idx == -1:
+                # 못 찾으면 기본값 사용 (R열 = 17)
+                daily_start_idx = 17 
+                logger.warning(f"[{sheet_name}] Could not find daily rank start column '1'. Using default index 17 (R column).")
+
             # 오늘 날짜 문자열 (형식: 25. 12. 28)
             today = datetime.now(KST)
             today_str = today.strftime("%y. %m. %d")
             
-            # 데이터 행 순회 (3행부터)
+            VALID_STATUSES = ["진행중", "후불", "반불"]
+            MAX_DAILY_COUNT = 25
+            
             updates = []
             matched_count = 0
             skipped_count = 0
             filter_skipped_count = 0
             
-            for row_idx, row in enumerate(all_values[2:], start=3):
-                # 행 길이 안전 장치
-                if len(row) <= COL_PRODUCT - 1:
-                    continue
+            # 데이터 행 순회 (헤더 다음 행부터)
+            start_row = header_row_idx + 1
+            for i, row in enumerate(all_values[start_row:]):
+                row_num = start_row + i + 1 # 1-based row number
                 
+                # 안전한 값 가져오기 함수
+                def get_val(col_name):
+                    idx = col_map.get(col_name)
+                    if idx is not None and idx < len(row):
+                        return row[idx].strip()
+                    return ""
+
                 # 1. 작업 여부 필터링
-                if len(row) > COL_STATUS_IDX:
-                    status = row[COL_STATUS_IDX].strip()
-                    if status not in VALID_STATUSES:
-                        filter_skipped_count += 1
-                        continue
-                else:
+                status = get_val("status")
+                if status not in VALID_STATUSES:
+                    filter_skipped_count += 1
                     continue
 
-                # 2. 상품 확인 (J열)
-                product = row[COL_PRODUCT - 1].strip()
+                # 2. 상품 확인 (플레이스 포함 여부)
+                product = get_val("product")
                 if "플레이스" not in product:
                     continue
                 
                 # 3. 매칭 데이터 찾기
-                business_name = row[COL_BUSINESS_NAME - 1].strip() if len(row) > COL_BUSINESS_NAME - 1 else ""
-                keyword = row[COL_KEYWORD - 1].strip() if len(row) > COL_KEYWORD - 1 else ""
-                url = row[COL_URL - 1].strip() if len(row) > COL_URL - 1 else ""
+                business_name = get_val("business_name")
+                keyword = get_val("keyword") # 메인 키워드
+                url = get_val("url")
                 
                 # 보장 순위 파싱
-                guarantee_rank_str = row[COL_GUARANTEE_RANK - 1].strip() if len(row) > COL_GUARANTEE_RANK - 1 else ""
+                guarantee_rank_str = get_val("guarantee_rank")
                 guarantee_rank = None
                 try:
                     guarantee_rank = int(re.sub(r'[^\d]', '', guarantee_rank_str))
@@ -187,9 +230,14 @@ class GuaranteeSheetUpdater:
                         place_id = match.group(1)
                         rank_item = url_to_rank.get(place_id)
                 
-                if not rank_item and business_name and keyword:
-                    key = f"{business_name}|{keyword}"
-                    rank_item = name_keyword_to_rank.get(key)
+                # 상호명 매칭 (키워드는 옵션일 수 있음, 하지만 보통 키워드 필수)
+                # 시트에 메인 키워드가 없으면 매칭 키 생성 시 주의
+                if not rank_item and business_name:
+                    # 키워드가 있으면 함께, 없으면 상호명으로만 시도해볼 수도 있지만
+                    # rank_data는 보통 (상호명|키워드) 키를 가짐
+                    if keyword:
+                        key = f"{business_name}|{keyword}"
+                        rank_item = name_keyword_to_rank.get(key)
                 
                 if not rank_item:
                     continue
@@ -214,15 +262,13 @@ class GuaranteeSheetUpdater:
                 target_col_idx = -1
                 already_recorded_today = False
                 
-                # R열부터 25개 열 검사
+                # 일별 순위 열 검사
                 for offset in range(MAX_DAILY_COUNT):
-                    check_idx = DAILY_START_IDX + offset
-                    if check_idx >= len(row):
-                        # 열이 없으면 빈 셀로 간주
-                        target_col_idx = check_idx
-                        break
+                    check_idx = daily_start_idx + offset
                     
-                    cell_value = row[check_idx].strip()
+                    cell_value = ""
+                    if check_idx < len(row):
+                        cell_value = row[check_idx].strip()
                     
                     if not cell_value:
                         # 빈 셀 발견 → 타겟
@@ -237,18 +283,17 @@ class GuaranteeSheetUpdater:
                 # 오늘 날짜가 이미 기록되어 있으면 패스
                 if already_recorded_today:
                     skipped_count += 1
-                    logger.debug(f"Skipping {business_name}: already recorded today")
                     continue
                 
-                # 25개가 꽉 찼으면 26번째 위치 사용 (DAILY_START_IDX + 25)
+                # 25개가 꽉 찼으면 26번째 위치 사용
                 if target_col_idx == -1:
-                    target_col_idx = DAILY_START_IDX + MAX_DAILY_COUNT
+                    target_col_idx = daily_start_idx + MAX_DAILY_COUNT
                 
                 # 업데이트 추가 (1-indexed col로 변환)
                 cell_value = f"{today_str}\n{current_rank}등"
                 
                 updates.append({
-                    "row": row_idx,
+                    "row": row_num,
                     "col": target_col_idx + 1,
                     "value": cell_value,
                 })

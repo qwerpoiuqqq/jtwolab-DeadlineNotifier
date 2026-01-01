@@ -711,38 +711,41 @@ class GuaranteeManager:
             # 헤더 인덱스 매핑
             header_map = {}
             for idx, header in enumerate(headers):
-                header_lower = header.strip().lower()
-                if "구분" in header:
+                header_str = str(header).strip()
+                header_lower = header_str.lower()
+                
+                if "구분" in header_str:
                     header_map["type"] = idx
-                elif "계약일" in header:
+                elif "계약일" in header_str:
                     header_map["contract_date"] = idx
-                elif "대행사" in header:
+                elif "대행사" in header_str:
                     header_map["agency"] = idx
-                elif "작업" in header and "여부" in header:
+                elif "작업" in header_str and "여부" in header_str:
                     header_map["status"] = idx
-                elif "상호" in header:
+                # 상호명 헤더 인식 개선 (플레이스 : 상호명 / 자동완성 : 키워드)
+                elif "상호" in header_str or ("플레이스" in header_str and "자동완성" in header_str):
                     header_map["business_name"] = idx
-                elif "키워드" in header:
+                elif "키워드" in header_str and "메인" in header_str: # 메인 키워드만
                     header_map["main_keyword"] = idx
-                elif "입금" in header or "마진" in header:
+                elif "입금" in header_str or "마진" in header_str:
                     header_map["deposit_amount"] = idx
-                elif "총" in header and "계약" in header:
+                elif "총" in header_str and "계약" in header_str:
                     header_map["total_contract"] = idx
-                elif "상품" in header:
+                elif "상품" in header_str:
                     header_map["product"] = idx
-                elif "담당" in header:
+                elif "담당" in header_str:
                     header_map["manager"] = idx
-                elif "메모" in header:
+                elif "메모" in header_str:
                     header_map["memo"] = idx
-                elif "플" in header and "계정" in header:
+                elif "플" in header_str and "계정" in header_str:
                     header_map["place_account"] = idx
-                elif "URL" in header.upper():
+                elif "URL" in header_str.upper():
                     header_map["url"] = idx
-                elif "계약" in header and "당시" in header and "순위" in header:
+                elif "계약" in header_str and "당시" in header_str and "순위" in header_str:
                     header_map["initial_rank"] = idx
-                elif "보장" in header and "순위" in header:
+                elif "보장" in header_str and "순위" in header_str:
                     header_map["guarantee_rank"] = idx
-                elif "작업" in header and "시작" in header:
+                elif "작업" in header_str and "시작" in header_str:
                     header_map["work_start_date"] = idx
             
             # 헤더 매핑 로그
@@ -751,15 +754,33 @@ class GuaranteeManager:
             
             # 데이터 파싱
             items = []
+            
+            # 유효한 작업 여부 상태
+            VALID_STATUSES = ["진행중", "후불", "반불", "세팅대기"] # 세팅대기도 포함해야 초기 로드 가능
+            
             for row_idx, row in enumerate(data_rows):
                 if not row or not any(row):  # 빈 행 건너뛰기
                     continue
                 
                 item = {}
                 
-                # 필수 필드 체크
+                # 필수 필드 체크 (상호명)
                 business_name = self._get_cell_value(row, header_map.get("business_name"))
                 if not business_name:
+                    continue
+                
+                # 작업 여부 필터링
+                status = self._get_cell_value(row, header_map.get("status"))
+                if status:
+                    status = status.strip()
+                    # 상태값이 있지만 유효하지 않은 경우 건너뛰기
+                    # 단, 상태값이 아예 없는(None/Empty) 경우는 일단 허용하거나(누락된 경우), 스킵할지 결정해야 함.
+                    # 유저 요청: "진행중, 후불, 반불인 것들만 가져와야 해"
+                    if status not in VALID_STATUSES:
+                        # 로깅은 너무 많을 수 있으므로 생략하거나 디버그로
+                        continue
+                else:
+                    # 작업 여부가 비어있는 경우 스킵
                     continue
                 
                 item["business_name"] = business_name
