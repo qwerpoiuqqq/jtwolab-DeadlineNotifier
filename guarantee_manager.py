@@ -101,8 +101,13 @@ class GuaranteeManager:
             logger.error(f"Save error: {e}")
             return False
     
-    def create_item(self, item: Dict) -> Dict:
-        """새 보장건 생성"""
+    def create_item(self, item: Dict, skip_save: bool = False) -> Dict:
+        """새 보장건 생성
+        
+        Args:
+            item: 생성할 항목
+            skip_save: True이면 저장 생략 (배치 작업용)
+        """
         kst = pytz.timezone('Asia/Seoul')
         now_kst = datetime.now(kst)
         
@@ -120,7 +125,8 @@ class GuaranteeManager:
         item.setdefault("daily_ranks", {})  # 1~25일차 순위
         
         self.data["items"].append(item)
-        self._save_data()
+        if not skip_save:
+            self._save_data()
         return item
     
     def get_items(self, filters: Dict = None) -> List[Dict]:
@@ -175,8 +181,14 @@ class GuaranteeManager:
                 return item
         return None
     
-    def update_item(self, item_id: str, updates: Dict) -> Optional[Dict]:
-        """보장건 수정"""
+    def update_item(self, item_id: str, updates: Dict, skip_save: bool = False) -> Optional[Dict]:
+        """보장건 수정
+        
+        Args:
+            item_id: 수정할 항목 ID
+            updates: 수정할 내용
+            skip_save: True이면 저장 생략 (배치 작업용)
+        """
         for idx, item in enumerate(self.data.get("items", [])):
             if item.get("id") == item_id:
                 # 수정 불가 필드 보호
@@ -188,7 +200,8 @@ class GuaranteeManager:
                 kst = pytz.timezone('Asia/Seoul')
                 item["updated_at"] = datetime.now(kst).isoformat()
                 self.data["items"][idx] = item
-                self._save_data()
+                if not skip_save:
+                    self._save_data()
                 return item
         return None
     
@@ -566,15 +579,15 @@ class GuaranteeManager:
                         )
                         
                         if existing:
-                            # 업데이트
-                            self.update_item(existing["id"], item)
+                            # 업데이트 (배치 모드 - 저장 생략)
+                            self.update_item(existing["id"], item, skip_save=True)
                             result["updated"] += 1
                             if idx < 3:  # 처음 몇 개만 로그
                                 logger.info(f"Updated: {item.get('business_name')}")
                         else:
-                            # 신규 추가
+                            # 신규 추가 (배치 모드 - 저장 생략)
                             item["company"] = company
-                            self.create_item(item)
+                            self.create_item(item, skip_save=True)
                             result["added"] += 1
                             if idx < 3:  # 처음 몇 개만 로그
                                 logger.info(f"Added: {item.get('business_name')}")

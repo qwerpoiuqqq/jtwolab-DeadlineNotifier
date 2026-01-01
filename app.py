@@ -1058,7 +1058,7 @@ def create_app() -> Flask:
 
 	@app.route("/api/guarantee/sync", methods=["POST"])
 	def api_guarantee_sync():
-		"""수동 동기화 (서버 재시작 후 첫 동기화 시 작업량 캐시도 자동 갱신)"""
+		"""수동 동기화 (서버 재시작 후 첫 동기화 시 작업량 캐시 및 순위 크롤링 자동 실행)"""
 		try:
 			gm = GuaranteeManager()
 			logger.info("Starting manual sync...")
@@ -1072,7 +1072,7 @@ def create_app() -> Flask:
 			logger.info(f"Sync completed - Added: {result['added']}, Updated: {result['updated']}, Failed: {result['failed']}")
 			logger.info(f"Total items in database: {total_items}")
 			
-			# 작업량 캐시 자동 갱신 (백그라운드)
+			# 작업량 캐시 자동 갱신 (캐시가 없거나 오래된 경우)
 			workload_refreshed = False
 			try:
 				from workload_cache import WorkloadCache
@@ -1087,6 +1087,46 @@ def create_app() -> Flask:
 			except Exception as we:
 				logger.warning(f"Workload cache auto-refresh failed: {we}")
 			
+			# 순위 크롤링 자동 실행 (오늘 크롤링 안됐으면)
+			rank_crawled = False
+			try:
+				from rank_snapshot_manager import RankSnapshotManager
+				import pytz
+				from datetime import datetime
+				
+				kst = pytz.timezone('Asia/Seoul')
+				today_str = datetime.now(kst).strftime("%Y-%m-%d")
+				
+				rsm = RankSnapshotManager()
+				today_snapshots = rsm.get_snapshots_by_date(today_str)
+				
+				# 오늘 크롤링 기록이 없으면 실행
+				if not today_snapshots or len(today_snapshots) == 0:
+					logger.info("🏆 No rank data for today. Starting auto rank crawl...")
+					
+					# 백그라운드로 크롤링 실행 (thread)
+					import threading
+					def run_crawl_async():
+						try:
+							from rank_crawler import crawl_ranks_for_company
+							from scheduler_logs import log_scheduler_event
+							log_scheduler_event("rank_crawl", "순위 크롤링 (자동)", "started", "동기화 후 자동 실행")
+							crawl_result = crawl_ranks_for_company(None)
+							log_scheduler_event("rank_crawl", "순위 크롤링 (자동)", "success", 
+								f"{crawl_result.get('crawled_count', 0)}건 완료")
+							logger.info(f"✅ Auto rank crawl completed: {crawl_result.get('message', 'OK')}")
+						except Exception as ce:
+							from scheduler_logs import log_scheduler_event
+							log_scheduler_event("rank_crawl", "순위 크롤링 (자동)", "failed", str(ce))
+							logger.error(f"❌ Auto rank crawl failed: {ce}")
+					
+					crawl_thread = threading.Thread(target=run_crawl_async, daemon=True)
+					crawl_thread.start()
+					rank_crawled = True
+					logger.info("🚀 Rank crawl started in background thread")
+			except Exception as re:
+				logger.warning(f"Rank crawl check failed: {re}")
+			
 			# 실패가 있는 경우 경고
 			if result['failed'] > 0:
 				message = f"동기화 부분 완료 - 추가: {result['added']}건, 수정: {result['updated']}건, 실패: {result['failed']}건 (총 {total_items}건)"
@@ -1097,6 +1137,8 @@ def create_app() -> Flask:
 			
 			if workload_refreshed:
 				message += " · 작업량 캐시 갱신됨"
+			if rank_crawled:
+				message += " · 순위 크롤링 시작됨"
 			
 			return jsonify({
 				"ok": True,
@@ -1104,6 +1146,7 @@ def create_app() -> Flask:
 				"last_sync": last_sync,
 				"total_items": total_items,
 				"workload_refreshed": workload_refreshed,
+				"rank_crawled": rank_crawled,
 				"message": message
 			}), 200
 		except Exception as e:
