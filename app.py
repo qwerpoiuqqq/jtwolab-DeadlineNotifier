@@ -1058,119 +1058,216 @@ def create_app() -> Flask:
 
 	@app.route("/api/guarantee/sync", methods=["POST"])
 	def api_guarantee_sync():
-		"""수동 동기화 (서버 재시작 후 첫 동기화 시 작업량 캐시 및 순위 크롤링 자동 실행)"""
+		"""수동 동기화 - 단계별 진행 (UI에서 진행 상태 표시용)
+		
+		플로우:
+		1. 제이투랩 업체 정보 가져오기
+		2. 일류기획 업체 정보 가져오기
+		3. 오늘 순위 데이터 확인 (rank_snapshots)
+		4. 시간 체크 후 크롤링 (00:00~15:10 사이면 스킵)
+		5. 시트에 순위 기입
+		6. 작업량 데이터 갱신
+		"""
+		import pytz
+		from datetime import datetime
+		
+		kst = pytz.timezone('Asia/Seoul')
+		now = datetime.now(kst)
+		current_hour = now.hour
+		current_minute = now.minute
+		today_str = now.strftime("%Y-%m-%d")
+		
+		# 결과 저장용
+		steps = {}
+		
 		try:
+			# ============ STEP 1 & 2: 업체 정보 가져오기 ============
 			gm = GuaranteeManager()
-			logger.info("Starting manual sync...")
-			result = gm.sync_from_google_sheets()
-			last_sync = gm.get_last_sync_time()
+			logger.info("📡 Starting sync: fetching company data...")
 			
-			# 현재 총 데이터 수 가져오기
-			total_items = len(gm.get_items())
+			sync_result = gm.sync_from_google_sheets()
 			
-			# 동기화 결과 로그
-			logger.info(f"Sync completed - Added: {result['added']}, Updated: {result['updated']}, Failed: {result['failed']}")
-			logger.info(f"Total items in database: {total_items}")
+			# 회사별 카운트
+			jtwolab_items = len(gm.get_items({"company": "제이투랩"}))
+			ilryu_items = len(gm.get_items({"company": "일류기획"}))
+			total_items = jtwolab_items + ilryu_items
 			
-			# 작업량 캐시 자동 갱신 (캐시가 없거나 오래된 경우)
-			workload_refreshed = False
-			try:
-				from workload_cache import WorkloadCache
-				wc = WorkloadCache()
-				# 캐시가 없거나 오래된 경우에만 갱신
-				if not wc.is_cache_valid():
-					logger.info("📦 Auto-refreshing workload cache after sync...")
-					from workload_cache import refresh_all_workload_cache
-					wresult = refresh_all_workload_cache()
-					workload_refreshed = True
-					logger.info(f"✅ Workload cache auto-refreshed: {wresult.get('message', 'OK')}")
-			except Exception as we:
-				logger.warning(f"Workload cache auto-refresh failed: {we}")
+			steps["jtwolab_sync"] = {
+				"status": "success",
+				"count": jtwolab_items,
+				"message": f"제이투랩 {jtwolab_items}건"
+			}
+			steps["ilryu_sync"] = {
+				"status": "success", 
+				"count": ilryu_items,
+				"message": f"일류기획 {ilryu_items}건"
+			}
 			
-			# 순위 크롤링 자동 실행 (오늘 크롤링 안됐으면)
-			rank_crawled = False
+			logger.info(f"✅ Company data fetched: 제이투랩 {jtwolab_items}, 일류기획 {ilryu_items}")
+			
+			# ============ STEP 3: 오늘 순위 데이터 확인 ============
+			has_today_rank = False
 			try:
 				from rank_snapshot_manager import RankSnapshotManager
-				import pytz
-				from datetime import datetime
-				
-				kst = pytz.timezone('Asia/Seoul')
-				today_str = datetime.now(kst).strftime("%Y-%m-%d")
-				
 				rsm = RankSnapshotManager()
-				# get_history로 오늘 날짜 데이터 조회
 				today_snapshots = rsm.get_history(date_from=today_str, date_to=today_str, days=1)
+				has_today_rank = bool(today_snapshots and len(today_snapshots) > 0)
 				
-				# 오늘 크롤링 기록이 없으면 실행
-				if not today_snapshots or len(today_snapshots) == 0:
-					logger.info("🏆 No rank data for today. Starting auto rank crawl...")
-					
-					# 백그라운드로 크롤링 실행 (thread)
-					import threading
-					def run_crawl_async():
-						try:
-							from rank_crawler import crawl_ranks_for_company
-							from scheduler_logs import log_scheduler_event
-							log_scheduler_event("rank_crawl", "순위 크롤링 (자동)", "started", "동기화 후 자동 실행")
-							crawl_result = crawl_ranks_for_company(None)
-							log_scheduler_event("rank_crawl", "순위 크롤링 (자동)", "success", 
-								f"{crawl_result.get('crawled_count', 0)}건 완료")
-							logger.info(f"✅ Auto rank crawl completed: {crawl_result.get('message', 'OK')}")
-							
-							# 크롤링 후 보장건 시트 자동 업데이트
-							try:
-								log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "started", "자동 업데이트")
-								logger.info("📋 Updating guarantee sheets after auto crawl...")
-								from rank_update_service import update_guarantee_sheets_from_snapshots
-								update_result = update_guarantee_sheets_from_snapshots()
-								logger.info(f"✅ Guarantee sheets updated: {update_result}")
-								log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "success", "업데이트 완료")
-							except Exception as ue:
-								logger.error(f"❌ Guarantee sheet update failed: {ue}")
-								log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "failed", str(ue))
-								
-						except Exception as ce:
-							from scheduler_logs import log_scheduler_event
-							log_scheduler_event("rank_crawl", "순위 크롤링 (자동)", "failed", str(ce))
-							logger.error(f"❌ Auto rank crawl failed: {ce}")
-					
-					crawl_thread = threading.Thread(target=run_crawl_async, daemon=True)
-					crawl_thread.start()
-					rank_crawled = True
-					logger.info("🚀 Rank crawl started in background thread")
-			except Exception as re:
-				logger.warning(f"Rank crawl check failed: {re}")
+				steps["rank_check"] = {
+					"status": "success",
+					"has_data": has_today_rank,
+					"count": len(today_snapshots) if today_snapshots else 0,
+					"message": f"오늘 순위 {'있음' if has_today_rank else '없음'}"
+				}
+				logger.info(f"🔍 Rank check: {'데이터 있음' if has_today_rank else '데이터 없음'} ({len(today_snapshots) if today_snapshots else 0}건)")
+			except Exception as e:
+				steps["rank_check"] = {"status": "error", "message": str(e)}
+				logger.warning(f"Rank check failed: {e}")
 			
-			# 실패가 있는 경우 경고
-			if result['failed'] > 0:
-				message = f"동기화 부분 완료 - 추가: {result['added']}건, 수정: {result['updated']}건, 실패: {result['failed']}건 (총 {total_items}건)"
-			elif result['added'] == 0 and result['updated'] == 0:
-				message = f"변경사항 없음 (총 {total_items}건)"
+			# ============ STEP 4: 시간 체크 후 크롤링 ============
+			# 00:00~15:09 사이면 크롤링 스킵
+			is_crawl_time_window = (current_hour >= 0 and current_hour < 15) or (current_hour == 15 and current_minute < 10)
+			
+			rank_crawled = False
+			sheet_updated = False
+			
+			if has_today_rank:
+				# 이미 오늘 데이터가 있으면 스킵
+				steps["rank_crawl"] = {
+					"status": "skipped",
+					"reason": "already_exists",
+					"message": "오늘 데이터 이미 존재"
+				}
+				steps["sheet_update"] = {
+					"status": "skipped",
+					"reason": "no_crawl",
+					"message": "크롤링 스킵됨"
+				}
+			elif is_crawl_time_window:
+				# 00:00~15:09 사이면 스킵
+				steps["rank_crawl"] = {
+					"status": "skipped",
+					"reason": "time_window",
+					"message": f"00:00~15:10 사이 ({now.strftime('%H:%M')})"
+				}
+				steps["sheet_update"] = {
+					"status": "skipped",
+					"reason": "time_window",
+					"message": "크롤링 스킵됨"
+				}
+				logger.info(f"⏰ Crawl skipped: time window (current: {now.strftime('%H:%M')})")
 			else:
-				message = f"동기화 완료 - 추가: {result['added']}건, 수정: {result['updated']}건 (총 {total_items}건)"
+				# 크롤링 실행
+				try:
+					from rank_crawler import crawl_ranks_for_company
+					from scheduler_logs import log_scheduler_event
+					
+					log_scheduler_event("rank_crawl", "순위 크롤링 (동기화)", "started", "동기화 버튼으로 실행")
+					logger.info("🏆 Starting rank crawl...")
+					
+					crawl_result = crawl_ranks_for_company(None)
+					crawled_count = crawl_result.get('crawled_count', 0)
+					
+					steps["rank_crawl"] = {
+						"status": "success",
+						"count": crawled_count,
+						"message": f"{crawled_count}건 크롤링 완료"
+					}
+					rank_crawled = True
+					log_scheduler_event("rank_crawl", "순위 크롤링 (동기화)", "success", f"{crawled_count}건 완료")
+					logger.info(f"✅ Rank crawl completed: {crawled_count}건")
+					
+					# ============ STEP 5: 시트에 순위 기입 ============
+					try:
+						from rank_update_service import update_guarantee_sheets_from_snapshots
+						log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "started", "동기화 후 실행")
+						logger.info("📝 Updating guarantee sheets...")
+						
+						update_result = update_guarantee_sheets_from_snapshots()
+						total_updated = update_result.get('total_updated', 0)
+						
+						steps["sheet_update"] = {
+							"status": "success",
+							"count": total_updated,
+							"message": f"{total_updated}건 시트 기입"
+						}
+						sheet_updated = True
+						log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "success", f"{total_updated}건 업데이트")
+						logger.info(f"✅ Sheet update completed: {total_updated}건")
+					except Exception as ue:
+						steps["sheet_update"] = {"status": "error", "message": str(ue)}
+						log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "failed", str(ue))
+						logger.error(f"❌ Sheet update failed: {ue}")
+						
+				except Exception as ce:
+					steps["rank_crawl"] = {"status": "error", "message": str(ce)}
+					steps["sheet_update"] = {"status": "skipped", "reason": "crawl_failed"}
+					from scheduler_logs import log_scheduler_event
+					log_scheduler_event("rank_crawl", "순위 크롤링 (동기화)", "failed", str(ce))
+					logger.error(f"❌ Rank crawl failed: {ce}")
 			
-			if workload_refreshed:
-				message += " · 작업량 캐시 갱신됨"
+			# ============ STEP 6: 작업량 데이터 갱신 ============
+			workload_refreshed = False
+			try:
+				from workload_cache import WorkloadCache, refresh_all_workload_cache
+				wc = WorkloadCache()
+				
+				if not wc.is_cache_valid():
+					logger.info("⚡ Refreshing workload cache...")
+					wresult = refresh_all_workload_cache()
+					workload_refreshed = True
+					steps["workload_refresh"] = {
+						"status": "success",
+						"message": "작업량 캐시 갱신 완료"
+					}
+					logger.info(f"✅ Workload cache refreshed")
+				else:
+					steps["workload_refresh"] = {
+						"status": "skipped",
+						"reason": "cache_valid",
+						"message": "캐시 유효 (갱신 불필요)"
+					}
+			except Exception as we:
+				steps["workload_refresh"] = {"status": "error", "message": str(we)}
+				logger.warning(f"Workload refresh failed: {we}")
+			
+			# ============ 최종 결과 ============
+			last_sync = gm.get_last_sync_time()
+			
+			# 메시지 생성
+			message_parts = [f"동기화 완료 (총 {total_items}건)"]
 			if rank_crawled:
-				message += " · 순위 크롤링 시작됨"
+				message_parts.append("순위 크롤링됨")
+			if sheet_updated:
+				message_parts.append("시트 기입됨")
+			if workload_refreshed:
+				message_parts.append("작업량 갱신됨")
 			
 			return jsonify({
 				"ok": True,
-				"result": result,
+				"steps": steps,
+				"result": sync_result,
 				"last_sync": last_sync,
 				"total_items": total_items,
-				"workload_refreshed": workload_refreshed,
+				"jtwolab_count": jtwolab_items,
+				"ilryu_count": ilryu_items,
 				"rank_crawled": rank_crawled,
-				"message": message
+				"sheet_updated": sheet_updated,
+				"workload_refreshed": workload_refreshed,
+				"message": " · ".join(message_parts)
 			}), 200
+			
 		except Exception as e:
 			logger.error(f"Manual sync failed: {str(e)}")
 			import traceback
 			logger.error(f"Traceback: {traceback.format_exc()}")
 			return jsonify({
+				"ok": False,
 				"error": str(e),
+				"steps": steps,
 				"detail": "서버 로그를 확인하세요"
 			}), 500
+
 
 	@app.route("/api/guarantee/sync-status", methods=["GET"])
 	def api_guarantee_sync_status():

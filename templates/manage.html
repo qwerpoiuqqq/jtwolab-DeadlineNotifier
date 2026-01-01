@@ -1999,7 +1999,7 @@
       }).join('');
     }
 
-    // 동기화
+    // 동기화 - 단계별 진행 상태 표시
     async function syncData() {
       const btn = document.getElementById('btn-sync');
       const btnText = document.getElementById('sync-btn-text');
@@ -2007,54 +2007,77 @@
       btn.disabled = true;
       btnText.innerHTML = '<span class="loading"></span> 동기화 중...';
 
-      // 진행 상태 업데이트 함수
-      const updateProgress = (msg, color = 'rgba(255,200,0,0.9)') => {
-        statusEl.innerHTML = msg;
-        statusEl.style.color = color;
+      // 진행 상태 단계 정의
+      const stepNames = {
+        jtwolab_sync: '📡 제이투랩 업체 정보',
+        ilryu_sync: '📡 일류기획 업체 정보',
+        rank_check: '🔍 오늘 순위 데이터 확인',
+        rank_crawl: '🏆 순위 크롤링',
+        sheet_update: '📝 시트 순위 기입',
+        workload_refresh: '⚡ 작업량 데이터 갱신'
+      };
+
+      // 진행 상태 표시 함수
+      const showProgress = (steps) => {
+        let html = '<div style="font-size:11px; line-height:1.6;">';
+        for (const [key, label] of Object.entries(stepNames)) {
+          const step = steps[key];
+          if (!step) {
+            html += `<div style="opacity:0.5">⏳ ${label}</div>`;
+          } else if (step.status === 'success') {
+            html += `<div style="color:#10b981">✅ ${label} ${step.count ? `(${step.count}건)` : ''}</div>`;
+          } else if (step.status === 'skipped') {
+            html += `<div style="opacity:0.7">⏭️ ${label} - ${step.message || step.reason}</div>`;
+          } else if (step.status === 'error') {
+            html += `<div style="color:#ef4444">❌ ${label} - ${step.message}</div>`;
+          } else {
+            html += `<div style="opacity:0.5">⏳ ${label}</div>`;
+          }
+        }
+        html += '</div>';
+        statusEl.innerHTML = html;
       };
 
       try {
-        // 1단계: 업체 정보 불러오기
-        updateProgress('📡 업체 정보 불러오는 중...');
+        // 시작 상태 표시
+        statusEl.innerHTML = '<div style="font-size:11px;">📡 업체 정보 불러오는 중...</div>';
+        statusEl.style.color = 'rgba(255,200,0,0.9)';
 
         const res = await fetch('/api/guarantee/sync', { method: 'POST' });
         const data = await res.json();
 
-        if (res.ok) {
-          // 2단계: 동기화 완료
-          updateProgress('✅ 업체 정보 불러오기 완료');
+        if (res.ok && data.ok) {
+          // 단계별 결과 표시
+          showProgress(data.steps || {});
 
-          // 3단계: 작업량/순위 상태 체크
-          if (data.workload_refreshed) {
-            updateProgress('⚡ 작업량 캐시 갱신됨');
-          }
-          if (data.rank_crawled) {
-            updateProgress('🏆 순위 크롤링 시작됨 (백그라운드 진행 중...)');
-          }
-
-          // 4단계: UI 갱신
-          updateProgress('🔄 화면 갱신 중...');
+          // UI 데이터 갱신
           await loadData();
           updateExposureStatus();
           updateDeadlineStatus();
           updateSyncStatus();
 
-          // 5단계: 완료
+          // 완료 메시지
           const now = new Date();
           const timeStr = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-          if (data.rank_crawled) {
-            updateProgress(`✅ ${timeStr} 완료 · 순위 크롤링 백그라운드 진행 중`, 'rgba(16,185,129,0.9)');
-          } else {
-            updateProgress(`✅ ${timeStr} 동기화 완료`, 'rgba(16,185,129,0.9)');
-          }
 
+          // 요약 정보 추가
+          let summary = `<div style="margin-top:6px; font-weight:500; color:#10b981">✅ ${timeStr} 동기화 완료</div>`;
+          summary += `<div style="font-size:10px; opacity:0.8; margin-top:2px">`;
+          summary += `제이투랩 ${data.jtwolab_count || 0}건 · 일류기획 ${data.ilryu_count || 0}건`;
+          summary += `</div>`;
+
+          statusEl.innerHTML += summary;
           showToast(data.message || '동기화 완료');
         } else {
-          updateProgress('❌ 동기화 실패', 'rgba(239,68,68,0.9)');
+          // 에러 시에도 단계 상태 표시
+          if (data.steps) {
+            showProgress(data.steps);
+          }
+          statusEl.innerHTML += `<div style="color:#ef4444; margin-top:4px">❌ ${data.error || '동기화 실패'}</div>`;
           showToast('동기화 실패: ' + (data.error || '알 수 없는 오류'));
         }
       } catch (e) {
-        updateProgress('❌ 동기화 실패', 'rgba(239,68,68,0.9)');
+        statusEl.innerHTML = '<div style="color:#ef4444">❌ 동기화 실패 - 네트워크 오류</div>';
         showToast('동기화 실패');
       } finally {
         btn.disabled = false;
