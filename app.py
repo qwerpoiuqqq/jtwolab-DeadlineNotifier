@@ -1132,17 +1132,37 @@ def create_app() -> Flask:
 			sheet_updated = False
 			
 			if has_today_rank:
-				# 이미 오늘 데이터가 있으면 스킵
+				# 이미 오늘 데이터가 있으면 크롤링 스킵
 				steps["rank_crawl"] = {
 					"status": "skipped",
 					"reason": "already_exists",
 					"message": "오늘 데이터 이미 존재"
 				}
-				steps["sheet_update"] = {
-					"status": "skipped",
-					"reason": "no_crawl",
-					"message": "크롤링 스킵됨"
-				}
+				logger.info("🔄 Today's rank data exists, skipping crawl but will try sheet update")
+				
+				# 시트 업데이트는 시도 (시트에 아직 안 기입됐을 수 있음)
+				try:
+					from rank_update_service import update_guarantee_sheets_from_snapshots
+					from scheduler_logs import log_scheduler_event
+					log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "started", "기존 데이터로 시트 업데이트")
+					logger.info("📝 Updating guarantee sheets with existing data...")
+					
+					update_result = update_guarantee_sheets_from_snapshots()
+					total_updated = update_result.get('total_updated', 0)
+					
+					steps["sheet_update"] = {
+						"status": "success",
+						"count": total_updated,
+						"message": f"{total_updated}건 시트 기입"
+					}
+					sheet_updated = True
+					log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "success", f"{total_updated}건 업데이트")
+					logger.info(f"✅ Sheet update completed: {total_updated}건")
+				except Exception as ue:
+					steps["sheet_update"] = {"status": "error", "message": str(ue)}
+					log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "failed", str(ue))
+					logger.error(f"❌ Sheet update failed: {ue}")
+					
 			elif is_crawl_time_window:
 				# 00:00~15:09 사이면 스킵
 				steps["rank_crawl"] = {
