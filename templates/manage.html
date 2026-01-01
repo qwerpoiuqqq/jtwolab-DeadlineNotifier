@@ -804,19 +804,20 @@
             onmouseout="this.style.transform=''; this.style.boxShadow='0 2px 8px rgba(0,0,0,.15)'">
             <span id="sync-btn-text">🔄 동기화</span>
           </button>
-          <button class="btn" id="btn-refresh-workload"
-            style="background:#10b981; color:#fff; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,.15);"
-            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,.2)'; this.style.background='#059669'"
-            onmouseout="this.style.transform=''; this.style.boxShadow='0 2px 8px rgba(0,0,0,.15)'; this.style.background='#10b981'">
-            <span id="workload-btn-text">⚡ 작업량 갱신</span>
-          </button>
-          <button class="btn" id="btn-crawl-ranks"
-            style="background:#8b5cf6; color:#fff; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,.15);"
-            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,.2)'; this.style.background='#7c3aed'"
-            onmouseout="this.style.transform=''; this.style.boxShadow='0 2px 8px rgba(0,0,0,.15)'; this.style.background='#8b5cf6'">
-            <span id="rank-btn-text">🏆 순위 갱신</span>
-          </button>
-          <span id="last-crawl-time" style="margin-left:12px; font-size:12px; color:#666;"></span>
+          <!-- 스케줄러 전용 작업 (수동 비활성화) -->
+          <div style="display:flex; gap:8px; align-items:center; opacity:0.7;">
+            <div
+              style="background:rgba(255,255,255,0.2); padding:8px 14px; border-radius:8px; font-size:13px; display:flex; align-items:center; gap:6px;">
+              <span>⚡</span>
+              <span>작업량: <strong>03:00</strong></span>
+            </div>
+            <div
+              style="background:rgba(255,255,255,0.2); padding:8px 14px; border-radius:8px; font-size:13px; display:flex; align-items:center; gap:6px;">
+              <span>🏆</span>
+              <span>순위: <strong>15:10</strong></span>
+            </div>
+          </div>
+          <span id="last-crawl-time" style="margin-left:12px; font-size:12px; color:rgba(255,255,255,0.7);"></span>
         </div>
       </div>
 

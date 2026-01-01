@@ -138,12 +138,26 @@ def create_app() -> Flask:
 		except Exception as e:
 			logger.error(f"Workload cache refresh failed: {e}")
 	
+	# 스케줄러 잠금 (동시 실행 방지)
+	import threading
+	_scheduler_lock = threading.Lock()
+	_scheduler_running = {"rank_crawl": False}
+	
 	# 순위 크롤링 자동 실행 태스크 (N2 포함, Google Sheets 저장)
 	def crawl_ranks_auto():
 		"""순위 자동 크롤링 (N2 포함)
 		
 		주의: Render에서 workers=1 권장. 또는 외부 cron이 token endpoint를 호출하는 방식 사용.
+		동시 실행 방지를 위해 잠금 사용.
 		"""
+		# 이미 실행 중인지 확인
+		if _scheduler_running.get("rank_crawl"):
+			logger.warning("⚠️ Rank crawling already running, skipping...")
+			return
+		
+		with _scheduler_lock:
+			_scheduler_running["rank_crawl"] = True
+		
 		from scheduler_logs import log_scheduler_event
 		log_scheduler_event("rank_crawl", "순위 크롤링", "started", "크롤링 시작")
 		try:
@@ -204,6 +218,11 @@ def create_app() -> Flask:
 			import traceback
 			logger.error(traceback.format_exc())
 			log_scheduler_event("rank_crawl", "순위 크롤링", "failed", str(e))
+		finally:
+			# 잠금 해제
+			with _scheduler_lock:
+				_scheduler_running["rank_crawl"] = False
+			logger.info("🔓 Rank crawling lock released")
 	
 	# 매일 9시, 16시 스케줄 등록 (보장건 동기화)
 	scheduler.add_job(func=sync_guarantee_data, trigger="cron", hour=9, minute=0, id="morning_sync")
@@ -225,17 +244,19 @@ def create_app() -> Flask:
 			logger.error(f"❌ Worklog cache refresh failed: {e}")
 			log_scheduler_event("worklog_cache", "Worklog 캐시", "failed", str(e))
 	
-	scheduler.add_job(func=refresh_worklog_cache_task, trigger="cron", hour=11, minute=20, id="worklog_cache_refresh_task")
+	scheduler.add_job(func=refresh_worklog_cache_task, trigger="cron", hour=3, minute=30, id="worklog_cache_refresh_task")
 	
-	# 매일 11시 30분 스케줄 등록 (작업량 캐시 갱신)
-	scheduler.add_job(func=refresh_workload_cache, trigger="cron", hour=11, minute=30, id="workload_cache_refresh")
+	# 매일 03:00 스케줄 등록 (작업량 캐시 갱신 - 새벽 시간대로 변경)
+	scheduler.add_job(func=refresh_workload_cache, trigger="cron", hour=3, minute=0, id="workload_cache_refresh")
 	
 	# 매일 15:10 스케줄 등록 (순위 크롤링 - 1일 1회)
 	# 주의: Render workers=1이 아니면 외부 cron 사용 권장
 	if os.getenv("USE_INTERNAL_SCHEDULER", "true").lower() == "true":
 		scheduler.add_job(func=crawl_ranks_auto, trigger="cron", hour=15, minute=10, id="daily_rank_crawl")
-		logger.info("📅 Internal scheduler enabled for rank crawling (15:10 KST, once daily)")
-		logger.info("📅 Worklog cache refresh scheduled at 11:20 KST")
+		logger.info("📅 Internal scheduler enabled:")
+		logger.info("   - 03:00 작업량 캐시 갱신")
+		logger.info("   - 03:30 Worklog 캐시 갱신")
+		logger.info("   - 15:10 순위 크롤링")
 	else:
 		logger.info("📅 Internal scheduler disabled. Use /api/cron/crawl-ranks with CRON_TOKEN")
 
@@ -1037,7 +1058,7 @@ def create_app() -> Flask:
 
 	@app.route("/api/guarantee/sync", methods=["POST"])
 	def api_guarantee_sync():
-		"""수동 동기화"""
+		"""수동 동기화 (서버 재시작 후 첫 동기화 시 작업량 캐시도 자동 갱신)"""
 		try:
 			gm = GuaranteeManager()
 			logger.info("Starting manual sync...")
@@ -1051,6 +1072,21 @@ def create_app() -> Flask:
 			logger.info(f"Sync completed - Added: {result['added']}, Updated: {result['updated']}, Failed: {result['failed']}")
 			logger.info(f"Total items in database: {total_items}")
 			
+			# 작업량 캐시 자동 갱신 (백그라운드)
+			workload_refreshed = False
+			try:
+				from workload_cache import WorkloadCache
+				wc = WorkloadCache()
+				# 캐시가 없거나 오래된 경우에만 갱신
+				if not wc._is_cache_valid():
+					logger.info("📦 Auto-refreshing workload cache after sync...")
+					from workload_cache import refresh_all_workload_cache
+					wresult = refresh_all_workload_cache()
+					workload_refreshed = True
+					logger.info(f"✅ Workload cache auto-refreshed: {wresult.get('message', 'OK')}")
+			except Exception as we:
+				logger.warning(f"Workload cache auto-refresh failed: {we}")
+			
 			# 실패가 있는 경우 경고
 			if result['failed'] > 0:
 				message = f"동기화 부분 완료 - 추가: {result['added']}건, 수정: {result['updated']}건, 실패: {result['failed']}건 (총 {total_items}건)"
@@ -1059,11 +1095,15 @@ def create_app() -> Flask:
 			else:
 				message = f"동기화 완료 - 추가: {result['added']}건, 수정: {result['updated']}건 (총 {total_items}건)"
 			
+			if workload_refreshed:
+				message += " · 작업량 캐시 갱신됨"
+			
 			return jsonify({
 				"ok": True,
 				"result": result,
 				"last_sync": last_sync,
 				"total_items": total_items,
+				"workload_refreshed": workload_refreshed,
 				"message": message
 			}), 200
 		except Exception as e:
