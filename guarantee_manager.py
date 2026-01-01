@@ -755,9 +755,6 @@ class GuaranteeManager:
             # 데이터 파싱
             items = []
             
-            # 유효한 작업 여부 상태
-            VALID_STATUSES = ["진행중", "후불", "반불", "세팅대기"] # 세팅대기도 포함해야 초기 로드 가능
-            
             for row_idx, row in enumerate(data_rows):
                 if not row or not any(row):  # 빈 행 건너뛰기
                     continue
@@ -769,25 +766,16 @@ class GuaranteeManager:
                 if not business_name:
                     continue
                 
-                # 작업 여부 필터링
+                # 작업 여부 가져오기 (필터링하지 않고 저장)
                 status = self._get_cell_value(row, header_map.get("status"))
                 if status:
-                    status = status.strip()
-                    # 상태값이 있지만 유효하지 않은 경우 건너뛰기
-                    # 단, 상태값이 아예 없는(None/Empty) 경우는 일단 허용하거나(누락된 경우), 스킵할지 결정해야 함.
-                    # 유저 요청: "진행중, 후불, 반불인 것들만 가져와야 해"
-                    if status not in VALID_STATUSES:
-                        # 로깅은 너무 많을 수 있으므로 생략하거나 디버그로
-                        continue
-                else:
-                    # 작업 여부가 비어있는 경우 스킵
-                    continue
+                    item["status"] = status.strip()
                 
                 item["business_name"] = business_name
                 
                 # 나머지 필드 매핑
                 for field_name, col_idx in header_map.items():
-                    if field_name != "business_name":
+                    if field_name not in ["business_name", "status"]:
                         value = self._get_cell_value(row, col_idx)
                         if value:
                             # 날짜 형식 변환
