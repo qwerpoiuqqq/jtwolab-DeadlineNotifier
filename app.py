@@ -1078,7 +1078,7 @@ def create_app() -> Flask:
 				from workload_cache import WorkloadCache
 				wc = WorkloadCache()
 				# 캐시가 없거나 오래된 경우에만 갱신
-				if not wc._is_cache_valid():
+				if not wc.is_cache_valid():
 					logger.info("📦 Auto-refreshing workload cache after sync...")
 					from workload_cache import refresh_all_workload_cache
 					wresult = refresh_all_workload_cache()
@@ -1098,7 +1098,8 @@ def create_app() -> Flask:
 				today_str = datetime.now(kst).strftime("%Y-%m-%d")
 				
 				rsm = RankSnapshotManager()
-				today_snapshots = rsm.get_snapshots_by_date(today_str)
+				# get_history로 오늘 날짜 데이터 조회
+				today_snapshots = rsm.get_history(date_from=today_str, date_to=today_str, days=1)
 				
 				# 오늘 크롤링 기록이 없으면 실행
 				if not today_snapshots or len(today_snapshots) == 0:
