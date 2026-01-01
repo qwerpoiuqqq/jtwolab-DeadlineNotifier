@@ -1312,6 +1312,7 @@
     let businessWorkloadCache = {};  // 업체별 작업량 캐시
     let currentWorkloadData = null;  // 현재 표시중인 작업량 데이터
     let latestRanks = {};  // 크롤링된 최신 순위 데이터 (상호명 -> 순위)
+    let recipeAnalysisData = null;  // 레시피 분석 데이터 (TDZ 오류 방지를 위해 상단 선언)
 
     // 정렬 상태 관리
     let currentSort = {
@@ -2568,7 +2569,6 @@
     window.addEventListener('resize', updateScrollButtons);
 
     // === 레시피 분석 함수 ===
-    let recipeAnalysisData = null;
 
     async function loadRecipeAnalysis() {
       try {
