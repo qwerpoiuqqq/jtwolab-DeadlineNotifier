@@ -204,6 +204,118 @@ class RecoveryService:
             logger.error(f"스냅샷 확인 오류: {e}")
             return target_dates  # 오류 시 모든 날짜 반환
 
+    def get_missing_dates_from_sheets(self, days_back: int = 14) -> Dict[str, Any]:
+        """월보장 시트에서 직접 누락된 날짜를 찾음
+
+        오늘 데이터가 있더라도 이전 날짜 데이터가 빠져있으면 감지
+
+        Args:
+            days_back: 확인할 과거 일수 (기본 14일)
+
+        Returns:
+            {
+                "missing_dates": ["2025-01-08", ...],
+                "found_dates": ["2025-01-06", "2025-01-10", ...],
+                "expected_dates": ["2025-01-06", "2025-01-07", ...],
+                "sheets_checked": [...]
+            }
+        """
+        logger.info(f"📊 월보장 시트에서 누락 날짜 확인 (최근 {days_back}일)")
+
+        today = datetime.now(KST).date()
+        # 확인할 날짜 범위 (days_back일 전부터 어제까지)
+        expected_dates = []
+        for i in range(1, days_back + 1):  # 어제부터 days_back일 전까지
+            d = today - timedelta(days=i)
+            expected_dates.append(d.strftime("%Y-%m-%d"))
+
+        expected_dates.sort()  # 오래된 날짜부터
+        logger.info(f"   확인 기간: {expected_dates[0]} ~ {expected_dates[-1]}")
+
+        # 두 시트 모두 확인
+        sheets_config = [
+            ("jtwolab", JTWOLAB_SHEET_ID),
+            ("ilryu", ILRYU_SHEET_ID),
+        ]
+
+        all_found_dates = set()
+        sheets_checked = []
+
+        for sheet_name, sheet_id in sheets_config:
+            try:
+                spreadsheet = self.gc.open_by_key(sheet_id)
+                # 보장건 탭 찾기
+                worksheet = None
+                for ws in spreadsheet.worksheets():
+                    title_lower = ws.title.lower().strip()
+                    if "보장" in title_lower or "guarantee" in title_lower:
+                        worksheet = ws
+                        break
+
+                if not worksheet:
+                    logger.warning(f"[{sheet_name}] 보장건 탭을 찾을 수 없음")
+                    continue
+
+                # 전체 데이터 읽기
+                all_values = worksheet.get_all_values()
+                if len(all_values) < 2:
+                    continue
+
+                headers = all_values[0]
+
+                # "일1" 컬럼 찾기 (일별 순위 시작점)
+                daily_start_idx = -1
+                for idx, h in enumerate(headers):
+                    if h.strip() == "일1":
+                        daily_start_idx = idx
+                        break
+
+                if daily_start_idx == -1:
+                    logger.warning(f"[{sheet_name}] '일1' 컬럼을 찾을 수 없음")
+                    continue
+
+                # 모든 일별 셀에서 날짜 추출
+                sheet_dates = set()
+                for row in all_values[1:]:  # 헤더 제외
+                    for offset in range(25):  # 일1 ~ 일25
+                        col_idx = daily_start_idx + offset
+                        if col_idx >= len(row):
+                            break
+                        cell_value = row[col_idx].strip()
+                        if cell_value:
+                            # "YY. MM. DD" 형식에서 날짜 추출
+                            match = re.search(r'(\d{2})\.\s*(\d{2})\.\s*(\d{2})', cell_value)
+                            if match:
+                                yy, mm, dd = match.groups()
+                                year = 2000 + int(yy)
+                                date_str = f"{year}-{mm}-{dd}"
+                                sheet_dates.add(date_str)
+
+                all_found_dates.update(sheet_dates)
+                sheets_checked.append({
+                    "name": sheet_name,
+                    "dates_found": len(sheet_dates)
+                })
+                logger.info(f"[{sheet_name}] {len(sheet_dates)}개 날짜 발견")
+
+            except Exception as e:
+                logger.error(f"[{sheet_name}] 시트 확인 오류: {e}")
+                continue
+
+        # 누락된 날짜 계산
+        missing_dates = [d for d in expected_dates if d not in all_found_dates]
+
+        logger.info(f"📋 결과: 예상 {len(expected_dates)}일 중 {len(missing_dates)}일 누락")
+        if missing_dates:
+            logger.info(f"   누락 날짜: {missing_dates}")
+
+        return {
+            "missing_dates": missing_dates,
+            "found_dates": sorted(list(all_found_dates)),
+            "expected_dates": expected_dates,
+            "sheets_checked": sheets_checked
+        }
+
     # =========================================================================
     # 2. 데이터 크롤링 (한 번만 호출, 모든 데이터 가져오기)
     # =========================================================================
@@ -776,6 +888,106 @@ class RecoveryService:
 
         return result
 
+    def recover_missing_dates(self, days_back: int = 14) -> Dict[str, Any]:
+        """월보장 시트에서 누락된 날짜를 찾아 복구
+
+        rank_update_logs에 실패 기록이 없더라도,
+        시트에 데이터가 없는 날짜를 직접 찾아서 복구
+
+        Args:
+            days_back: 확인할 과거 일수 (기본 14일)
+
+        Returns:
+            복구 결과
+        """
+        logger.info(f"🔄 누락 날짜 복구 시작 (최근 {days_back}일 확인)")
+
+        result = {
+            "check_result": None,
+            "missing_dates": [],
+            "crawl_results": [],
+            "update_results": [],
+            "summary": {},
+        }
+
+        # 1. 시트에서 누락된 날짜 확인
+        check_result = self.get_missing_dates_from_sheets(days_back)
+        result["check_result"] = check_result
+        missing_dates = check_result.get("missing_dates", [])
+        result["missing_dates"] = missing_dates
+
+        if not missing_dates:
+            logger.info("✅ 누락된 날짜가 없습니다")
+            result["summary"] = {
+                "status": "no_missing",
+                "message": "누락된 날짜 없음"
+            }
+            return result
+
+        logger.info(f"📋 누락 날짜 {len(missing_dates)}개: {missing_dates}")
+
+        # 2. 전체 데이터 한 번만 크롤링
+        logger.info("🔄 전체 데이터 1회 크롤링 시작")
+        crawl_result = self.crawl_all_data_once()
+
+        if not crawl_result.get("success"):
+            logger.error(f"❌ 크롤링 실패: {crawl_result.get('message')}")
+            result["summary"] = {
+                "status": "crawl_failed",
+                "message": crawl_result.get("message", "크롤링 실패")
+            }
+            return result
+
+        all_crawled_data = crawl_result.get("data", [])
+        logger.info(f"✅ 전체 크롤링 완료: {len(all_crawled_data)}건")
+
+        # 3. 날짜별로 필터링하여 처리
+        total_crawled = 0
+        for target_date in sorted(missing_dates):
+            # 해당 날짜 데이터 필터링
+            date_data = self.filter_data_by_date(all_crawled_data, target_date)
+
+            date_result = {
+                "success": len(date_data) > 0,
+                "date": target_date,
+                "data": date_data,
+                "count": len(date_data)
+            }
+            result["crawl_results"].append(date_result)
+
+            if date_data:
+                total_crawled += len(date_data)
+
+                # 월보장 시트 업데이트
+                update_result = self.update_guarantee_sheets_selective(
+                    date_data,
+                    target_date
+                )
+                result["update_results"].append(update_result)
+            else:
+                logger.warning(f"⚠️ {target_date}: 해당 날짜 데이터 없음 (애드로그에 기록 없을 수 있음)")
+
+        # 요약
+        total_updated = sum(
+            r.get("total_updated", 0) for r in result["update_results"]
+        )
+        total_skipped = sum(
+            r.get("total_skipped_existing", 0) for r in result["update_results"]
+        )
+
+        result["summary"] = {
+            "status": "completed",
+            "missing_dates_count": len(missing_dates),
+            "total_crawled": total_crawled,
+            "total_updated": total_updated,
+            "total_skipped_existing": total_skipped,
+            "message": f"{len(missing_dates)}개 누락 날짜 중 {total_crawled}건 크롤링, {total_updated}개 셀 업데이트"
+        }
+
+        logger.info(f"✅ 누락 날짜 복구 완료: {result['summary']['message']}")
+
+        return result
+
 
 # =============================================================================
 # 외부 호출용 함수
@@ -797,3 +1009,18 @@ def recover_specific_date(target_date: str) -> Dict[str, Any]:
     """특정 날짜 복구 (외부 호출용)"""
     service = RecoveryService()
     return service.recover_specific_date(target_date)
+
+
+def get_missing_dates_from_sheets(days_back: int = 14) -> Dict[str, Any]:
+    """월보장 시트에서 누락된 날짜 조회 (외부 호출용)"""
+    service = RecoveryService()
+    return service.get_missing_dates_from_sheets(days_back)
+
+
+def recover_missing_dates(days_back: int = 14) -> Dict[str, Any]:
+    """월보장 시트 누락 날짜 복구 (외부 호출용)
+
+    오늘 데이터가 있더라도 이전 날짜 데이터가 없으면 자동으로 복구
+    """
+    service = RecoveryService()
+    return service.recover_missing_dates(days_back)

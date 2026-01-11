@@ -1656,6 +1656,46 @@ def create_app() -> Flask:
 			logger.error(traceback.format_exc())
 			return jsonify({"success": False, "error": str(e)}), 500
 
+	@app.route("/api/guarantee/recovery/missing-dates", methods=["GET"])
+	@login_required
+	def api_get_missing_dates():
+		"""월보장 시트에서 누락된 날짜 조회
+
+		오늘 데이터가 있더라도 이전 날짜가 빠져있으면 감지
+		"""
+		days_back = int(request.args.get("days", 14))
+
+		try:
+			from recovery_service import get_missing_dates_from_sheets
+			result = get_missing_dates_from_sheets(days_back)
+			return jsonify(result), 200
+		except Exception as e:
+			logger.error(f"Missing dates check error: {e}")
+			import traceback
+			logger.error(traceback.format_exc())
+			return jsonify({"success": False, "error": str(e)}), 500
+
+	@app.route("/api/guarantee/recovery/recover-missing", methods=["POST"])
+	@login_required
+	def api_recover_missing_dates():
+		"""누락된 날짜 자동 복구
+
+		월보장 시트에서 누락된 날짜를 찾아 크롤링 후 업데이트
+		(오늘 데이터가 있더라도 이전 데이터가 없으면 복구)
+		"""
+		data = request.get_json(force=True) if request.is_json else {}
+		days_back = int(data.get("days", 14))
+
+		try:
+			from recovery_service import recover_missing_dates
+			result = recover_missing_dates(days_back)
+			return jsonify(result), 200
+		except Exception as e:
+			logger.error(f"Missing dates recovery error: {e}")
+			import traceback
+			logger.error(traceback.format_exc())
+			return jsonify({"success": False, "error": str(e)}), 500
+
 	# --- Worklog Cache API ---
 	@app.route("/api/worklog/cache/refresh", methods=["POST"])
 	@login_required
