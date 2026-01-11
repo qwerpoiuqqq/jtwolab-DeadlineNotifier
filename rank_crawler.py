@@ -757,305 +757,322 @@ class AdlogCrawler:
             
             with sync_playwright() as p:
                 logger.info("Launching Chromium browser...")
-                
-                browser = p.chromium.launch(
-                    headless=self.headless,
-                    args=[
-                        '--no-sandbox',
-                        '--disable-setuid-sandbox',
-                        '--disable-dev-shm-usage',
-                        '--disable-gpu',
-                        '--disable-software-rasterizer',
-                        '--disable-extensions',
-                        '--single-process',
-                        '--no-zygote'
-                    ]
-                )
-                logger.info("✅ Browser launched")
-                
-                context = browser.new_context(
-                    viewport={'width': 1280, 'height': 720},
-                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                )
-                page = context.new_page()
-                
-                # 로그인
-                login_url = "https://www.adlog.kr/bbs/login.php?url=%2Fadlog%2Fnaver_place_rank_check.php%3Fsca%3D%26sfl%3Dapi_memo%26stx%3D%25EC%259B%2594%25EB%25B3%25B4%25EC%259E%25A5%26page_rows%3D100"
-                logger.info("Navigating to login page...")
-                
-                page.goto(login_url, wait_until="domcontentloaded", timeout=60000)
-                logger.info("✅ Login page loaded")
-                
-                # 로그인 정보 입력
-                page.fill('input[name="mb_id"]', self.adlog_id)
-                page.fill('input[name="mb_password"]', self.adlog_password)
-                logger.info("✅ Credentials filled")
-                
-                # 로그인 버튼 클릭
-                page.click('button[type="submit"], input[type="submit"]')
-                logger.info("✅ Login button clicked")
-                
-                # 페이지 로드 대기
-                page.wait_for_load_state("domcontentloaded", timeout=60000)
-                page.wait_for_timeout(2000)
-                logger.info("✅ Login completed")
-                
-                # 체크박스 상태 확인/설정
-                self._ensure_checkboxes(page)
-                
-                # 테이블 데이터 추출
-                logger.info("Looking for table data...")
-                
-                # 모든 행 가져오기
-                all_rows = page.locator('table tbody tr').all()
-                logger.info(f"✅ Found {len(all_rows)} total rows")
-                
-                # 모니터링 대상 로드
-                targets = self._get_monitoring_targets(company)
-                logger.info(f"Loaded {len(targets)} monitoring targets")
-                
-                # 디버그: 처음 5개 타겟 출력
-                for i, t in enumerate(targets[:5]):
-                    logger.info(f"  Target {i+1}: {t.get('business_name')} / {t.get('keyword')}")
-                
-                # 타겟 → 상호명 맵 (빠른 매칭용)
-                targets_map = {t["business_name"]: t for t in targets}
-                
-                # URL 맵 (place_url 기반 매칭용)
-                url_map = {}
-                for t in targets:
-                    url = t.get("place_url", "")
-                    if url:
-                        import re
-                        match = re.search(r'/(\d{5,})', url)
-                        if match:
-                            url_map[match.group(1)] = t
-                
-                logger.info(f"Created {len(targets_map)} name mappings, {len(url_map)} URL mappings")
-                
-                # 스냅샷 저장용 레코드
-                snapshot_records = []
-                
-                # 기본정보 행 + 순위 행(tr.tr2)을 쌍으로 처리
-                # 기본정보 행에서 상호명/URL 추출, 순위 행에서 순위/N2 추출
-                current_info = None  # 현재 기본정보 행 데이터
-                processed_count = 0
-                
-                for idx, row in enumerate(all_rows):
-                    if idx % 20 == 0:
-                        logger.info(f"Processing row {idx+1}/{len(all_rows)}...")
-                    
-                    try:
-                        # 현재 행이 순위 행(tr.tr2)인지 확인
-                        row_class = row.get_attribute('class') or ""
-                        is_rank_row = 'tr2' in row_class
-                        
-                        if not is_rank_row:
-                            # === 기본정보 행: 상호명/URL 추출 ===
-                            business_name = ""
-                            place_url = ""
-                            place_id = ""
-                            
-                            # 링크에서 place.naver.com URL과 상호명 찾기
-                            links = row.locator('a').all()
-                            for link in links:
-                                href = link.get_attribute('href') or ""
-                                if 'place.naver.com' in href:
-                                    place_url = href
-                                    link_text = link.inner_text().strip()
-                                    if link_text and 'http' not in link_text and len(link_text) > 1:
-                                        business_name = link_text
-                                    # place_id 추출
-                                    id_match = re.search(r'/(\d{5,})', href)
-                                    if id_match:
-                                        place_id = id_match.group(1)
-                                    break
-                            
-                            # 현재 기본정보 저장 (다음 순위 행에서 사용)
-                            current_info = {
-                                "business_name": business_name,
-                                "place_url": place_url,
-                                "place_id": place_id,
-                            }
-                            
-                            # 디버그 (처음 3개)
-                            if processed_count < 3 and business_name:
-                                logger.info(f"  Info row: business_name='{business_name}', place_id='{place_id}'")
-                            
-                        else:
-                            # === 순위 행(tr.tr2): 순위/N2 추출 ===
-                            if not current_info:
-                                continue
-                            
-                            # stat_div 찾기
-                            stat_divs = row.locator('div.stat_div').all()
-                            if not stat_divs:
-                                stat_divs = row.locator('[class*="stat"]').all()
-                            
-                            if not stat_divs:
-                                continue
-                            
-                            # 첫 번째 stat_div (최신 날짜)
-                            first_stat_div = stat_divs[0]
-                            stat_text = first_stat_div.inner_text().strip()
-                            
-                            # 디버그: 처음 3개 stat_text 출력
-                            if processed_count < 3:
-                                logger.info(f"  Rank row stat_text: {stat_text[:80]}...")
-                            
-                            # === 순위 데이터 파싱 ===
-                            # 날짜 추출: "12-28(일)" 형식
-                            parsed_date = None
-                            date_match = re.search(r'(\d{1,2})-(\d{1,2})', stat_text)
-                            if date_match:
-                                month, day = int(date_match.group(1)), int(date_match.group(2))
-                                if 1 <= month <= 12 and 1 <= day <= 31:
-                                    year = now.year
-                                    if now.month <= 2 and month >= 11:
-                                        year -= 1
-                                    elif now.month >= 11 and month <= 2:
-                                        year += 1
-                                    parsed_date = f"{year}-{month:02d}-{day:02d}"
-                            
-                            # 순위 추출: "12위" 형식
-                            rank_val = None
-                            rank_match = re.search(r'(\d+)\s*위', stat_text)
-                            if rank_match:
-                                rank_val = int(rank_match.group(1))
-                            
-                            # 저장수 추출: fc_grn 클래스 또는 텍스트에서
-                            saves_val = None
-                            try:
-                                saves_elem = first_stat_div.locator('b.fc_grn').first
-                                if saves_elem.count() > 0:
-                                    saves_text = saves_elem.inner_text().strip()
-                                    saves_match = re.search(r'([0-9,]+)', saves_text)
-                                    if saves_match:
-                                        saves_val = int(saves_match.group(1).replace(',', ''))
-                            except:
-                                pass
-                            
-                            # 블로그 리뷰: "블 393개" 형식
-                            blog_val = None
-                            blog_match = re.search(r'블\s*([0-9,]+)\s*개?', stat_text)
-                            if blog_match:
-                                blog_val = int(blog_match.group(1).replace(',', ''))
-                            
-                            # 방문자 리뷰: "방 287개" 형식
-                            visitor_val = None
-                            visitor_match = re.search(r'방\s*([0-9,]+)\s*개?', stat_text)
-                            if visitor_match:
-                                visitor_val = int(visitor_match.group(1).replace(',', ''))
-                            
-                            # N2 점수: "N2 0.439588" 형식
-                            n2_val = None
-                            n2_match = re.search(r'N2\s*([0-9.]+)', stat_text, re.IGNORECASE)
-                            if n2_match:
-                                try:
-                                    n2_val = float(n2_match.group(1))
-                                except ValueError:
-                                    pass
-                            
-                            # === 타겟 매칭 ===
-                            business_name = current_info["business_name"]
-                            place_url = current_info["place_url"]
-                            place_id = current_info["place_id"]
-                            
-                            target = None
-                            matched_by = ""
-                            
-                            # 1단계: place_id로 URL 매칭 (가장 정확)
-                            if url_map and place_id:
-                                if place_id in url_map:
-                                    target = url_map[place_id]
-                                    matched_by = f"place_id:{place_id}"
-                            
-                            # 2단계: 상호명 정확 매칭
-                            if not target and business_name:
-                                target = targets_map.get(business_name)
-                                if target:
-                                    matched_by = f"exact:{business_name}"
-                            
-                            # 3단계: 상호명 부분 매칭
-                            if not target and business_name:
-                                for target_name, target_info in targets_map.items():
-                                    if business_name in target_name or target_name in business_name:
-                                        target = target_info
-                                        matched_by = f"partial:{business_name}"
+
+                # 브라우저/컨텍스트 초기화 (finally에서 정리용)
+                browser = None
+                context = None
+
+                try:
+                    browser = p.chromium.launch(
+                        headless=self.headless,
+                        args=[
+                            '--no-sandbox',
+                            '--disable-setuid-sandbox',
+                            '--disable-dev-shm-usage',
+                            '--disable-gpu',
+                            '--disable-software-rasterizer',
+                            '--disable-extensions',
+                            '--single-process',
+                            '--no-zygote'
+                        ]
+                    )
+                    logger.info("✅ Browser launched")
+
+                    context = browser.new_context(
+                        viewport={'width': 1280, 'height': 720},
+                        user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    )
+                    page = context.new_page()
+
+                    # 로그인
+                    login_url = "https://www.adlog.kr/bbs/login.php?url=%2Fadlog%2Fnaver_place_rank_check.php%3Fsca%3D%26sfl%3Dapi_memo%26stx%3D%25EC%259B%2594%25EB%25B3%25B4%25EC%259E%25A5%26page_rows%3D100"
+                    logger.info("Navigating to login page...")
+
+                    page.goto(login_url, wait_until="domcontentloaded", timeout=60000)
+                    logger.info("✅ Login page loaded")
+
+                    # 로그인 정보 입력
+                    page.fill('input[name="mb_id"]', self.adlog_id)
+                    page.fill('input[name="mb_password"]', self.adlog_password)
+                    logger.info("✅ Credentials filled")
+
+                    # 로그인 버튼 클릭
+                    page.click('button[type="submit"], input[type="submit"]')
+                    logger.info("✅ Login button clicked")
+
+                    # 페이지 로드 대기
+                    page.wait_for_load_state("domcontentloaded", timeout=60000)
+                    page.wait_for_timeout(2000)
+                    logger.info("✅ Login completed")
+
+                    # 체크박스 상태 확인/설정
+                    self._ensure_checkboxes(page)
+
+                    # 테이블 데이터 추출
+                    logger.info("Looking for table data...")
+
+                    # 모든 행 가져오기
+                    all_rows = page.locator('table tbody tr').all()
+                    logger.info(f"✅ Found {len(all_rows)} total rows")
+
+                    # 모니터링 대상 로드
+                    targets = self._get_monitoring_targets(company)
+                    logger.info(f"Loaded {len(targets)} monitoring targets")
+
+                    # 디버그: 처음 5개 타겟 출력
+                    for i, t in enumerate(targets[:5]):
+                        logger.info(f"  Target {i+1}: {t.get('business_name')} / {t.get('keyword')}")
+
+                    # 타겟 → 상호명 맵 (빠른 매칭용)
+                    targets_map = {t["business_name"]: t for t in targets}
+
+                    # URL 맵 (place_url 기반 매칭용)
+                    url_map = {}
+                    for t in targets:
+                        url = t.get("place_url", "")
+                        if url:
+                            import re
+                            match = re.search(r'/(\d{5,})', url)
+                            if match:
+                                url_map[match.group(1)] = t
+
+                    logger.info(f"Created {len(targets_map)} name mappings, {len(url_map)} URL mappings")
+
+                    # 스냅샷 저장용 레코드
+                    snapshot_records = []
+
+                    # 기본정보 행 + 순위 행(tr.tr2)을 쌍으로 처리
+                    # 기본정보 행에서 상호명/URL 추출, 순위 행에서 순위/N2 추출
+                    current_info = None  # 현재 기본정보 행 데이터
+                    processed_count = 0
+
+                    for idx, row in enumerate(all_rows):
+                        if idx % 20 == 0:
+                            logger.info(f"Processing row {idx+1}/{len(all_rows)}...")
+
+                        try:
+                            # 현재 행이 순위 행(tr.tr2)인지 확인
+                            row_class = row.get_attribute('class') or ""
+                            is_rank_row = 'tr2' in row_class
+
+                            if not is_rank_row:
+                                # === 기본정보 행: 상호명/URL 추출 ===
+                                business_name = ""
+                                place_url = ""
+                                place_id = ""
+
+                                # 링크에서 place.naver.com URL과 상호명 찾기
+                                links = row.locator('a').all()
+                                for link in links:
+                                    href = link.get_attribute('href') or ""
+                                    if 'place.naver.com' in href:
+                                        place_url = href
+                                        link_text = link.inner_text().strip()
+                                        if link_text and 'http' not in link_text and len(link_text) > 1:
+                                            business_name = link_text
+                                        # place_id 추출
+                                        id_match = re.search(r'/(\d{5,})', href)
+                                        if id_match:
+                                            place_id = id_match.group(1)
                                         break
-                            
-                            if not target:
+
+                                # 현재 기본정보 저장 (다음 순위 행에서 사용)
+                                current_info = {
+                                    "business_name": business_name,
+                                    "place_url": place_url,
+                                    "place_id": place_id,
+                                }
+
+                                # 디버그 (처음 3개)
+                                if processed_count < 3 and business_name:
+                                    logger.info(f"  Info row: business_name='{business_name}', place_id='{place_id}'")
+
+                            else:
+                                # === 순위 행(tr.tr2): 순위/N2 추출 ===
+                                if not current_info:
+                                    continue
+
+                                # stat_div 찾기
+                                stat_divs = row.locator('div.stat_div').all()
+                                if not stat_divs:
+                                    stat_divs = row.locator('[class*="stat"]').all()
+
+                                if not stat_divs:
+                                    continue
+
+                                # 첫 번째 stat_div (최신 날짜)
+                                first_stat_div = stat_divs[0]
+                                stat_text = first_stat_div.inner_text().strip()
+
+                                # 디버그: 처음 3개 stat_text 출력
                                 if processed_count < 3:
-                                    logger.warning(f"  No match: business='{business_name}', place_id='{place_id}'")
-                                current_info = None  # 리셋
-                                continue
-                            
-                            # 날짜가 없으면 오늘
-                            if not parsed_date:
-                                parsed_date = now.strftime("%Y-%m-%d")
-                            
-                            # 결과 생성
-                            parsed = {
-                                "date": parsed_date,
-                                "time_slot": time_slot,
-                                "collected_at": collected_at,
-                                "agency": target.get("agency", ""),  # 대행사명
-                                "client_name": target.get("business_name") or business_name,
-                                "keyword": target.get("keyword", ""),
-                                "place_url": target.get("place_url", "") or place_url,
-                                "group": target.get("company", ""),
-                                "rank": rank_val,
-                                "saves": saves_val,
-                                "blog_reviews": blog_val,
-                                "visitor_reviews": visitor_val,
-                                "n2_score": n2_val,
-                            }
-                            
-                            # 디버그 로그 (처음 5개)
-                            if processed_count < 5:
-                                logger.info(
-                                    f"  ✅ [{processed_count+1}] {parsed['client_name'][:15]} / {parsed['keyword']} → "
-                                    f"순위:{rank_val}, N2:{n2_val}, 저장:{saves_val}"
-                                )
-                            
-                            # Google Sheets 저장용
-                            if self.storage_mode in ["sheets", "both"] and self.snapshot_manager:
-                                snapshot_records.append(parsed)
-                            
-                            # SQLite 저장 (레거시)
-                            if self.storage_mode in ["sqlite", "both"]:
-                                self.db.save_rank(
-                                    parsed.get("group", ""),
-                                    parsed.get("client_name", ""),
-                                    parsed.get("keyword", ""),
-                                    parsed.get("rank"),
-                                    now
-                                )
-                            
-                            crawled_data.append(parsed)
-                            crawled_count += 1
-                            processed_count += 1
-                            
-                            # 현재 정보 리셋 (다음 기본정보 행까지)
-                            current_info = None
-                            
-                    except Exception as e:
-                        logger.warning(f"Row {idx} error: {e}")
-                        failed_details.append({"row": idx, "reason": str(e)})
-                        failed_count += 1
-                
-                # Google Sheets 배치 저장
-                if snapshot_records and self.snapshot_manager:
-                    logger.info(f"Saving {len(snapshot_records)} records to Google Sheets...")
-                    try:
-                        upsert_result = self.snapshot_manager.upsert_bulk(snapshot_records)
-                        logger.info(f"✅ Sheets save result: {upsert_result}")
-                    except Exception as sheets_error:
-                        logger.error(f"Sheets save error: {sheets_error}")
-                
-                browser.close()
-                logger.info("✅ Browser closed")
-        
+                                    logger.info(f"  Rank row stat_text: {stat_text[:80]}...")
+
+                                # === 순위 데이터 파싱 ===
+                                # 날짜 추출: "12-28(일)" 형식
+                                parsed_date = None
+                                date_match = re.search(r'(\d{1,2})-(\d{1,2})', stat_text)
+                                if date_match:
+                                    month, day = int(date_match.group(1)), int(date_match.group(2))
+                                    if 1 <= month <= 12 and 1 <= day <= 31:
+                                        year = now.year
+                                        if now.month <= 2 and month >= 11:
+                                            year -= 1
+                                        elif now.month >= 11 and month <= 2:
+                                            year += 1
+                                        parsed_date = f"{year}-{month:02d}-{day:02d}"
+
+                                # 순위 추출: "12위" 형식
+                                rank_val = None
+                                rank_match = re.search(r'(\d+)\s*위', stat_text)
+                                if rank_match:
+                                    rank_val = int(rank_match.group(1))
+
+                                # 저장수 추출: fc_grn 클래스 또는 텍스트에서
+                                saves_val = None
+                                try:
+                                    saves_elem = first_stat_div.locator('b.fc_grn').first
+                                    if saves_elem.count() > 0:
+                                        saves_text = saves_elem.inner_text().strip()
+                                        saves_match = re.search(r'([0-9,]+)', saves_text)
+                                        if saves_match:
+                                            saves_val = int(saves_match.group(1).replace(',', ''))
+                                except:
+                                    pass
+
+                                # 블로그 리뷰: "블 393개" 형식
+                                blog_val = None
+                                blog_match = re.search(r'블\s*([0-9,]+)\s*개?', stat_text)
+                                if blog_match:
+                                    blog_val = int(blog_match.group(1).replace(',', ''))
+
+                                # 방문자 리뷰: "방 287개" 형식
+                                visitor_val = None
+                                visitor_match = re.search(r'방\s*([0-9,]+)\s*개?', stat_text)
+                                if visitor_match:
+                                    visitor_val = int(visitor_match.group(1).replace(',', ''))
+
+                                # N2 점수: "N2 0.439588" 형식
+                                n2_val = None
+                                n2_match = re.search(r'N2\s*([0-9.]+)', stat_text, re.IGNORECASE)
+                                if n2_match:
+                                    try:
+                                        n2_val = float(n2_match.group(1))
+                                    except ValueError:
+                                        pass
+
+                                # === 타겟 매칭 ===
+                                business_name = current_info["business_name"]
+                                place_url = current_info["place_url"]
+                                place_id = current_info["place_id"]
+
+                                target = None
+                                matched_by = ""
+
+                                # 1단계: place_id로 URL 매칭 (가장 정확)
+                                if url_map and place_id:
+                                    if place_id in url_map:
+                                        target = url_map[place_id]
+                                        matched_by = f"place_id:{place_id}"
+
+                                # 2단계: 상호명 정확 매칭
+                                if not target and business_name:
+                                    target = targets_map.get(business_name)
+                                    if target:
+                                        matched_by = f"exact:{business_name}"
+
+                                # 3단계: 상호명 부분 매칭
+                                if not target and business_name:
+                                    for target_name, target_info in targets_map.items():
+                                        if business_name in target_name or target_name in business_name:
+                                            target = target_info
+                                            matched_by = f"partial:{business_name}"
+                                            break
+
+                                if not target:
+                                    if processed_count < 3:
+                                        logger.warning(f"  No match: business='{business_name}', place_id='{place_id}'")
+                                    current_info = None  # 리셋
+                                    continue
+
+                                # 날짜가 없으면 오늘
+                                if not parsed_date:
+                                    parsed_date = now.strftime("%Y-%m-%d")
+
+                                # 결과 생성
+                                parsed = {
+                                    "date": parsed_date,
+                                    "time_slot": time_slot,
+                                    "collected_at": collected_at,
+                                    "agency": target.get("agency", ""),  # 대행사명
+                                    "client_name": target.get("business_name") or business_name,
+                                    "keyword": target.get("keyword", ""),
+                                    "place_url": target.get("place_url", "") or place_url,
+                                    "group": target.get("company", ""),
+                                    "rank": rank_val,
+                                    "saves": saves_val,
+                                    "blog_reviews": blog_val,
+                                    "visitor_reviews": visitor_val,
+                                    "n2_score": n2_val,
+                                }
+
+                                # 디버그 로그 (처음 5개)
+                                if processed_count < 5:
+                                    logger.info(
+                                        f"  ✅ [{processed_count+1}] {parsed['client_name'][:15]} / {parsed['keyword']} → "
+                                        f"순위:{rank_val}, N2:{n2_val}, 저장:{saves_val}"
+                                    )
+
+                                # Google Sheets 저장용
+                                if self.storage_mode in ["sheets", "both"] and self.snapshot_manager:
+                                    snapshot_records.append(parsed)
+
+                                # SQLite 저장 (레거시)
+                                if self.storage_mode in ["sqlite", "both"]:
+                                    self.db.save_rank(
+                                        parsed.get("group", ""),
+                                        parsed.get("client_name", ""),
+                                        parsed.get("keyword", ""),
+                                        parsed.get("rank"),
+                                        now
+                                    )
+
+                                crawled_data.append(parsed)
+                                crawled_count += 1
+                                processed_count += 1
+
+                                # 현재 정보 리셋 (다음 기본정보 행까지)
+                                current_info = None
+
+                        except Exception as e:
+                            logger.warning(f"Row {idx} error: {e}")
+                            failed_details.append({"row": idx, "reason": str(e)})
+                            failed_count += 1
+
+                    # Google Sheets 배치 저장
+                    if snapshot_records and self.snapshot_manager:
+                        logger.info(f"Saving {len(snapshot_records)} records to Google Sheets...")
+                        try:
+                            upsert_result = self.snapshot_manager.upsert_bulk(snapshot_records)
+                            logger.info(f"✅ Sheets save result: {upsert_result}")
+                        except Exception as sheets_error:
+                            logger.error(f"Sheets save error: {sheets_error}")
+
+                finally:
+                    # 브라우저/컨텍스트 정리 (예외 발생 시에도 반드시 실행)
+                    if context:
+                        try:
+                            context.close()
+                            logger.info("✅ Browser context closed")
+                        except Exception as ctx_err:
+                            logger.warning(f"Context close error: {ctx_err}")
+                    if browser:
+                        try:
+                            browser.close()
+                            logger.info("✅ Browser closed")
+                        except Exception as brw_err:
+                            logger.warning(f"Browser close error: {brw_err}")
+
         except ValueError as ve:
             # 환경변수 오류 (ADLOG_ID/PASSWORD 미설정)
             logger.error(f"❌ Configuration error: {ve}")
