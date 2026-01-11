@@ -1582,6 +1582,80 @@ def create_app() -> Flask:
 			logger.error(f"Rank import error: {e}")
 			return jsonify({"error": str(e)}), 500
 
+	# --- 크롤링 실패 복구 API ---
+	@app.route("/api/guarantee/recovery/failed-dates", methods=["GET"])
+	@login_required
+	def api_get_failed_crawl_dates():
+		"""실패한 크롤링 날짜 조회"""
+		days_back = int(request.args.get("days", 7))
+
+		try:
+			from recovery_service import get_failed_crawl_dates
+			failed_dates = get_failed_crawl_dates(days_back)
+			return jsonify({
+				"success": True,
+				"failed_dates": failed_dates,
+				"count": len(failed_dates)
+			}), 200
+		except Exception as e:
+			logger.error(f"Failed dates query error: {e}")
+			return jsonify({"success": False, "error": str(e)}), 500
+
+	@app.route("/api/guarantee/recovery/recover-all", methods=["POST"])
+	@login_required
+	def api_recover_failed_crawls():
+		"""실패한 모든 크롤링 복구 (최근 N일)
+
+		1. rank_update_logs에서 실패한 날짜 찾기
+		2. 누락된 날짜 재크롤링
+		3. 월보장 시트 선택적 업데이트 (이미 채워진 셀 건너뛰기)
+		"""
+		data = request.get_json(force=True) if request.is_json else {}
+		days_back = int(data.get("days", 7))
+
+		try:
+			from recovery_service import recover_failed_crawls
+			result = recover_failed_crawls(days_back)
+			return jsonify(result), 200
+		except Exception as e:
+			logger.error(f"Recovery error: {e}")
+			import traceback
+			logger.error(traceback.format_exc())
+			return jsonify({"success": False, "error": str(e)}), 500
+
+	@app.route("/api/guarantee/recovery/recover-date", methods=["POST"])
+	@login_required
+	def api_recover_specific_date():
+		"""특정 날짜만 복구
+
+		Request body: {"date": "2025-01-08"}
+
+		1. 해당 날짜 재크롤링
+		2. 월보장 시트 선택적 업데이트 (이미 채워진 셀 건너뛰기)
+		"""
+		data = request.get_json(force=True)
+		target_date = data.get("date")
+
+		if not target_date:
+			return jsonify({"success": False, "error": "date 파라미터가 필요합니다"}), 400
+
+		# 날짜 형식 검증
+		try:
+			from datetime import datetime
+			datetime.strptime(target_date, "%Y-%m-%d")
+		except ValueError:
+			return jsonify({"success": False, "error": "날짜 형식이 잘못되었습니다 (YYYY-MM-DD)"}), 400
+
+		try:
+			from recovery_service import recover_specific_date
+			result = recover_specific_date(target_date)
+			return jsonify(result), 200
+		except Exception as e:
+			logger.error(f"Date recovery error: {e}")
+			import traceback
+			logger.error(traceback.format_exc())
+			return jsonify({"success": False, "error": str(e)}), 500
+
 	# --- Worklog Cache API ---
 	@app.route("/api/worklog/cache/refresh", methods=["POST"])
 	@login_required
