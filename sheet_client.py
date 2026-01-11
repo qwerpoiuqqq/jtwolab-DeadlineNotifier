@@ -431,14 +431,25 @@ def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings 
 				continue
 
 			# 작업명 생성 규칙
+			# 변경: '상품 명' 열에 값이 있으면 그것을 작업명으로 사용
 			base_task = tab_title
-			is_misc = _collapse_spaces(tab_title) == _collapse_spaces("기타")
-			if is_misc:
-				display_task = product_name if product_name else base_task
+			if product_name:
+				# '상품 명' 열에 값이 있으면 우선 사용 (기타 탭 외에도 적용)
+				display_task = product_name
 			else:
+				# '상품 명'이 없으면 기존 로직: 탭명 + 상품
 				display_task = f"{base_task} {product}".strip() if product else base_task
 
-			agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
+			# 내부 진행건 분류 (일반키워드 vs 맛집)
+			if filter_mode == "internal" and is_internal:
+				# 탭명, 상품, 상품명에 '맛집' 키워드가 포함되면 맛집으로 분류
+				combined_text = f"{tab_title} {product} {product_name}".lower()
+				if "맛집" in combined_text:
+					agency_label = "맛집 내부 진행"
+				else:
+					agency_label = "일반키워드 내부 진행"
+			else:
+				agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
 			# 집계 업데이트
 			try:
 				wl_num = _parse_int_maybe(workload) or 0
@@ -521,14 +532,25 @@ def stream_grouped_messages_by_date(selected_days: List[int], settings: Settings
 					continue
 
 				# 작업명 생성 규칙
+				# 변경: '상품 명' 열에 값이 있으면 그것을 작업명으로 사용
 				base_task = tab_title
-				is_misc = _collapse_spaces(tab_title) == _collapse_spaces("기타")
-				if is_misc:
-					display_task = product_name if product_name else base_task
+				if product_name:
+					# '상품 명' 열에 값이 있으면 우선 사용 (기타 탭 외에도 적용)
+					display_task = product_name
 				else:
+					# '상품 명'이 없으면 기존 로직: 탭명 + 상품
 					display_task = f"{base_task} {product}".strip() if product else base_task
 
-				agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
+				# 내부 진행건 분류 (일반키워드 vs 맛집)
+				if filter_mode == "internal" and is_internal:
+					# 탭명, 상품, 상품명에 '맛집' 키워드가 포함되면 맛집으로 분류
+					combined_text = f"{tab_title} {product} {product_name}".lower()
+					if "맛집" in combined_text:
+						agency_label = "맛집 내부 진행"
+					else:
+						agency_label = "일반키워드 내부 진행"
+				else:
+					agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
 				dict_by_day = aggregator.setdefault(agency_label, {})
 				dict_by_task = dict_by_day.setdefault(remain, {})
 				by_name = dict_by_task.setdefault(display_task, {})

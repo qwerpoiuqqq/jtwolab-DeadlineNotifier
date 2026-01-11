@@ -205,14 +205,75 @@ class RecoveryService:
             return target_dates  # 오류 시 모든 날짜 반환
 
     # =========================================================================
-    # 2. 과거 날짜 데이터 재크롤링
+    # 2. 데이터 크롤링 (한 번만 호출, 모든 데이터 가져오기)
     # =========================================================================
 
-    def crawl_historical_date(self, target_date: str) -> Dict[str, Any]:
-        """특정 과거 날짜의 데이터 크롤링
+    def crawl_all_data_once(self) -> Dict[str, Any]:
+        """애드로그에서 전체 데이터를 한 번만 크롤링
 
-        Adlog 페이지에는 여러 날짜의 데이터가 표시되므로,
-        현재 크롤링 후 target_date에 해당하는 데이터만 필터링
+        제이투랩, 일류기획 구분 없이 모든 데이터를 한 번에 가져옴.
+        두 번 호출 시 차단되는 문제 방지.
+
+        Returns:
+            크롤링 결과 {"success": bool, "data": [...], "message": str}
+        """
+        try:
+            from rank_crawler import AdlogCrawler
+
+            logger.info("🔄 전체 데이터 크롤링 시작 (1회 호출)")
+
+            crawler = AdlogCrawler()
+
+            # 전체 크롤링 수행 (company=None으로 모든 데이터)
+            result = crawler.crawl_ranks(None)
+
+            if not result.get("success"):
+                return {
+                    "success": False,
+                    "message": result.get("message", "크롤링 실패"),
+                    "data": []
+                }
+
+            all_data = result.get("data", [])
+            logger.info(f"✅ 전체 크롤링 완료: {len(all_data)}건")
+
+            return {
+                "success": True,
+                "message": f"{len(all_data)}건 크롤링 완료",
+                "data": all_data,
+                "crawled_count": len(all_data)
+            }
+
+        except Exception as e:
+            logger.error(f"전체 크롤링 오류: {e}")
+            return {
+                "success": False,
+                "message": str(e),
+                "data": []
+            }
+
+    def filter_data_by_date(self, all_data: List[Dict], target_date: str) -> List[Dict]:
+        """크롤링된 전체 데이터에서 특정 날짜만 필터링
+
+        Args:
+            all_data: 전체 크롤링 데이터
+            target_date: 필터링할 날짜 (YYYY-MM-DD)
+
+        Returns:
+            해당 날짜의 데이터 리스트
+        """
+        filtered = [
+            record for record in all_data
+            if record.get("date") == target_date
+        ]
+        logger.info(f"📅 {target_date}: {len(all_data)}건 중 {len(filtered)}건 필터링")
+        return filtered
+
+    def crawl_historical_date(self, target_date: str) -> Dict[str, Any]:
+        """특정 과거 날짜의 데이터 크롤링 (단일 날짜용)
+
+        주의: 여러 날짜를 복구할 때는 recover_failed_crawls() 사용 권장
+        (한 번 크롤링 후 날짜별로 필터링)
 
         Args:
             target_date: 크롤링할 날짜 (YYYY-MM-DD)
@@ -220,49 +281,25 @@ class RecoveryService:
         Returns:
             크롤링 결과
         """
-        try:
-            from rank_crawler import AdlogCrawler
+        result = self.crawl_all_data_once()
 
-            logger.info(f"🔄 {target_date} 날짜 데이터 재크롤링 시작")
-
-            crawler = AdlogCrawler()
-
-            # 전체 크롤링 수행 (Adlog는 여러 날짜 데이터를 동시에 보여줌)
-            result = crawler.crawl_ranks(None)
-
-            if not result.get("success"):
-                return {
-                    "success": False,
-                    "date": target_date,
-                    "message": result.get("message", "크롤링 실패"),
-                    "data": []
-                }
-
-            # target_date에 해당하는 데이터만 필터링
-            all_data = result.get("data", [])
-            filtered_data = [
-                record for record in all_data
-                if record.get("date") == target_date
-            ]
-
-            logger.info(f"✅ {target_date}: 총 {len(all_data)}건 중 {len(filtered_data)}건 매칭")
-
-            return {
-                "success": True,
-                "date": target_date,
-                "message": f"{len(filtered_data)}건 크롤링 완료",
-                "data": filtered_data,
-                "total_crawled": len(all_data)
-            }
-
-        except Exception as e:
-            logger.error(f"과거 날짜 크롤링 오류: {e}")
+        if not result.get("success"):
             return {
                 "success": False,
                 "date": target_date,
-                "message": str(e),
+                "message": result.get("message", "크롤링 실패"),
                 "data": []
             }
+
+        filtered_data = self.filter_data_by_date(result.get("data", []), target_date)
+
+        return {
+            "success": True,
+            "date": target_date,
+            "message": f"{len(filtered_data)}건 크롤링 완료",
+            "data": filtered_data,
+            "total_crawled": result.get("crawled_count", 0)
+        }
 
     # =========================================================================
     # 3. 월보장 시트 선택적 업데이트 (이미 채워진 셀 건너뛰기)
@@ -574,10 +611,13 @@ class RecoveryService:
     def recover_failed_crawls(self, days_back: int = 7) -> Dict[str, Any]:
         """실패한 크롤링 복구 (전체 프로세스)
 
+        핵심 변경: 크롤러를 한 번만 호출하여 모든 데이터를 가져온 후,
+        날짜별로 필터링하여 처리 (2번 호출 시 차단되는 문제 방지)
+
         1. 실패한 날짜 조회
         2. rank_snapshots에서 누락 확인
-        3. 누락된 날짜 재크롤링
-        4. 월보장 시트 선택적 업데이트
+        3. 전체 데이터 1회 크롤링 (제이투랩/일류기획 구분 없이)
+        4. 날짜별로 필터링하여 월보장 시트 업데이트
 
         Args:
             days_back: 조회할 과거 일수
@@ -618,21 +658,46 @@ class RecoveryService:
 
         logger.info(f"📋 데이터 누락 날짜: {missing_dates}")
 
-        # 3. 누락된 날짜 재크롤링
+        # 3. 전체 데이터 한 번만 크롤링 (핵심 변경!)
+        logger.info("🔄 전체 데이터 1회 크롤링 시작 (제이투랩/일류기획 통합)")
+        crawl_result = self.crawl_all_data_once()
+
+        if not crawl_result.get("success"):
+            logger.error(f"❌ 크롤링 실패: {crawl_result.get('message')}")
+            result["summary"] = {
+                "status": "crawl_failed",
+                "message": crawl_result.get("message", "크롤링 실패")
+            }
+            return result
+
+        all_crawled_data = crawl_result.get("data", [])
+        logger.info(f"✅ 전체 크롤링 완료: {len(all_crawled_data)}건")
+
+        # 4. 날짜별로 필터링하여 처리
         total_crawled = 0
-        for target_date in missing_dates:
-            crawl_result = self.crawl_historical_date(target_date)
-            result["crawl_results"].append(crawl_result)
+        for target_date in sorted(missing_dates):  # 날짜순 정렬하여 처리
+            # 해당 날짜 데이터 필터링
+            date_data = self.filter_data_by_date(all_crawled_data, target_date)
 
-            if crawl_result.get("success") and crawl_result.get("data"):
-                total_crawled += len(crawl_result["data"])
+            date_result = {
+                "success": len(date_data) > 0,
+                "date": target_date,
+                "data": date_data,
+                "count": len(date_data)
+            }
+            result["crawl_results"].append(date_result)
 
-                # 4. 월보장 시트 업데이트
+            if date_data:
+                total_crawled += len(date_data)
+
+                # 월보장 시트 업데이트
                 update_result = self.update_guarantee_sheets_selective(
-                    crawl_result["data"],
+                    date_data,
                     target_date
                 )
                 result["update_results"].append(update_result)
+            else:
+                logger.warning(f"⚠️ {target_date}: 해당 날짜 데이터 없음")
 
         # 요약
         total_updated = sum(
