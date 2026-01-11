@@ -458,8 +458,10 @@ class RecoveryService:
                     skipped_rank += 1
                     continue
 
-                # ====== 핵심: 해당 날짜가 이미 채워져 있는지 확인 ======
-                target_col_idx = -1
+                # ====== 핵심: 일별 순위 열 정리 및 업데이트 ======
+                # 1. 일별 순위 열의 모든 데이터 수집
+                daily_cells = []  # [(col_idx, value), ...]
+                filled_values = []  # 빈 셀 제외한 실제 데이터만
                 date_already_exists = False
 
                 for offset in range(MAX_DAILY_COUNT):
@@ -469,17 +471,13 @@ class RecoveryService:
                     if check_idx < len(row):
                         cell_value = row[check_idx].strip()
 
-                    if not cell_value:
-                        # 빈 셀 발견 - 여기에 기입 가능
-                        if target_col_idx == -1:
-                            target_col_idx = check_idx
-                        continue
+                    daily_cells.append((check_idx, cell_value))
 
-                    # 해당 날짜가 이미 기록되어 있는지 확인
-                    # 형식: "25. 01. 08\n3등" 또는 "25. 01. 08 3등"
-                    if date_str in cell_value:
-                        date_already_exists = True
-                        break
+                    if cell_value:
+                        filled_values.append(cell_value)
+                        # 해당 날짜가 이미 기록되어 있는지 확인
+                        if date_str in cell_value:
+                            date_already_exists = True
 
                 # 이미 해당 날짜 데이터가 있으면 건너뛰기 (담당자가 입력)
                 if date_already_exists:
@@ -487,9 +485,58 @@ class RecoveryService:
                     logger.debug(f"[{sheet_name}] {business_name}: {target_date} 이미 기록됨 (건너뛰기)")
                     continue
 
-                # 빈 셀이 없으면 마지막 위치에 추가
-                if target_col_idx == -1:
-                    target_col_idx = daily_start_idx + MAX_DAILY_COUNT
+                # 2. 중간에 빈 셀이 있는지 확인 (데이터 뒤에 빈 셀이 있고 그 뒤에 또 데이터가 있는 경우)
+                needs_compaction = False
+                first_empty_idx = -1
+                last_filled_idx = -1
+
+                for offset, (col_idx, cell_value) in enumerate(daily_cells):
+                    if cell_value:
+                        last_filled_idx = offset
+                    elif first_empty_idx == -1:
+                        first_empty_idx = offset
+
+                # 첫 빈 셀 이후에 데이터가 있으면 compaction 필요
+                if first_empty_idx != -1 and last_filled_idx > first_empty_idx:
+                    needs_compaction = True
+                    logger.info(f"[{sheet_name}] {business_name}: 중간 빈 셀 발견, 데이터 정렬 필요")
+
+                # 3. Compaction이 필요하면 빈 셀 제거하고 데이터를 앞으로 당기기
+                if needs_compaction:
+                    # 기존 셀 모두 비우고 데이터만 순서대로 다시 쓰기
+                    for offset in range(MAX_DAILY_COUNT):
+                        col_idx = daily_start_idx + offset
+                        if offset < len(filled_values):
+                            # 데이터 채우기
+                            new_value = filled_values[offset]
+                        else:
+                            # 빈 셀로 만들기
+                            new_value = ""
+
+                        # 기존 값과 다르면 업데이트 목록에 추가
+                        old_value = daily_cells[offset][1] if offset < len(daily_cells) else ""
+                        if new_value != old_value:
+                            updates.append({
+                                "row": row_num,
+                                "col": col_idx + 1,
+                                "value": new_value,
+                                "business_name": business_name,
+                                "type": "compaction"
+                            })
+
+                    # 새 데이터는 정렬된 데이터 다음 위치에 추가
+                    target_col_idx = daily_start_idx + len(filled_values)
+                else:
+                    # Compaction 불필요 - 첫 번째 빈 셀 위치 찾기
+                    target_col_idx = -1
+                    for offset, (col_idx, cell_value) in enumerate(daily_cells):
+                        if not cell_value:
+                            target_col_idx = col_idx
+                            break
+
+                    # 빈 셀이 없으면 마지막 위치에 추가
+                    if target_col_idx == -1:
+                        target_col_idx = daily_start_idx + MAX_DAILY_COUNT
 
                 # 업데이트 추가
                 cell_value = f"{date_str}\n{current_rank}등"

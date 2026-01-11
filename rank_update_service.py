@@ -258,40 +258,82 @@ class GuaranteeSheetUpdater:
                     skipped_count += 1
                     continue
                 
-                # 5. 기입 위치 찾기 (동일 날짜 기록 시 패스)
-                target_col_idx = -1
+                # 5. 일별 순위 열 정리 및 기입 위치 찾기
+                # 일별 순위 열의 모든 데이터 수집
+                daily_cells = []  # [(col_idx, value), ...]
+                filled_values = []  # 빈 셀 제외한 실제 데이터만
                 already_recorded_today = False
-                
-                # 일별 순위 열 검사
+
                 for offset in range(MAX_DAILY_COUNT):
                     check_idx = daily_start_idx + offset
-                    
+
                     cell_value = ""
                     if check_idx < len(row):
                         cell_value = row[check_idx].strip()
-                    
-                    if not cell_value:
-                        # 빈 셀 발견 → 타겟
-                        target_col_idx = check_idx
-                        break
-                    
-                    # 오늘 날짜가 이미 기록되어 있는지 확인
-                    if today_str in cell_value:
-                        already_recorded_today = True
-                        break
-                
+
+                    daily_cells.append((check_idx, cell_value))
+
+                    if cell_value:
+                        filled_values.append(cell_value)
+                        # 오늘 날짜가 이미 기록되어 있는지 확인
+                        if today_str in cell_value:
+                            already_recorded_today = True
+
                 # 오늘 날짜가 이미 기록되어 있으면 패스
                 if already_recorded_today:
                     skipped_count += 1
                     continue
-                
-                # 25개가 꽉 찼으면 26번째 위치 사용
-                if target_col_idx == -1:
-                    target_col_idx = daily_start_idx + MAX_DAILY_COUNT
-                
+
+                # 중간에 빈 셀이 있는지 확인 (데이터 뒤에 빈 셀이 있고 그 뒤에 또 데이터가 있는 경우)
+                needs_compaction = False
+                first_empty_idx = -1
+                last_filled_idx = -1
+
+                for offset, (col_idx, cv) in enumerate(daily_cells):
+                    if cv:
+                        last_filled_idx = offset
+                    elif first_empty_idx == -1:
+                        first_empty_idx = offset
+
+                # 첫 빈 셀 이후에 데이터가 있으면 compaction 필요
+                if first_empty_idx != -1 and last_filled_idx > first_empty_idx:
+                    needs_compaction = True
+                    logger.info(f"[{sheet_name}] {business_name}: 중간 빈 셀 발견, 데이터 정렬 수행")
+
+                # Compaction이 필요하면 빈 셀 제거하고 데이터를 앞으로 당기기
+                if needs_compaction:
+                    for offset in range(MAX_DAILY_COUNT):
+                        col_idx = daily_start_idx + offset
+                        if offset < len(filled_values):
+                            new_value = filled_values[offset]
+                        else:
+                            new_value = ""
+
+                        old_value = daily_cells[offset][1] if offset < len(daily_cells) else ""
+                        if new_value != old_value:
+                            updates.append({
+                                "row": row_num,
+                                "col": col_idx + 1,
+                                "value": new_value,
+                            })
+
+                    # 새 데이터는 정렬된 데이터 다음 위치에 추가
+                    target_col_idx = daily_start_idx + len(filled_values)
+                else:
+                    # Compaction 불필요 - 첫 번째 빈 셀 위치 찾기
+                    target_col_idx = -1
+                    for offset, (col_idx, cv) in enumerate(daily_cells):
+                        if not cv:
+                            target_col_idx = col_idx
+                            break
+
+                    # 25개가 꽉 찼으면 26번째 위치 사용
+                    if target_col_idx == -1:
+                        target_col_idx = daily_start_idx + MAX_DAILY_COUNT
+
                 # 업데이트 추가 (1-indexed col로 변환)
                 cell_value = f"{today_str}\n{current_rank}등"
-                
+
                 updates.append({
                     "row": row_num,
                     "col": target_col_idx + 1,
