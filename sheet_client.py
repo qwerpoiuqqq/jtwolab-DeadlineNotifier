@@ -382,8 +382,8 @@ def fetch_grouped_messages(selected_days: List[int], settings: Settings | None =
 	return agency_to_task_to_names
 
 
-def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings | None = None, filter_mode: str = "agency") -> Dict[str, Dict[int, Dict[str, List[str]]]]:
-	"""대행사 -> 남은일수 -> 작업명(상품 포함 규칙) -> [상호명]
+def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings | None = None, filter_mode: str = "agency") -> Dict[str, Dict[str, Dict[int, Dict[str, List[str]]]]]:
+	"""업종(일반/맛집) -> 대행사 -> 남은일수 -> 작업명(상품 포함 규칙) -> [상호명]
 	- '기타' 탭: '상품 명' 열 값을 작업명으로 사용
 	- 그 외 탭: 작업명(=탭명) 뒤에 '상품' 열 값이 있으면 공백으로 이어붙여 표시
 	filter_mode: 'agency' | 'internal'
@@ -397,8 +397,8 @@ def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings 
 	ss = client.open_by_key(settings.spreadsheet_id)
 
 	selected_set: Set[int] = set(selected_days)
-	# 임시 집계: agency -> day -> task -> bizname -> sum(workload)
-	aggregator: Dict[str, Dict[int, Dict[str, Dict[str, int]]]] = {}
+	# 임시 집계: category -> agency -> day -> task -> bizname -> sum(workload)
+	aggregator: Dict[str, Dict[str, Dict[int, Dict[str, Dict[str, int]]]]] = {}
 
 	for ws in ss.worksheets():
 		tab_title = (ws.title or "").strip()
@@ -431,48 +431,45 @@ def fetch_grouped_messages_by_date(selected_days: List[int], settings: Settings 
 				continue
 
 			# 작업명 생성 규칙
-			# 변경: '상품 명' 열에 값이 있으면 그것을 작업명으로 사용
 			base_task = tab_title
-			if product_name:
-				# '상품 명' 열에 값이 있으면 우선 사용 (기타 탭 외에도 적용)
-				display_task = product_name
+			is_misc = _collapse_spaces(tab_title) == _collapse_spaces("기타")
+			if is_misc:
+				display_task = product_name if product_name else base_task
 			else:
-				# '상품 명'이 없으면 기존 로직: 탭명 + 상품
 				display_task = f"{base_task} {product}".strip() if product else base_task
 
-			# 내부 진행건 분류 (일반키워드 vs 맛집)
-			if filter_mode == "internal" and is_internal:
-				# 탭명, 상품, 상품명에 '맛집' 키워드가 포함되면 맛집으로 분류
-				combined_text = f"{tab_title} {product} {product_name}".lower()
-				if "맛집" in combined_text:
-					agency_label = "맛집 내부 진행"
-				else:
-					agency_label = "일반키워드 내부 진행"
-			else:
-				agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
+			# 업종 분류 (일반/맛집)
+			from business_category import classify_business_category
+			category = classify_business_category(tab_title=tab_title, product=product, product_name=product_name)
+
+			agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
 			# 집계 업데이트
 			try:
 				wl_num = _parse_int_maybe(workload) or 0
 			except Exception:
 				wl_num = 0
-			dict_by_day = aggregator.setdefault(agency_label, {})
+			dict_by_agency = aggregator.setdefault(category, {})
+			dict_by_day = dict_by_agency.setdefault(agency_label, {})
 			dict_by_task = dict_by_day.setdefault(remain, {})
 			by_name = dict_by_task.setdefault(display_task, {})
 			by_name[bizname] = by_name.get(bizname, 0) + wl_num
 
-	# 집계를 최종 출력 포맷으로 변환: List[str]
-	result: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
-	for agency, by_day in aggregator.items():
-		day_out: Dict[int, Dict[str, List[str]]] = {}
-		for day_key, by_task in by_day.items():
-			task_out: Dict[str, List[str]] = {}
-			for task, name_to_wl in by_task.items():
-				names: List[str] = []
-				for name, wl_sum in sorted(name_to_wl.items(), key=lambda kv: kv[0]):
-					names.append(f"{name} (일작업량 {wl_sum})" if wl_sum > 0 else name)
-				task_out[task] = names
-			day_out[day_key] = task_out
-		result[agency] = day_out
+	# 집계를 최종 출력 포맷으로 변환: category -> agency -> day -> task -> [biznames]
+	result: Dict[str, Dict[str, Dict[int, Dict[str, List[str]]]]] = {}
+	for category, by_agency in aggregator.items():
+		agency_out: Dict[str, Dict[int, Dict[str, List[str]]]] = {}
+		for agency, by_day in by_agency.items():
+			day_out: Dict[int, Dict[str, List[str]]] = {}
+			for day_key, by_task in by_day.items():
+				task_out: Dict[str, List[str]] = {}
+				for task, name_to_wl in by_task.items():
+					names: List[str] = []
+					for name, wl_sum in sorted(name_to_wl.items(), key=lambda kv: kv[0]):
+						names.append(f"{name} (일작업량 {wl_sum})" if wl_sum > 0 else name)
+					task_out[task] = names
+				day_out[day_key] = task_out
+			agency_out[agency] = day_out
+		result[category] = agency_out
 
 	return result
 
@@ -532,25 +529,14 @@ def stream_grouped_messages_by_date(selected_days: List[int], settings: Settings
 					continue
 
 				# 작업명 생성 규칙
-				# 변경: '상품 명' 열에 값이 있으면 그것을 작업명으로 사용
 				base_task = tab_title
-				if product_name:
-					# '상품 명' 열에 값이 있으면 우선 사용 (기타 탭 외에도 적용)
-					display_task = product_name
+				is_misc = _collapse_spaces(tab_title) == _collapse_spaces("기타")
+				if is_misc:
+					display_task = product_name if product_name else base_task
 				else:
-					# '상품 명'이 없으면 기존 로직: 탭명 + 상품
 					display_task = f"{base_task} {product}".strip() if product else base_task
 
-				# 내부 진행건 분류 (일반키워드 vs 맛집)
-				if filter_mode == "internal" and is_internal:
-					# 탭명, 상품, 상품명에 '맛집' 키워드가 포함되면 맛집으로 분류
-					combined_text = f"{tab_title} {product} {product_name}".lower()
-					if "맛집" in combined_text:
-						agency_label = "맛집 내부 진행"
-					else:
-						agency_label = "일반키워드 내부 진행"
-				else:
-					agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
+				agency_label = agency_raw if filter_mode == "agency" else (agency_raw or "내부 진행")
 				dict_by_day = aggregator.setdefault(agency_label, {})
 				dict_by_task = dict_by_day.setdefault(remain, {})
 				by_name = dict_by_task.setdefault(display_task, {})

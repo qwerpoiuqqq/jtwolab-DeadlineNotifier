@@ -576,7 +576,7 @@
           <div class="card stat-card" style="border-left:4px solid var(--primary);">
             <div class="stat-icon">📊</div>
             <div class="stat-label">총 건수</div>
-            <div class="stat-value" id="stat-total">{{ grouped|length if grouped else 0 }}</div>
+            <div class="stat-value" id="stat-total">{{ total_agency_count if total_agency_count is defined else 0 }}</div>
             <div class="muted" style="font-size:11px;">{{ '대행사 발주건' if filter_mode != 'internal' else '내부 진행건' }}</div>
           </div>
         </div>
@@ -683,37 +683,43 @@
         </div>
       </div>
 
-      <!-- 대행사 목록 -->
+      <!-- 대행사 목록 (업종별 구분) -->
+      {% set card_counter = [0] %}
+      {% for category in ["일반", "맛집"] %}
+        {% if category in grouped and grouped[category] %}
       <div class="section">
         <div class="section-header">
-          <h2 class="section-title">📋 대행사별 마감 안내</h2>
+          <h2 class="section-title">{% if category == "일반" %}🏢 일반 업종{% else %}🍽️ 맛집 업종{% endif %}</h2>
           <div style="display:flex; gap:8px;">
-            <button class="btn btn-secondary btn-sm" type="button" id="select-all">✅ 전체 선택</button>
-            <button class="btn btn-success" type="button" id="bulk-done">✔️ 마감 완료</button>
+            <button class="btn btn-secondary btn-sm" type="button" class="select-all-category" data-category="{{ category }}">✅ 전체 선택</button>
+            <button class="btn btn-success" type="button" class="bulk-done-category" data-category="{{ category }}">✔️ 마감 완료</button>
           </div>
         </div>
-        <div class="grid grid-2" id="results">
-          {% for agency, tasks in grouped.items() %}
-          <div class="card" data-card data-agency="{{ agency }}">
+        <div class="grid grid-2" data-results data-category="{{ category }}">
+          {% for agency, tasks in grouped[category].items() %}
+            {% set _ = card_counter.append(card_counter.pop() + 1) %}
+          <div class="card" data-card data-agency="{{ agency }}" data-category="{{ category }}">
             <div class="card-head">
               <div class="stack" style="align-items:center; gap:8px">
-                <input type="checkbox" class="select-agency" data-agency="{{ agency }}"
+                <input type="checkbox" class="select-agency" data-agency="{{ agency }}" data-category="{{ category }}"
                   style="width:16px; height:16px" />
                 <div class="name">[{{ agency }}]</div>
               </div>
               <div class="stack">
                 <button class="btn btn-sm btn-secondary" type="button" data-toggle>접기</button>
-                <button class="btn btn-sm btn-primary" type="button" onclick="copyText('c{{ loop.index }}')">📋
+                <button class="btn btn-sm btn-primary" type="button" onclick="copyText('c{{ card_counter[-1] }}')">📋
                   복사</button>
               </div>
             </div>
-            <div class="copy" id="c{{ loop.index }}" data-body data-agency-index="{{ loop.index }}">
+            <div class="copy" id="c{{ card_counter[-1] }}" data-body data-agency-index="{{ card_counter[-1] }}">
               {{ agency_to_message[agency] }}
             </div>
           </div>
           {% endfor %}
         </div>
       </div>
+        {% endif %}
+      {% endfor %}
       {% else %}
       <div class="section">
         <div class="empty-state">

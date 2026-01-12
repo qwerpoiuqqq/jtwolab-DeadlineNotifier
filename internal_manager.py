@@ -179,38 +179,13 @@ def parse_date_flexible(date_str: str):
 	return None
 
 
-def _build_task_display(tab_title: str, product: str, product_name: str, reception: str = None, is_internal: bool = False) -> str:
-	"""작업명 생성
-
-	변경사항:
-	- '상품 명' 열에 값이 있으면 그것을 작업명으로 사용 (기타 탭 외에도 적용)
-	- '(신)일류' 탭 + 내부 진행건: '상품 명' + '접수처' 함께 표기
-
-	Args:
-		tab_title: 탭 이름
-		product: '상품' 열 값
-		product_name: '상품 명' 열 값
-		reception: '접수처' 열 값 (옵션)
-		is_internal: 내부 진행건 여부
-
-	Returns:
-		표시용 작업명
-	"""
+def _build_task_display(tab_title: str, product: str, product_name: str) -> str:
 	base_task = (tab_title or "").strip()
-
-	# (신)일류 탭 + 내부 진행건: 상품명 + 접수처 표기
-	is_new_ilryu = _collapse_spaces(base_task) in [_collapse_spaces("(신)일류"), _collapse_spaces("신일류")]
-	if is_new_ilryu and is_internal and product_name:
-		if reception:
-			return f"{product_name} ({reception})"
-		return product_name
-
-	# '상품 명' 열에 값이 있으면 우선 사용
-	if product_name:
-		return product_name
-
-	# '상품 명'이 없으면 기존 로직: 탭명 + 상품
-	return (f"{base_task} {product}".strip() if product else base_task) or base_task
+	is_misc = _collapse_spaces(base_task) == _collapse_spaces("기타")
+	if is_misc:
+		return (product_name or base_task).strip() or base_task
+	else:
+		return (f"{base_task} {product}".strip() if product else base_task) or base_task
 
 
 def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
@@ -299,15 +274,7 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 			workload = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
 			product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
 			product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
-
-			# 접수처 읽기 (신일류 탭 내부 진행건용)
-			reception = None
-			for possible_col in ["접수처", "접수 처", "접수"]:
-				reception_val = _get_value_flexible(row_norm, possible_col, "")
-				if reception_val:
-					reception = str(reception_val).strip()
-					break
-
+			
 			# 회사 필터 (상호명 기준)
 			if company_business_names is not None:
 				if bizname not in company_business_names:
@@ -372,9 +339,9 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 					if val:
 						item_col_value = str(val).strip()
 						break
-				task_display = item_col_value if item_col_value else _build_task_display(tab_title, product, product_name, reception, is_internal=True)
+				task_display = item_col_value if item_col_value else _build_task_display(tab_title, product, product_name)
 			else:
-				task_display = _build_task_display(tab_title, product, product_name, reception, is_internal=True)
+				task_display = _build_task_display(tab_title, product, product_name)
 			
 			all_items.append({
 				"agency": agency_raw or "내부 진행",
@@ -383,7 +350,10 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 				"workload": workload,
 				"start_date": start_date,
 				"end_date": end_date,
-				"has_real_start_date": bool(start_date_str)  # 시트에 시작일 컬럼이 있었는지
+				"has_real_start_date": bool(start_date_str),  # 시트에 시작일 컬럼이 있었는지
+				"tab_title": tab_title,  # 업종 분류용
+				"product": product,  # 업종 분류용
+				"product_name": product_name  # 업종 분류용
 			})
 	
 	logger.info(f"✅ {company} raw 데이터: {len(all_items)}개")
@@ -547,20 +517,12 @@ def fetch_internal_items() -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
 			product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
 			workload = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
 
-			# 접수처 읽기 (신일류 탭 내부 진행건용)
-			reception = None
-			for possible_col in ["접수처", "접수 처", "접수"]:
-				reception_val = _get_value_flexible(row_norm, possible_col, "")
-				if reception_val:
-					reception = str(reception_val).strip()
-					break
-
 			if not is_internal:
 				continue
 			if not bizname:
 				continue
 
-			display_task = _build_task_display(tab_title, product, product_name, reception, is_internal=True)
+			display_task = _build_task_display(tab_title, product, product_name)
 			label_agency = agency_raw or "내부 진행"
 			try:
 				wl_num = _parse_int_maybe(workload) or 0
@@ -794,15 +756,7 @@ def fetch_workload_schedule_direct(company: str = None, business_name: str = Non
 			workload = str(_get_value_flexible(row_norm, settings.daily_workload_col, "DAILY_WORKLOAD_COLUMN") or "").strip()
 			product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
 			product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
-
-			# 접수처 읽기 (신일류 탭 내부 진행건용)
-			reception = None
-			for possible_col in ["접수처", "접수 처", "접수"]:
-				reception_val = _get_value_flexible(row_norm, possible_col, "")
-				if reception_val:
-					reception = str(reception_val).strip()
-					break
-
+			
 			# 회사 필터 (상호명 기준으로 매칭) - 상호명 필터가 없을 때만 적용
 			if not business_name:
 				if company and company_business_names is not None:
@@ -877,9 +831,9 @@ def fetch_workload_schedule_direct(company: str = None, business_name: str = Non
 					if val:
 						item_col_value = str(val).strip()
 						break
-				task_display = item_col_value if item_col_value else _build_task_display(tab_title, product, product_name, reception, is_internal=True)
+				task_display = item_col_value if item_col_value else _build_task_display(tab_title, product, product_name)
 			else:
-				task_display = _build_task_display(tab_title, product, product_name, reception, is_internal=True)
+				task_display = _build_task_display(tab_title, product, product_name)
 			
 			all_items.append({
 				"agency": agency_raw or "내부 진행",
@@ -888,7 +842,10 @@ def fetch_workload_schedule_direct(company: str = None, business_name: str = Non
 				"workload": workload,
 				"start_date": start_date,
 				"end_date": end_date,
-				"has_real_start_date": has_real_start_date
+				"has_real_start_date": has_real_start_date,
+				"tab_title": tab_title,  # 업종 분류용
+				"product": product,  # 업종 분류용
+				"product_name": product_name  # 업종 분류용
 			})
 			valid_items += 1
 	

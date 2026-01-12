@@ -445,57 +445,59 @@ def create_app() -> Flask:
 			# 1) 기본: 날짜(요일) → <작업명> → 상호명
 			# 2) 작업량 포함: 날짜(요일) → <작업명> → 상호명 : 일작업량
 			name_wl_re = re.compile(r"^(.+?)\s*\(일작업량\s+(.*?)\)$")
-			for agency, by_day in grouped_by_date.items():
-				parts_base: List[str] = []
-				parts_wl: List[str] = []
-				for d in sorted(by_day.keys()):
-					# 날짜 헤더
-					date_label = day_to_date_label.get(d, f"+{d}")
-					parts_base.append(date_label)
-					parts_wl.append(date_label)
-					# 작업명과 상호들
-					for task, names in by_day[d].items():
-						if not names:
-							continue
-						display_task = _strip_parentheses(task)
-						parts_base.append(f"<{display_task}>")
-						parts_wl.append(f"<{display_task}>")
-						for name in names:
-							name_str = str(name).strip()
-							m = name_wl_re.match(name_str)
-							if m:
-								base_name = m.group(1).strip()
-								workload_val = m.group(2).strip()
-								parts_base.append(base_name)
-								parts_wl.append(f"{base_name} : {workload_val}")
-							else:
-								# 작업량 정보가 없으면 동일하게 표기
-								parts_base.append(name_str)
-								parts_wl.append(name_str)
-						# 작업 블록 사이: 1줄 공백
+			for category, by_agency in grouped_by_date.items():
+				for agency, by_day in by_agency.items():
+					parts_base: List[str] = []
+					parts_wl: List[str] = []
+					for d in sorted(by_day.keys()):
+						# 날짜 헤더
+						date_label = day_to_date_label.get(d, f"+{d}")
+						parts_base.append(date_label)
+						parts_wl.append(date_label)
+						# 작업명과 상호들
+						for task, names in by_day[d].items():
+							if not names:
+								continue
+							display_task = _strip_parentheses(task)
+							parts_base.append(f"<{display_task}>")
+							parts_wl.append(f"<{display_task}>")
+							for name in names:
+								name_str = str(name).strip()
+								m = name_wl_re.match(name_str)
+								if m:
+									base_name = m.group(1).strip()
+									workload_val = m.group(2).strip()
+									parts_base.append(base_name)
+									parts_wl.append(f"{base_name} : {workload_val}")
+								else:
+									# 작업량 정보가 없으면 동일하게 표기
+									parts_base.append(name_str)
+									parts_wl.append(name_str)
+							# 작업 블록 사이: 1줄 공백
+							parts_base.append("")
+							parts_wl.append("")
+						# 날짜 블록 사이: 추가로 1줄 더 공백(= 총 2줄)
 						parts_base.append("")
 						parts_wl.append("")
-					# 날짜 블록 사이: 추가로 1줄 더 공백(= 총 2줄)
-					parts_base.append("")
-					parts_wl.append("")
-				agency_to_message[agency] = "\n".join(parts_base).rstrip()
-				agency_to_message_workload[agency] = "\n".join(parts_wl).rstrip()
+					agency_to_message[agency] = "\n".join(parts_base).rstrip()
+					agency_to_message_workload[agency] = "\n".join(parts_wl).rstrip()
 
 			# 대행사별 실제 존재하는 마감일 범위를 기준으로 날짜 문구(요일 포함) 생성
 			weekday_kr = ["월", "화", "수", "목", "금", "토", "일"]
 			def fmt_mmdd_w(dt: date) -> str:
 				return f"{dt.month:02d}/{dt.day:02d}({weekday_kr[dt.weekday()]})"
-			for agency, by_day in grouped_by_date.items():
-				present_days = sorted(list(by_day.keys()))
-				if not present_days:
-					continue
-				start_dt = base_dt + timedelta(days=present_days[0])
-				end_dt = base_dt + timedelta(days=present_days[-1])
-				if start_dt == end_dt:
-					line = f"{fmt_mmdd_w(start_dt)} 마감건 안내드립니다."
-				else:
-					line = f"{fmt_mmdd_w(start_dt)} ~ {fmt_mmdd_w(end_dt)} 마감건 안내드립니다."
-				agency_to_date_line[agency] = line
+			for category, by_agency in grouped_by_date.items():
+				for agency, by_day in by_agency.items():
+					present_days = sorted(list(by_day.keys()))
+					if not present_days:
+						continue
+					start_dt = base_dt + timedelta(days=present_days[0])
+					end_dt = base_dt + timedelta(days=present_days[-1])
+					if start_dt == end_dt:
+						line = f"{fmt_mmdd_w(start_dt)} 마감건 안내드립니다."
+					else:
+						line = f"{fmt_mmdd_w(start_dt)} ~ {fmt_mmdd_w(end_dt)} 마감건 안내드립니다."
+					agency_to_date_line[agency] = line
 
 			# 선택된 날짜 범위 기반 추천 첫 멘트 생성 (인사 + 날짜 문구, MM/DD 포맷)
 			if ordered_days:
@@ -513,15 +515,19 @@ def create_app() -> Flask:
 
 		# 마감일별 통계 계산 (0~5일)
 		deadline_stats: Dict[int, List[str]] = {i: [] for i in range(6)}
+		total_agency_count = 0
 		if did_fetch and grouped_by_date:
-			for agency, by_day in grouped_by_date.items():
-				for day in by_day.keys():
-					if 0 <= day <= 5 and agency not in deadline_stats[day]:
-						deadline_stats[day].append(agency)
+			for category, by_agency in grouped_by_date.items():
+				total_agency_count += len(by_agency)
+				for agency, by_day in by_agency.items():
+					for day in by_day.keys():
+						if 0 <= day <= 5 and agency not in deadline_stats[day]:
+							deadline_stats[day].append(agency)
 
 		return render_template(
 			"index.html",
 			error=error,
+			total_agency_count=total_agency_count,
 			did_fetch=did_fetch,
 			days_param=days_param,
 			base_date_str=base_date_str or base_dt.isoformat(),
@@ -1581,120 +1587,6 @@ def create_app() -> Flask:
 		except Exception as e:
 			logger.error(f"Rank import error: {e}")
 			return jsonify({"error": str(e)}), 500
-
-	# --- 크롤링 실패 복구 API ---
-	@app.route("/api/guarantee/recovery/failed-dates", methods=["GET"])
-	@login_required
-	def api_get_failed_crawl_dates():
-		"""실패한 크롤링 날짜 조회"""
-		days_back = int(request.args.get("days", 7))
-
-		try:
-			from recovery_service import get_failed_crawl_dates
-			failed_dates = get_failed_crawl_dates(days_back)
-			return jsonify({
-				"success": True,
-				"failed_dates": failed_dates,
-				"count": len(failed_dates)
-			}), 200
-		except Exception as e:
-			logger.error(f"Failed dates query error: {e}")
-			return jsonify({"success": False, "error": str(e)}), 500
-
-	@app.route("/api/guarantee/recovery/recover-all", methods=["POST"])
-	@login_required
-	def api_recover_failed_crawls():
-		"""실패한 모든 크롤링 복구 (최근 N일)
-
-		1. rank_update_logs에서 실패한 날짜 찾기
-		2. 누락된 날짜 재크롤링
-		3. 월보장 시트 선택적 업데이트 (이미 채워진 셀 건너뛰기)
-		"""
-		data = request.get_json(force=True) if request.is_json else {}
-		days_back = int(data.get("days", 7))
-
-		try:
-			from recovery_service import recover_failed_crawls
-			result = recover_failed_crawls(days_back)
-			return jsonify(result), 200
-		except Exception as e:
-			logger.error(f"Recovery error: {e}")
-			import traceback
-			logger.error(traceback.format_exc())
-			return jsonify({"success": False, "error": str(e)}), 500
-
-	@app.route("/api/guarantee/recovery/recover-date", methods=["POST"])
-	@login_required
-	def api_recover_specific_date():
-		"""특정 날짜만 복구
-
-		Request body: {"date": "2025-01-08"}
-
-		1. 해당 날짜 재크롤링
-		2. 월보장 시트 선택적 업데이트 (이미 채워진 셀 건너뛰기)
-		"""
-		data = request.get_json(force=True)
-		target_date = data.get("date")
-
-		if not target_date:
-			return jsonify({"success": False, "error": "date 파라미터가 필요합니다"}), 400
-
-		# 날짜 형식 검증
-		try:
-			from datetime import datetime
-			datetime.strptime(target_date, "%Y-%m-%d")
-		except ValueError:
-			return jsonify({"success": False, "error": "날짜 형식이 잘못되었습니다 (YYYY-MM-DD)"}), 400
-
-		try:
-			from recovery_service import recover_specific_date
-			result = recover_specific_date(target_date)
-			return jsonify(result), 200
-		except Exception as e:
-			logger.error(f"Date recovery error: {e}")
-			import traceback
-			logger.error(traceback.format_exc())
-			return jsonify({"success": False, "error": str(e)}), 500
-
-	@app.route("/api/guarantee/recovery/missing-dates", methods=["GET"])
-	@login_required
-	def api_get_missing_dates():
-		"""월보장 시트에서 누락된 날짜 조회
-
-		오늘 데이터가 있더라도 이전 날짜가 빠져있으면 감지
-		"""
-		days_back = int(request.args.get("days", 14))
-
-		try:
-			from recovery_service import get_missing_dates_from_sheets
-			result = get_missing_dates_from_sheets(days_back)
-			return jsonify(result), 200
-		except Exception as e:
-			logger.error(f"Missing dates check error: {e}")
-			import traceback
-			logger.error(traceback.format_exc())
-			return jsonify({"success": False, "error": str(e)}), 500
-
-	@app.route("/api/guarantee/recovery/recover-missing", methods=["POST"])
-	@login_required
-	def api_recover_missing_dates():
-		"""누락된 날짜 자동 복구
-
-		월보장 시트에서 누락된 날짜를 찾아 크롤링 후 업데이트
-		(오늘 데이터가 있더라도 이전 데이터가 없으면 복구)
-		"""
-		data = request.get_json(force=True) if request.is_json else {}
-		days_back = int(data.get("days", 14))
-
-		try:
-			from recovery_service import recover_missing_dates
-			result = recover_missing_dates(days_back)
-			return jsonify(result), 200
-		except Exception as e:
-			logger.error(f"Missing dates recovery error: {e}")
-			import traceback
-			logger.error(traceback.format_exc())
-			return jsonify({"success": False, "error": str(e)}), 500
 
 	# --- Worklog Cache API ---
 	@app.route("/api/worklog/cache/refresh", methods=["POST"])
