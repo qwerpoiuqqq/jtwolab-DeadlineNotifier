@@ -7,6 +7,7 @@ from functools import wraps
 from dotenv import load_dotenv
 from datetime import date, timedelta, datetime
 import re
+import gc
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 import logging
@@ -168,9 +169,14 @@ def create_app() -> Flask:
 			result = crawl_ranks_for_company(None)
 			logger.info(f"✅ Rank crawling completed: {result.get('message', 'Unknown')}")
 			logger.info(f"   Crawled: {result.get('crawled_count', 0)}, Failed: {result.get('failed_count', 0)}")
-			log_scheduler_event("rank_crawl", "순위 크롤링", "success", 
+			log_scheduler_event("rank_crawl", "순위 크롤링", "success",
 				f"크롤링 {result.get('crawled_count', 0)}건 완료", result)
-			
+
+			# === 메모리 정리: 크롤링 후 ===
+			import gc
+			gc.collect()
+			logger.info("🧹 Memory cleaned after crawling")
+
 			# 15시 크롤링인 경우 보장건 시트 자동 업데이트
 			current_hour = datetime.now(pytz.timezone('Asia/Seoul')).hour
 			if current_hour >= 12:  # 오후 크롤링인 경우
@@ -185,7 +191,11 @@ def create_app() -> Flask:
 				except Exception as update_error:
 					logger.error(f"❌ Guarantee sheet update failed: {update_error}")
 					log_scheduler_event("guarantee_update", "보장건 시트 업데이트", "failed", str(update_error))
-				
+				finally:
+					# === 메모리 정리: 보장건 업데이트 후 ===
+					gc.collect()
+					logger.info("🧹 Memory cleaned after guarantee update")
+
 				# 레시피 분석 실행
 				try:
 					log_scheduler_event("recipe_analysis", "레시피 분석", "started", "분석 시작")
@@ -194,12 +204,18 @@ def create_app() -> Flask:
 					analyzer = get_analyzer()
 					analysis_result = analyzer.analyze_all(weeks=3)
 					logger.info(f"✅ Recipe analysis complete: {analysis_result.get('total_analyzed', 0)} businesses")
-					log_scheduler_event("recipe_analysis", "레시피 분석", "success", 
+					log_scheduler_event("recipe_analysis", "레시피 분석", "success",
 						f"{analysis_result.get('total_analyzed', 0)}개 업체 분석 완료")
+					# 분석기 객체 명시적 삭제
+					del analyzer
 				except Exception as analysis_error:
 					logger.error(f"❌ Recipe analysis failed: {analysis_error}")
 					log_scheduler_event("recipe_analysis", "레시피 분석", "failed", str(analysis_error))
-				
+				finally:
+					# === 메모리 정리: 레시피 분석 후 ===
+					gc.collect()
+					logger.info("🧹 Memory cleaned after recipe analysis")
+
 				# 학습 데이터셋 빌드 (크롤링 후 자동 실행)
 				try:
 					log_scheduler_event("training_build", "학습 데이터셋 빌드", "started", "빌드 시작")
@@ -212,7 +228,11 @@ def create_app() -> Flask:
 				except Exception as build_error:
 					logger.error(f"❌ Training dataset build failed: {build_error}")
 					log_scheduler_event("training_build", "학습 데이터셋 빌드", "failed", str(build_error))
-					
+				finally:
+					# === ë©ëª¨ë¦¬ ì ë¦¬: íìµ ë°ì´í°ì ë¹ë í ===
+					gc.collect()
+					logger.info("ð§¹ Memory cleaned after training dataset build")
+
 		except Exception as e:
 			logger.error(f"❌ Automatic rank crawling failed: {e}")
 			import traceback
@@ -223,7 +243,10 @@ def create_app() -> Flask:
 			with _scheduler_lock:
 				_scheduler_running["rank_crawl"] = False
 			logger.info("🔓 Rank crawling lock released")
-	
+		# === 최종 메모리 정리 ===
+		gc.collect()
+		logger.info("🧹 Final memory cleanup completed")
+
 	# 매일 9시, 16시 스케줄 등록 (보장건 동기화)
 	scheduler.add_job(func=sync_guarantee_data, trigger="cron", hour=9, minute=0, id="morning_sync")
 	scheduler.add_job(func=sync_guarantee_data, trigger="cron", hour=16, minute=0, id="afternoon_sync")

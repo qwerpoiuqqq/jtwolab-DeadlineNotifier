@@ -1160,7 +1160,18 @@ class AdlogCrawler:
 # =============================================================================
 
 def crawl_ranks_for_company(company: str = None) -> Dict:
-    """특정 회사의 순위 크롤링 (외부 호출용)"""
+    """특정 회사의 순위 크롤링 (외부 호출용)
+
+    환경변수 USE_NAVER_DIRECT_API=true 시 네이버 직접 API 사용 (메모리 효율적)
+    그 외에는 기존 애드로그 Playwright 크롤링 사용
+    """
+    # 네이버 직접 API 모드 확인
+    if os.getenv("USE_NAVER_DIRECT_API", "").lower() in ("true", "1", "yes"):
+        logger.info("[crawl_ranks_for_company] 네이버 직접 API 모드 사용")
+        return crawl_ranks_direct_api(company)
+
+    # 기존 애드로그 Playwright 크롤링
+    logger.info("[crawl_ranks_for_company] 애드로그 Playwright 모드 사용")
     crawler = AdlogCrawler()
     return crawler.crawl_ranks(company)
 
@@ -1257,3 +1268,228 @@ def crawl_ranks_with_token(token: str, company: str = None) -> Dict:
         }
     
     return crawl_ranks_for_company(company)
+
+
+# =============================================================================
+# 네이버 직접 API 크롤링 (메모리 효율적, Playwright 불필요)
+# =============================================================================
+
+def crawl_ranks_direct_api(company: str = None) -> Dict:
+    """네이버 플레이스 API를 직접 호출하여 순위 크롤링 (Playwright 불필요)
+
+    환경변수 USE_NAVER_DIRECT_API=true 시 사용됨
+    - 메모리 사용량 대폭 감소 (Playwright 없음)
+    - Decodo 프록시 자동 할당
+    - gdid에서 Popularity(인기도) 점수 추출 (N2 점수와 유사)
+
+    Args:
+        company: 회사 필터 (None이면 전체)
+
+    Returns:
+        크롤링 결과 딕셔너리
+    """
+    import gc
+    from datetime import datetime
+    import pytz
+
+    try:
+        from naver_direct_crawler import NaverDirectCrawler
+        from rank_snapshot_manager import RankSnapshotManager
+        from guarantee_manager import GuaranteeManager
+
+        KST = pytz.timezone('Asia/Seoul')
+        now = datetime.now(KST)
+        collected_at = now.strftime("%Y-%m-%d %H:%M:%S")
+        date_str = now.strftime("%Y-%m-%d")
+        time_slot = "09:00" if now.hour < 12 else "15:00"
+
+        logger.info(f"[DirectAPI] 네이버 직접 API 크롤링 시작 (company={company})")
+
+        # 0. 크롤링 전 보장건 데이터 동기화 (최신 데이터 확보)
+        gm = GuaranteeManager()
+        try:
+            sync_result = gm.sync_from_google_sheets()
+            logger.info(f"[DirectAPI] 보장건 데이터 동기화 완료: 추가 {sync_result.get('added', 0)}, 수정 {sync_result.get('updated', 0)}")
+        except Exception as sync_error:
+            logger.warning(f"[DirectAPI] 동기화 실패, 캐시 데이터 사용: {sync_error}")
+
+        # 1. 보장건 시트에서 모니터링 대상 가져오기
+        items = gm.get_items()
+
+        # 진행중/후불 상태 필터링
+        active_statuses = ['진행중', '후불']
+        items = [item for item in items if item.get("status") in active_statuses]
+
+        # 회사 필터
+        if company:
+            items = [item for item in items if item.get("company") == company]
+
+        # 타겟 목록 구성 (place_id 추출 포함)
+        targets = []
+        for item in items:
+            if item.get("business_name") and item.get("main_keyword"):
+                place_url = item.get("url", "")
+                place_id = ""
+                if place_url:
+                    match = re.search(r'/(\d{5,})', place_url)
+                    if match:
+                        place_id = match.group(1)
+
+                targets.append({
+                    "business_name": item.get("business_name"),
+                    "keyword": item.get("main_keyword"),
+                    "place_url": place_url,
+                    "place_id": place_id,
+                    "group": item.get("company", ""),
+                    "agency": item.get("agency", ""),
+                })
+
+        if not targets:
+            logger.warning("[DirectAPI] 크롤링 대상 없음")
+            return {"success": False, "message": "크롤링 대상 없음", "crawled_count": 0, "failed_count": 0}
+
+        logger.info(f"[DirectAPI] 크롤링 대상: {len(targets)}개")
+
+        # 2. 네이버 직접 API 크롤러 초기화
+        crawler = NaverDirectCrawler(use_proxy=True)
+
+        # 3. 키워드별 크롤링
+        snapshot_records = []
+        keywords_cache = {}  # 동일 키워드 결과 캐시
+
+        for target in targets:
+            keyword = target.get("keyword", "")
+            place_id = target.get("place_id", "")
+            place_url = target.get("place_url", "")
+            business_name = target.get("business_name", "")
+            group = target.get("group", "")
+            agency = target.get("agency", "")
+
+            if not keyword or not place_id:
+                logger.warning(f"[DirectAPI] 스킵: {business_name} - keyword={keyword or '없음'}, place_id={place_id or '없음'}, url={place_url or '없음'}")
+                continue
+
+            # 캐시 확인
+            if keyword not in keywords_cache:
+                search_results = crawler.search_places(keyword, limit=50)
+                keywords_cache[keyword] = search_results
+                # Rate Limit 방지
+                time.sleep(0.3)
+
+            search_results = keywords_cache[keyword]
+
+            # 순위 찾기
+            found = None
+            for item in search_results:
+                if str(item.get("id")) == str(place_id):
+                    found = item
+                    break
+
+            if found:
+                record = {
+                    "date": date_str,
+                    "time_slot": time_slot,
+                    "collected_at": collected_at,
+                    "group": group,
+                    "agency": agency,
+                    "client_name": business_name,
+                    "keyword": keyword,
+                    "place_url": place_url,
+                    "place_id": place_id,
+                    "rank": found["rank"],
+                    "n2_score": found["popularity"],  # Popularity ≈ N2 점수
+                    "saves": None,  # 네이버 API에서는 저장 수 미제공
+                    "visitor_reviews": found["visitor_review_count"],
+                    "blog_reviews": found["blog_review_count"],
+                    "image_count": found["image_count"],
+                    "trust_score": found["trust"],
+                    "source": "naver_direct_api",
+                }
+                logger.debug(f"[DirectAPI] {business_name} / {keyword}: 순위 {found['rank']}")
+            else:
+                record = {
+                    "date": date_str,
+                    "time_slot": time_slot,
+                    "collected_at": collected_at,
+                    "group": group,
+                    "agency": agency,
+                    "client_name": business_name,
+                    "keyword": keyword,
+                    "place_url": place_url,
+                    "place_id": place_id,
+                    "rank": None,
+                    "n2_score": None,
+                    "saves": None,
+                    "visitor_reviews": None,
+                    "blog_reviews": None,
+                    "image_count": None,
+                    "trust_score": None,
+                    "source": "naver_direct_api",
+                }
+                logger.debug(f"[DirectAPI] {business_name} / {keyword}: 순위권 외")
+
+            snapshot_records.append(record)
+
+        # 4. Google Sheets 스냅샷 저장 (API 실패 감지 포함)
+        if snapshot_records:
+            # API 실패 감지: 순위 발견율이 10% 미만이면 저장 건너뛰기
+            found_count_check = sum(1 for r in snapshot_records if r.get("rank") is not None)
+            found_rate = found_count_check / len(snapshot_records) if snapshot_records else 0
+
+            if found_rate < 0.1 and len(snapshot_records) > 5:
+                # API 실패로 추정 - 기존 데이터 보호를 위해 저장 건너뛰기
+                logger.error(f"[DirectAPI] ⚠️ API 실패 감지: 순위 발견율 {found_rate*100:.1f}% ({found_count_check}/{len(snapshot_records)})")
+                logger.error("[DirectAPI] 기존 데이터 보호를 위해 저장을 건너뜁니다.")
+                return {
+                    "success": False,
+                    "message": f"API 실패 감지 - 순위 발견율 {found_rate*100:.1f}%",
+                    "crawled_count": len(snapshot_records),
+                    "failed_count": len(snapshot_records) - found_count_check,
+                    "found": found_count_check,
+                    "method": "naver_direct_api",
+                    "skipped_save": True,
+                }
+
+            try:
+                snapshot_manager = RankSnapshotManager()
+                upsert_result = snapshot_manager.upsert_bulk(snapshot_records)
+                logger.info(f"[DirectAPI] 스냅샷 저장 완료: {upsert_result}")
+            except Exception as e:
+                logger.error(f"[DirectAPI] 스냅샷 저장 실패: {e}")
+
+        # 5. 메모리 정리
+        del crawler
+        del keywords_cache
+        gc.collect()
+        logger.info("[DirectAPI] 메모리 정리 완료")
+
+        # 6. 통계
+        crawled_count = len(snapshot_records)
+        found_count = sum(1 for r in snapshot_records if r.get("rank") is not None)
+        n2_count = sum(1 for r in snapshot_records if r.get("n2_score") is not None)
+
+        logger.info(f"[DirectAPI] 크롤링 완료: 총 {crawled_count}건, 순위 발견 {found_count}건, N2점수 {n2_count}건")
+
+        return {
+            "success": True,
+            "message": f"DirectAPI 크롤링 완료: {crawled_count}건",
+            "crawled_count": crawled_count,
+            "failed_count": 0,
+            "found": found_count,
+            "n2_found": n2_count,
+            "method": "naver_direct_api",
+        }
+
+    except ImportError as e:
+        logger.error(f"[DirectAPI] 모듈 임포트 실패: {e}")
+        return {"success": False, "message": f"모듈 임포트 실패: {e}", "crawled_count": 0, "failed_count": 1}
+    except Exception as e:
+        logger.error(f"[DirectAPI] 크롤링 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "message": f"크롤링 실패: {e}", "crawled_count": 0, "failed_count": 1}
+
+
+def is_direct_api_enabled() -> bool:
+    """네이버 직접 API 모드가 활성화되어 있는지 확인"""
+    return os.getenv("USE_NAVER_DIRECT_API", "").lower() in ("true", "1", "yes")

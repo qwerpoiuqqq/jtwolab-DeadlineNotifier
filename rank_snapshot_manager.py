@@ -40,9 +40,11 @@ SNAPSHOT_HEADERS = [
     "saves",          # 저장 수
     "blog_reviews",   # 블로그 리뷰 수
     "visitor_reviews",# 방문자 리뷰 수
-    "n2_score",       # N2 지수
+    "n2_score",       # N2 지수 (popularity)
+    "image_count",    # 이미지 수
+    "trust_score",    # 신뢰도 점수
     "collected_at",   # 실제 수집 타임스탬프
-    "source",         # 데이터 출처 (adlog_crawl / manual)
+    "source",         # 데이터 출처 (adlog_crawl / manual / naver_direct_api)
 ]
 
 LOG_HEADERS = [

@@ -265,7 +265,7 @@ class GuaranteeSheetUpdater:
                 
                 # 순위 값 확인
                 raw_rank = rank_item.get("rank")
-                if raw_rank is None:
+                if not raw_rank:  # None, "", 0 등 빈 값 처리
                     continue
                     
                 try:
