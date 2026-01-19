@@ -292,12 +292,13 @@ def refresh_all_workload_cache() -> Dict[str, Any]:
             
             for idx, business_name in enumerate(business_names, 1):
                 try:
-                    # Raw 데이터에서 해당 업체만 필터링
+                    # Raw 데이터에서 해당 업체만 필터링 (정규화된 매칭 - 대소문자, 공백 무시)
+                    business_name_normalized = business_name.strip().lower().replace(" ", "")
                     business_raw_items = [
-                        item for item in raw_items 
-                        if item.get("bizname") == business_name
+                        item for item in raw_items
+                        if str(item.get("bizname", "")).strip().lower().replace(" ", "") == business_name_normalized
                     ]
-                    
+
                     if not business_raw_items:
                         logger.info(f"  [{idx}/{len(business_names)}] ⊘ {business_name}: no data")
                         skipped_count += 1
@@ -311,7 +312,8 @@ def refresh_all_workload_cache() -> Dict[str, Any]:
                         logger.info(f"     ↳ raw 데이터 샘플 (최대 15개):")
                         for sample_idx, sample_item in enumerate(business_raw_items[:15]):
                             start_str = sample_item['start_date'].strftime('%Y-%m-%d') if sample_item['start_date'] else "시작일 없음"
-                            logger.info(f"        {sample_idx+1}. {sample_item['task_display']}: 시작={start_str}, 마감={sample_item['end_date'].strftime('%Y-%m-%d')}, 작업량={sample_item['workload']}")
+                            end_str = sample_item['end_date'].strftime('%Y-%m-%d') if sample_item['end_date'] else "마감일 없음"
+                            logger.info(f"        {sample_idx+1}. {sample_item['task_display']}: 시작={start_str}, 마감={end_str}, 작업량={sample_item['workload']}")
                     
                     # 업체별 스케줄 계산 (모든 작업 포함)
                     business_schedule = process_raw_items_to_schedule(business_raw_items, company, business_name)

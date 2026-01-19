@@ -208,6 +208,7 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 	# 보장건 데이터에서 해당 회사의 상호명 리스트 + 작업 시작일 매핑
 	guarantee_data_map = {}
 	company_business_names = None
+	company_business_names_normalized = {}  # 정규화된 이름 → 원본 이름 매핑
 	try:
 		from guarantee_manager import GuaranteeManager
 		gm = GuaranteeManager()
@@ -217,10 +218,14 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 			biz = item.get("business_name")
 			if biz:
 				guarantee_data_map[biz] = item
+				# 정규화된 이름 매핑 (대소문자, 공백 무시)
+				biz_normalized = biz.strip().lower().replace(" ", "")
+				company_business_names_normalized[biz_normalized] = biz
 		logger.info(f"📋 {company} 보장건: {len(company_business_names)}개 업체")
 	except Exception as e:
 		logger.warning(f"보장건 로드 실패: {e}")
 		company_business_names = None
+		company_business_names_normalized = {}
 	
 	client = _get_client()
 	ss = client.open_by_key(settings.spreadsheet_id)
@@ -275,10 +280,16 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 			product = str(_get_value_flexible(row_norm, settings.product_col, "PRODUCT_COLUMN") or "").strip()
 			product_name = str(_get_value_flexible(row_norm, settings.product_name_col, "PRODUCT_NAME_COLUMN") or "").strip()
 			
-			# 회사 필터 (상호명 기준)
+			# 회사 필터 (상호명 기준 - 정규화된 비교)
 			if company_business_names is not None:
-				if bizname not in company_business_names:
+				bizname_normalized = bizname.strip().lower().replace(" ", "")
+				if bizname not in company_business_names and bizname_normalized not in company_business_names_normalized:
 					continue
+				# 정규화 매칭된 경우 원본 이름으로 보장건 데이터 참조할 수 있도록
+				if bizname not in company_business_names and bizname_normalized in company_business_names_normalized:
+					original_bizname = company_business_names_normalized[bizname_normalized]
+					if original_bizname in guarantee_data_map:
+						guarantee_data_map[bizname] = guarantee_data_map[original_bizname]
 			
 			tab_stats[tab_title]["company_match"] += 1
 			
@@ -397,14 +408,25 @@ def process_raw_items_to_schedule(raw_items: List[Dict[str, Any]], company: str,
 	four_weeks_ago = today - timedelta(days=28)
 	logger.info(f"  📅 오늘: {today}, 4주 전: {four_weeks_ago}")
 	
-	# 시작일이 4주 이내이거나, 시작일이 없으면 마감일이 오늘 이후인 작업만 표시
+	# 진행 중인 작업 포함:
+	# 1. 시작일이 4주 이내인 작업
+	# 2. 시작일이 4주 전보다 오래됐지만 마감일이 오늘 이후인 작업 (진행 중)
+	# 3. 시작일이 없으면 마감일이 오늘 이후인 작업
 	filtered_items = [
-		item for item in raw_items 
-		if (item["start_date"] is not None and item["start_date"] >= four_weeks_ago) or
-		   (item["start_date"] is None and item["end_date"] is not None and item["end_date"] >= today)
+		item for item in raw_items
+		if (
+			# 시작일이 있는 경우
+			item["start_date"] is not None and (
+				item["start_date"] >= four_weeks_ago or  # 시작일이 4주 이내
+				(item["end_date"] is not None and item["end_date"] >= today)  # 또는 마감일이 아직 안 지남 (진행 중)
+			)
+		) or (
+			# 시작일이 없는 경우 - 마감일이 오늘 이후
+			item["start_date"] is None and item["end_date"] is not None and item["end_date"] >= today
+		)
 	]
-	
-	logger.info(f"  📊 필터 결과: {len(raw_items)}개 → {len(filtered_items)}개 (4주 필터 적용, 시작일 {four_weeks_ago.strftime('%m/%d')} 이후)")
+
+	logger.info(f"  📊 필터 결과: {len(raw_items)}개 → {len(filtered_items)}개 (진행중/4주 이내 필터 적용)")
 	
 	# 기간별 그룹핑 (같은 시작일-마감일을 가진 작업들을 묶음)
 	period_groups = {}
