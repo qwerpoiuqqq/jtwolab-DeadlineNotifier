@@ -340,7 +340,7 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 			if not start_date:
 				if len(all_items) < 10 and end_date:
 					logger.info(f"  ○ {bizname}/{product}: 시작일(없음), 마감일={end_date.strftime('%Y-%m-%d')} (remain={remain}일) - 그대로 포함")
-			
+
 			# 작업명 생성
 			is_review_tab = _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰")
 			is_new_ilryu_tab = "(신)일류" in tab_title or "신일류" in _collapse_spaces(tab_title)
@@ -353,13 +353,22 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 						item_col_value = str(val).strip()
 						break
 				task_display = item_col_value if item_col_value else _build_task_display(tab_title, product, product_name)
-			elif is_new_ilryu_tab and agency_raw:
+			elif is_new_ilryu_tab:
 				# (신)일류 탭: "(접수처) 상품명 상품" 형식으로 표시
 				# 예: (퀀텀) 일류V2 트래픽
-				task_display = f"({agency_raw}) {product_name} {product}".strip() if product_name else f"({agency_raw}) {product}".strip()
+				reception_value = None
+				for possible_col in ["접수처", "접수"]:
+					val = _get_value_flexible(row_norm, possible_col, "")
+					if val:
+						reception_value = str(val).strip()
+						break
+				if reception_value:
+					task_display = f"({reception_value}) {product_name} {product}".strip() if product_name else f"({reception_value}) {product}".strip()
+				else:
+					task_display = _build_task_display(tab_title, product, product_name)
 			else:
 				task_display = _build_task_display(tab_title, product, product_name)
-			
+
 			all_items.append({
 				"agency": agency_raw or "내부 진행",
 				"bizname": bizname,
@@ -553,9 +562,18 @@ def fetch_internal_items() -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
 			# (신)일류 탭 여부 확인
 			is_new_ilryu_tab = "(신)일류" in tab_title or "신일류" in _collapse_spaces(tab_title)
 
-			if is_new_ilryu_tab and agency_raw:
+			if is_new_ilryu_tab:
 				# (신)일류 탭: "(접수처) 상품명 상품" 형식으로 표시
-				display_task = f"({agency_raw}) {product_name} {product}".strip() if product_name else f"({agency_raw}) {product}".strip()
+				reception_value = None
+				for possible_col in ["접수처", "접수"]:
+					val = _get_value_flexible(row_norm, possible_col, "")
+					if val:
+						reception_value = str(val).strip()
+						break
+				if reception_value:
+					display_task = f"({reception_value}) {product_name} {product}".strip() if product_name else f"({reception_value}) {product}".strip()
+				else:
+					display_task = _build_task_display(tab_title, product, product_name)
 			else:
 				display_task = _build_task_display(tab_title, product, product_name)
 			label_agency = agency_raw or "내부 진행"
@@ -869,10 +887,19 @@ def fetch_workload_schedule_direct(company: str = None, business_name: str = Non
 						item_col_value = str(val).strip()
 						break
 				task_display = item_col_value if item_col_value else _build_task_display(tab_title, product, product_name)
-			elif is_new_ilryu_tab and agency_raw:
+			elif is_new_ilryu_tab:
 				# (신)일류 탭: "(접수처) 상품명 상품" 형식으로 표시
 				# 예: (퀀텀) 일류V2 트래픽
-				task_display = f"({agency_raw}) {product_name} {product}".strip() if product_name else f"({agency_raw}) {product}".strip()
+				reception_value = None
+				for possible_col in ["접수처", "접수"]:
+					val = _get_value_flexible(row_norm, possible_col, "")
+					if val:
+						reception_value = str(val).strip()
+						break
+				if reception_value:
+					task_display = f"({reception_value}) {product_name} {product}".strip() if product_name else f"({reception_value}) {product}".strip()
+				else:
+					task_display = _build_task_display(tab_title, product, product_name)
 			else:
 				task_display = _build_task_display(tab_title, product, product_name)
 			
