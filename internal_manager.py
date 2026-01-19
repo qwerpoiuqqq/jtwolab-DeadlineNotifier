@@ -343,6 +343,8 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 			
 			# 작업명 생성
 			is_review_tab = _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰")
+			is_new_ilryu_tab = "(신)일류" in tab_title or "신일류" in _collapse_spaces(tab_title)
+
 			if is_review_tab:
 				item_col_value = None
 				for possible_col in ["항목", "항목명"]:
@@ -351,6 +353,10 @@ def fetch_internal_items_for_company(company: str) -> List[Dict[str, Any]]:
 						item_col_value = str(val).strip()
 						break
 				task_display = item_col_value if item_col_value else _build_task_display(tab_title, product, product_name)
+			elif is_new_ilryu_tab and agency_raw:
+				# (신)일류 탭: "(접수처) 상품명 상품" 형식으로 표시
+				# 예: (퀀텀) 일류V2 트래픽
+				task_display = f"({agency_raw}) {product_name} {product}".strip() if product_name else f"({agency_raw}) {product}".strip()
 			else:
 				task_display = _build_task_display(tab_title, product, product_name)
 			
@@ -544,7 +550,14 @@ def fetch_internal_items() -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
 			if not bizname:
 				continue
 
-			display_task = _build_task_display(tab_title, product, product_name)
+			# (신)일류 탭 여부 확인
+			is_new_ilryu_tab = "(신)일류" in tab_title or "신일류" in _collapse_spaces(tab_title)
+
+			if is_new_ilryu_tab and agency_raw:
+				# (신)일류 탭: "(접수처) 상품명 상품" 형식으로 표시
+				display_task = f"({agency_raw}) {product_name} {product}".strip() if product_name else f"({agency_raw}) {product}".strip()
+			else:
+				display_task = _build_task_display(tab_title, product, product_name)
 			label_agency = agency_raw or "내부 진행"
 			try:
 				wl_num = _parse_int_maybe(workload) or 0
@@ -845,6 +858,8 @@ def fetch_workload_schedule_direct(company: str = None, business_name: str = Non
 			
 			# 작업명 생성 ('영수증리뷰' 탭은 항목 컬럼 사용)
 			is_review_tab = _collapse_spaces(tab_title) == _collapse_spaces("영수증리뷰")
+			is_new_ilryu_tab = "(신)일류" in tab_title or "신일류" in _collapse_spaces(tab_title)
+
 			if is_review_tab:
 				# 영수증리뷰 탭은 '항목' 컬럼 읽기
 				item_col_value = None
@@ -854,6 +869,10 @@ def fetch_workload_schedule_direct(company: str = None, business_name: str = Non
 						item_col_value = str(val).strip()
 						break
 				task_display = item_col_value if item_col_value else _build_task_display(tab_title, product, product_name)
+			elif is_new_ilryu_tab and agency_raw:
+				# (신)일류 탭: "(접수처) 상품명 상품" 형식으로 표시
+				# 예: (퀀텀) 일류V2 트래픽
+				task_display = f"({agency_raw}) {product_name} {product}".strip() if product_name else f"({agency_raw}) {product}".strip()
 			else:
 				task_display = _build_task_display(tab_title, product, product_name)
 			
